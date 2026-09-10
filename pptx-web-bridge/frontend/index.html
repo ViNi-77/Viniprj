@@ -69,6 +69,15 @@
       </div>
       <p class="muted">出力先: <code id="output-dir"></code></p>
     </section>
+
+    <section class="card">
+      <h2>4. Copilot 連携</h2>
+      <p class="muted">API は使いません。資料を Copilot に貼る形（Markdown / Word）にして渡し、回答を貼り付けて戻します。</p>
+      <div class="row wrap">
+        <button id="btn-copilot" data-action="copilot" title="用途を選んでプロンプトと資料の内容をコピーし、Copilot に貼る">Copilot に頼む</button>
+        <button id="btn-copilot-reply" class="secondary" data-action="copilot-reply" title="Copilot の回答（Markdown）を貼り付けて資料にする">回答を貼り付けて反映</button>
+      </div>
+    </section>
   </aside>
 
   <div class="splitter" data-splitter="left" title="ドラッグで幅を変更（ダブルクリックで戻す）"></div>
@@ -182,12 +191,67 @@
     </div>
   </div>
 </div>
+<!-- Copilot に頼む -->
+<div id="copilot-modal" class="modal" hidden role="dialog" aria-label="Copilot に頼む">
+  <div class="modal-box copilot-box">
+    <div class="modal-head">
+      <h2>Copilot に頼む</h2>
+      <span class="tpl-status" id="copilot-status"></span>
+      <button class="secondary small" data-copilot-act="close">閉じる</button>
+    </div>
+    <div class="modal-body copilot-body">
+      <aside class="tpl-side">
+        <div class="tabs">
+          <button class="tab active" data-copilot-tab="ask">1. 渡す</button>
+          <button class="tab" data-copilot-tab="reply">2. 回答を反映</button>
+        </div>
+        <div id="copilot-ask-side">
+          <label>用途 <select id="copilot-purpose"></select></label>
+          <p class="muted" id="copilot-purpose-desc"></p>
+          <div id="copilot-options" class="col"></div>
+          <div class="row wrap">
+            <button data-copilot-act="copy-all" title="指示と資料の内容をまとめてクリップボードへ">全部コピー</button>
+            <button class="secondary" data-copilot-act="copy-instruction">指示だけコピー</button>
+            <button class="secondary" data-copilot-act="copy-content">内容だけコピー</button>
+          </div>
+          <div class="row wrap">
+            <button class="secondary" data-copilot-act="download-docx" title="Copilot in PowerPoint の「ファイルから作成」に使う Word 文書">Word 文書を保存</button>
+            <button class="secondary" data-copilot-act="download-zip" title="prompt.txt / outline.md / outline.docx / 画像 の一式">一式を ZIP で保存</button>
+            <button class="secondary" data-copilot-act="open-chat">Copilot を開く</button>
+          </div>
+          <p class="muted" id="copilot-attach-hint"></p>
+          <p class="muted">手順: 「全部コピー」→ Copilot チャットに貼る → 回答をコピー → 「2. 回答を反映」タブに貼る。PowerPoint で作らせるときは Word 文書を「ファイルから作成」に使い、ブランドキットを適用する。</p>
+        </div>
+        <div id="copilot-reply-side" hidden>
+          <label>反映の仕方
+            <select id="copilot-apply">
+              <option value="new">新しい資料として取り込む（構成・要約・翻訳・図解風）</option>
+              <option value="notes">今の資料の発表者ノートに入れる</option>
+            </select>
+          </label>
+          <p class="muted">Markdown（# 題名 / ## 1. スライド題名 / - 箇条書き / 型: カード / ノート: …）か、簡易 JSON を貼り付けます。Copilot が作った PowerPoint は左の「ファイル投入」からそのまま取り込めます。</p>
+          <div class="row wrap"><button data-copilot-act="apply">反映する</button><button class="secondary" data-copilot-act="clear-reply">消す</button></div>
+        </div>
+      </aside>
+      <section class="tpl-main">
+        <div id="copilot-ask-main" class="col grow">
+          <label class="grow">指示（編集できます）<textarea id="copilot-instruction" spellcheck="false"></textarea></label>
+          <label class="grow">資料の内容（Copilot に渡す本文。<span id="copilot-chars"></span>）<textarea id="copilot-content" spellcheck="false" readonly></textarea></label>
+        </div>
+        <div id="copilot-reply-main" class="col grow" hidden>
+          <label class="grow">Copilot の回答を貼り付け<textarea id="copilot-reply" spellcheck="false" placeholder="# 資料題名&#10;&#10;## 1. スライド題名&#10;- 箇条書き&#10;ノート: 発表者向けの補足"></textarea></label>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
 <script src="/static/history.js"></script>
 <script src="/static/splitter.js"></script>
 <script src="/static/canvas.js"></script>
 <script src="/static/inspector.js"></script>
 <script src="/static/slidelist.js"></script>
 <script src="/static/template_editor.js"></script>
+<script src="/static/copilot.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

@@ -1,0 +1,51 @@
+{
+  "_comment": "「Copilot に頼む」の用途プリセット。プロンプトの文面はここで編集する（コードに固定しない）。{title} {count} {brand} {slides} {language} が置き換わる。content_format は Copilot へ渡す本文の形式（markdown / json）。",
+  "chat_url": "https://m365.cloud.microsoft/chat",
+  "purposes": [
+    {
+      "id": "brand_deck",
+      "name": "ブランドスライドにする（Web ページ・HTML 図解 → PowerPoint）",
+      "description": "取り込んだ Web ページや HTML 図解の構成をそのまま渡し、Copilot in PowerPoint のブランドキットで自社様式のスライドを作らせる。",
+      "content_format": "markdown",
+      "attach_hint": "Copilot in PowerPoint の「ファイルから作成」には同梱の Word 文書（outline.docx）を使うと構成が保たれます。",
+      "prompt": "次の Markdown は「{title}」の資料構成です（全 {slides} 枚）。見出し 1 つを 1 枚のスライドにして、PowerPoint のブランドキットを適用した資料を作ってください。\n- 見出しと箇条書きの文言は変えないでください（要約・言い換えはしない）\n- 「ノート:」の行は発表者ノートに入れてください\n- 「画像:」の行はその位置に画像の枠を置いてください（画像は後で差し替えます）\n- 表はそのまま表にしてください\n{brand}\n\n---\n"
+    },
+    {
+      "id": "infographic",
+      "name": "図解風に仕上げる（ラフなスライド → HTML 図解風）",
+      "description": "さらっと作った箇条書き資料を読み込ませ、各スライドを図解（フロー・カード・比較・数値強調）に組み替える構成案を Copilot に作らせる。回答を貼り付けると資料に反映される。",
+      "content_format": "markdown",
+      "prompt": "次の Markdown は「{title}」のラフなスライド資料です（全 {slides} 枚）。各スライドを Web の図解のように分かりやすく組み替えてください。\n- 1 枚ごとに、最も伝わる型を 1 つ選ぶ: フロー（手順）/ カード 3 分割（要点）/ 比較（Before / After）/ 数値強調 / 画像 + 説明\n- 文言は短く（1 行 25 字以内、1 枚 5 項目以内）。数字と固有名詞は変えない\n- 出力は必ず次の Markdown 形式にしてください。他の説明文は不要です\n  # 資料題名\n  ## 1. スライド題名\n  型: カード\n  - 見出し: 説明\n  ノート: 発表者向けの補足\n{brand}\n\n---\n"
+    },
+    {
+      "id": "summarize",
+      "name": "枚数を指定して要約する",
+      "description": "長い資料や Web ページを指定枚数に要約した構成にする。回答を貼り付けると新しい資料になる。",
+      "content_format": "markdown",
+      "options": {"count": 8},
+      "prompt": "次の Markdown は「{title}」の内容です。これを {count} 枚のスライド構成に要約してください。\n- 出力は必ず次の Markdown 形式にしてください。他の説明文は不要です\n  # 資料題名\n  ## 1. スライド題名\n  - 箇条書き（1 行 30 字以内、1 枚 4 項目以内）\n  ノート: 発表者向けの補足（2〜3 文）\n- 数字と固有名詞は変えないでください\n{brand}\n\n---\n"
+    },
+    {
+      "id": "notes",
+      "name": "発表者ノートを作る",
+      "description": "各スライドの発表者ノート（話す内容）を作らせる。回答を貼り付けると各スライドのノートに入る。",
+      "content_format": "markdown",
+      "prompt": "次の Markdown は「{title}」のスライド資料です（全 {slides} 枚）。各スライドの発表者ノート（実際に話す文章、1 枚 3〜5 文）を書いてください。\n- 出力は必ず次の形式にしてください。スライドの番号と題名は変えないでください\n  ## 1. スライド題名\n  ノート: ここに話す内容\n\n---\n"
+    },
+    {
+      "id": "translate",
+      "name": "別の言語にする",
+      "description": "資料全体を指定した言語に翻訳する。回答を貼り付けると翻訳版の資料になる。",
+      "content_format": "markdown",
+      "options": {"language": "英語"},
+      "prompt": "次の Markdown は「{title}」のスライド資料です。全体を{language}に翻訳してください。\n- Markdown の構造（#, ##, -, 表, ノート:）はそのまま保ってください\n- 固有名詞・数字・URL は変えないでください\n\n---\n"
+    },
+    {
+      "id": "json",
+      "name": "アプリ用 JSON で作らせる（上級）",
+      "description": "Copilot に簡易 JSON（題名・箇条書き・ノート）を出させ、貼り付けて取り込む。エージェントに覚えさせる形式。",
+      "content_format": "json",
+      "prompt": "次の JSON は「{title}」の資料構成です。同じ形式の JSON で、内容を分かりやすく整えたものを返してください（キーは title / slides / n / layout / bullets / text / level / notes のみ。コードブロックで囲んでください）。\n\n---\n"
+    }
+  ]
+}

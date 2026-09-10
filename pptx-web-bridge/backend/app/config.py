@@ -54,6 +54,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "schema_file": "schema/presentation.schema.json",
         "user_templates_file": "config/user_templates.json",
         "user_template_assets_dir": "config/template_assets/user",
+        "copilot_prompts_file": "config/copilot_prompts.json",
     },
     "limits": {"max_upload_mb": 50, "max_slides": 300, "max_elements_per_slide": 200},
     "canvas": {"default_width_pt": 960, "default_height_pt": 540, "aspect": "16:9"},
@@ -83,6 +84,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "web_export": {"bundle_dir_name": "web", "viewer_title_suffix": " | Web図解", "flow_breakpoint_px": 720},
     "quality": {"text_overflow_ratio_warn": 1.0, "overlap_area_ratio_warn": 0.15, "image_aspect_tolerance": 0.03},
     "logging": {"level": "INFO", "file_name": "app.log", "max_bytes": 2000000, "backup_count": 3},
+    "copilot": {"chat_url": "https://m365.cloud.microsoft/chat", "max_chars": 60000, "image_note": True},
 }
 
 
@@ -185,6 +187,14 @@ class AppConfig:
             if t.get("id") == template_id:
                 return t
         return templates[0]
+
+    def copilot_prompts(self) -> dict:
+        """「Copilot に頼む」の用途プリセット（config/copilot_prompts.json）。無ければ最小の 1 件。"""
+        data = _read_json(self.path("copilot_prompts_file"))
+        if not data.get("purposes"):
+            data = {"chat_url": self.get("copilot.chat_url"), "purposes": [{"id": "summarize", "name": "要約する", "description": "", "content_format": "markdown", "options": {"count": 8}, "prompt": "次の資料を {count} 枚に要約してください。\n\n---\n"}]}
+        data.setdefault("chat_url", self.get("copilot.chat_url"))
+        return data
 
     def font_fallback(self) -> dict:
         data = _read_json(self.path("font_fallback_file"))

@@ -393,7 +393,7 @@ window.PWB = window.PWB || {};
 
   PWB.core = {
     state: state, api: api, apiJson: apiJson, currentBody: currentBody, log: log, setStatus: setStatus, escapeHtml: escapeHtml,
-    setTemplates: setTemplates, templateInfo: templateInfo, scheduleRender: scheduleRender,
+    setTemplates: setTemplates, templateInfo: templateInfo, scheduleRender: scheduleRender, applyImport: applyImport, snapshot: snapshot,
     changed: changed, deleteElements: deleteElements, duplicateElements: duplicateElements, reorderZ: reorderZ, alignSelection: alignSelection, fitHeight: fitHeight, addElement: addElement, moveSlide: moveSlide,
     onSelectionChanged: function () { PWB.inspector.render(); },
     focusInspector: function (id) { PWB.canvas.setSelection([id]); activateTab("inspector"); PWB.inspector.focusText(); },
@@ -474,6 +474,8 @@ window.PWB = window.PWB || {};
         .catch(function (e) { setStatus("プレビュー失敗: " + e.message, true); });
     },
     "template-from-pptx": function () { PWB.templateEditor.open(); },
+    "copilot": function () { if (!state.presentation) { setStatus("先にファイルを投入してください。", true); return; } PWB.copilot.open("ask"); },
+    "copilot-reply": function () { PWB.copilot.open("reply"); },
     "template-delete": function () {
       var id = $("template-select").value;
       var t = templateInfo(id);
@@ -600,6 +602,7 @@ window.PWB = window.PWB || {};
     PWB.inspector.init($("inspector"));
     PWB.slidelist.init($("slide-list"));
     PWB.templateEditor.init($("tpl-modal"));
+    PWB.copilot.init($("copilot-modal"));
     apiJson("/api/config").then(function (c) {
       state.config = c;
       setTemplates(c.templates, null);
