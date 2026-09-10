@@ -1,0 +1,19 @@
+{
+    "name": "notebooklm",
+    "display_name": "NotebookLM",
+    "basename": "NotebookLMSource",
+    "file_extension": ".md",
+    "max_body_files": 49,
+    "target_chars_per_file": 200000,
+    "include_index": true,
+    "upload_limit_note": "1 index + up to 49 sources = 50 sources (NotebookLM free-tier limit)",
+    "retrieval_notes": [
+        "- This file is generated as a NotebookLM source.",
+        "- Each Source section carries FileName / SourcePath / Chunk metadata.",
+        "- Cite SourcePath and FileName when the answer depends on a specific document."
+    ],
+    "how_to_use": [
+        "- Add the INDEX file and body files as sources of a notebook.",
+        "- Regenerate and replace sources when the folder contents change."
+    ]
+}

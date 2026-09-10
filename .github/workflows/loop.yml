@@ -1,0 +1,42 @@
+# ループエンジニアリング用 CI: push / PR ごとに pptx-web-bridge/scripts/loop.py と同じ検査を回す。
+# Playwright（見た目優先・プレビュー PDF）が無くても編集性優先の経路は検査される。
+name: loop-check
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # run: は pptx-web-bridge/ を基準に実行される。actions の with: に書くパスはリポジトリルート基準のまま。
+    defaults:
+      run:
+        working-directory: pptx-web-bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pptx-web-bridge/requirements.txt
+      - name: 依存導入
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium || echo "Playwright 導入失敗: 画像化なしで続行"
+      - name: 日本語フォント（描画検査用）
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-ipafont-gothic >/dev/null || true
+      - name: ループ検査（全工程）
+        run: python scripts/loop.py --no-log
+      - name: 成果物を保存
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loop-outputs
+          path: |
+            pptx-web-bridge/docs/試験結果.md
+            pptx-web-bridge/output/e2e/**/*.pptx
+            pptx-web-bridge/output/e2e/*.pptx
+            pptx-web-bridge/mock-pptx/output/*
+          if-no-files-found: ignore

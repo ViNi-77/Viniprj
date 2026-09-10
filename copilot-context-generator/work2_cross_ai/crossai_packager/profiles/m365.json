@@ -1,0 +1,19 @@
+{
+    "name": "m365",
+    "display_name": "Microsoft 365 Copilot エージェント",
+    "basename": "M365AgentContext",
+    "file_extension": ".txt",
+    "max_body_files": 19,
+    "target_chars_per_file": 30000,
+    "include_index": true,
+    "upload_limit_note": "1 index file + up to 19 body files = 20 files",
+    "retrieval_notes": [
+        "- This file is generated for Microsoft 365 Copilot agent knowledge.",
+        "- Use SourcePath, FileName, Page, Sheet, Row, Slide, and Chunk fields when answering.",
+        "- Prefer precise source references when the answer depends on a specific file."
+    ],
+    "how_to_use": [
+        "- Add the INDEX file and all body files to the Copilot agent knowledge sources.",
+        "- Keep the fixed file names unchanged so the agent can reference the same files after regeneration."
+    ]
+}

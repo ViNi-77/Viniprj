@@ -1,0 +1,16 @@
+/* サンプル図解の共通スタイル（架空ブランド） */
+body { font-family: "Meiryo", "Hiragino Sans", sans-serif; color: #1a1a1a; margin: 0; background: #f7f9fc; }
+main { max-width: 960px; margin: 0 auto; padding: 24px; }
+h1 { color: #0b3d91; }
+h2 { color: #0b3d91; border-left: 6px solid #f2a900; padding-left: 10px; }
+.lead { font-size: 1.1em; color: #5c6b7a; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.card { background: #fff; border: 1px solid #b9c7d8; border-radius: 8px; padding: 14px; }
+.card h3 { margin-top: 0; color: #2a6ebb; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #b9c7d8; padding: 6px 8px; text-align: left; }
+th { background: #eef3fa; }
+section.slide { background: #fff; border: 1px solid #ddd; margin: 16px 0; padding: 20px; aspect-ratio: 16 / 9; }
+figure { margin: 0; }
+figcaption { font-size: 0.85em; color: #5c6b7a; }

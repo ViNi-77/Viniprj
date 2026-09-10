@@ -1,0 +1,19 @@
+{
+    "name": "claude-projects",
+    "display_name": "Claude Projects (claude.ai)",
+    "basename": "ClaudeProjectContext",
+    "file_extension": ".md",
+    "max_body_files": 90,
+    "target_chars_per_file": 120000,
+    "include_index": true,
+    "upload_limit_note": "Claude Projects knowledge: keep total within the project capacity; files beyond the context window are retrieved on demand",
+    "retrieval_notes": [
+        "- This file is generated as knowledge for a Claude Project.",
+        "- Each Source section carries FileName / SourcePath / Chunk metadata.",
+        "- Cite SourcePath and FileName when the answer depends on a specific document."
+    ],
+    "how_to_use": [
+        "- Upload the INDEX file and body files to the Claude Project's knowledge.",
+        "- Re-upload only changed files after regeneration (names are stable)."
+    ]
+}

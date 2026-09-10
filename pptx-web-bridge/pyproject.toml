@@ -1,0 +1,10 @@
+[project]
+name = "pptx-web-bridge"
+version = "0.1.0"
+description = "PowerPoint と Web図解を Presentation JSON で双方向変換するローカルWebアプリ"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "mock-pptx/tests"]
+pythonpath = ["backend"]
+addopts = "-q"

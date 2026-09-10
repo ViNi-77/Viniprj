@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/presentation.schema.json",
+  "title": "Presentation JSON v1.0",
+  "description": "PPTX と Web図解の共通中間形式。座標は pt（1pt = 1/72 inch）、原点はスライド左上。",
+  "type": "object",
+  "required": ["schema_version", "meta", "canvas", "theme", "slides"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "title": {"type": "string"},
+        "author": {"type": "string"},
+        "created_at": {"type": "string"},
+        "generator": {"type": "string"},
+        "source": {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "enum": ["pptx", "html", "manual", "json"]},
+            "filename": {"type": "string"}
+          }
+        }
+      }
+    },
+    "canvas": {
+      "type": "object",
+      "required": ["width_pt", "height_pt"],
+      "properties": {
+        "width_pt": {"type": "number", "exclusiveMinimum": 0},
+        "height_pt": {"type": "number", "exclusiveMinimum": 0},
+        "aspect": {"type": "string"}
+      }
+    },
+    "theme": {
+      "type": "object",
+      "properties": {
+        "template_id": {"type": "string"},
+        "fonts": {
+          "type": "object",
+          "properties": {
+            "heading": {"type": "string"},
+            "body": {"type": "string"}
+          }
+        },
+        "colors": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"}
+        }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/asset"}
+    },
+    "slides": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/slide"}
+    },
+    "warnings": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/warning"}
+    }
+  },
+  "$defs": {
+    "asset": {
+      "type": "object",
+      "required": ["mime", "data_base64"],
+      "properties": {
+        "mime": {"type": "string"},
+        "filename": {"type": "string"},
+        "data_base64": {"type": "string"},
+        "width_px": {"type": ["integer", "null"]},
+        "height_px": {"type": ["integer", "null"]}
+      }
+    },
+    "warning": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "stage": {"type": "string"},
+        "slide_id": {"type": ["string", "null"]},
+        "element_id": {"type": ["string", "null"]},
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "fallback": {"type": ["string", "null"]}
+      }
+    },
+    "bbox": {
+      "type": "object",
+      "required": ["x", "y", "w", "h"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"},
+        "w": {"type": "number", "minimum": 0},
+        "h": {"type": "number", "minimum": 0}
+      }
+    },
+    "run": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": {"type": "string"},
+        "bold": {"type": "boolean"},
+        "italic": {"type": "boolean"},
+        "underline": {"type": "boolean"},
+        "size_pt": {"type": ["number", "null"]},
+        "color": {"type": ["string", "null"]},
+        "font": {"type": ["string", "null"]},
+        "href": {"type": ["string", "null"]},
+        "inherited": {"type": "array", "items": {"type": "string", "enum": ["size_pt", "color", "font", "bold"]}, "description": "run に明示が無く、マスター等の継承で補った属性名。テンプレート適用時はこれらを上書きしてよい。"}
+      }
+    },
+    "paragraph": {
+      "type": "object",
+      "required": ["runs"],
+      "properties": {
+        "runs": {"type": "array", "items": {"$ref": "#/$defs/run"}},
+        "level": {"type": "integer", "minimum": 0, "maximum": 8},
+        "bullet": {"type": ["string", "null"], "enum": ["bullet", "number", null]},
+        "align": {"type": ["string", "null"], "enum": ["left", "center", "right", "justify", null]},
+        "space_after_pt": {"type": ["number", "null"]}
+      }
+    },
+    "slide": {
+      "type": "object",
+      "required": ["id", "elements"],
+      "properties": {
+        "id": {"type": "string"},
+        "index": {"type": "integer", "minimum": 0},
+        "layout": {"type": "string", "enum": ["title", "section", "title_body", "two_column", "three_column", "image", "table", "blank", "closing"]},
+        "title": {"type": ["string", "null"]},
+        "notes": {"type": ["string", "null"]},
+        "background": {"type": ["object", "null"], "properties": {"color": {"type": "string"}, "asset_id": {"type": "string"}}},
+        "elements": {"type": "array", "items": {"$ref": "#/$defs/element"}},
+        "warnings": {"type": "array", "items": {"$ref": "#/$defs/warning"}}
+      }
+    },
+    "element": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": {"type": "string"},
+        "type": {"type": "string", "enum": ["text", "image", "shape", "line", "table", "unsupported"]},
+        "role": {"type": ["string", "null"], "enum": ["title", "subtitle", "body", "caption", "card", "footer", "header", null]},
+        "bbox": {"anyOf": [{"$ref": "#/$defs/bbox"}, {"type": "null"}]},
+        "z": {"type": "integer"},
+        "layout_hint": {
+          "type": ["object", "null"],
+          "properties": {
+            "column": {"type": "integer", "minimum": 0},
+            "columns": {"type": "integer", "minimum": 1}
+          }
+        },
+        "paragraphs": {"type": "array", "items": {"$ref": "#/$defs/paragraph"}},
+        "asset_id": {"type": ["string", "null"]},
+        "alt": {"type": ["string", "null"]},
+        "fit": {"type": ["string", "null"], "enum": ["contain", "cover", "stretch", null]},
+        "shape": {"type": ["string", "null"], "enum": ["rect", "rounded_rect", "ellipse", "triangle", "diamond", "arrow_right", "parallelogram", null]},
+        "fill": {"type": ["string", "null"]},
+        "stroke": {"type": ["string", "null"]},
+        "stroke_width_pt": {"type": ["number", "null"]},
+        "points": {"type": ["array", "null"], "items": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}},
+        "rows": {"type": "array", "items": {"type": "array", "items": {"$ref": "#/$defs/cell"}}},
+        "col_widths_pt": {"type": ["array", "null"], "items": {"type": "number"}},
+        "header_rows": {"type": "integer", "minimum": 0},
+        "original_type": {"type": ["string", "null"]},
+        "editable": {"type": "boolean"},
+        "vertical_align": {"type": ["string", "null"], "enum": ["top", "middle", "bottom", null]}
+      }
+    },
+    "cell": {
+      "type": "object",
+      "properties": {
+        "text": {"type": "string"},
+        "paragraphs": {"type": "array", "items": {"$ref": "#/$defs/paragraph"}},
+        "bold": {"type": "boolean"},
+        "fill": {"type": ["string", "null"]},
+        "colspan": {"type": "integer", "minimum": 1},
+        "rowspan": {"type": "integer", "minimum": 1},
+        "align": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

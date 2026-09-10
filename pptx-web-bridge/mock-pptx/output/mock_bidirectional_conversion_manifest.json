@@ -1,0 +1,160 @@
+{
+  "schemaVersion": "1.0",
+  "documentId": "mock-bidirectional-conversion",
+  "title": "PowerPoint・Web図解 双方向変換デモ",
+  "classification": "Sample Only",
+  "aspectRatio": "16:9",
+  "theme": "Generic Corporate Blue",
+  "slideCount": 12,
+  "generator": "python-pptx + Pillow (mock-pptx/src/generate_mock_pptx.py)",
+  "slides": [
+    {
+      "index": 1,
+      "id": "slide-01",
+      "type": "cover",
+      "title": "PowerPoint・Web図解 双方向変換デモ",
+      "requiredElementTypes": [
+        "text",
+        "shape",
+        "footer",
+        "pageNumber"
+      ]
+    },
+    {
+      "index": 2,
+      "id": "slide-02",
+      "type": "two_column_cards",
+      "title": "目的と対象",
+      "requiredElementTypes": [
+        "text",
+        "shape",
+        "bullets",
+        "footer",
+        "pageNumber"
+      ]
+    },
+    {
+      "index": 3,
+      "id": "slide-03",
+      "type": "three_column_cards",
+      "title": "現状課題",
+      "requiredElementTypes": [
+        "text",
+        "shape",
+        "footer",
+        "pageNumber"
+      ]
+    },
+    {
+      "index": 4,
+      "id": "slide-04",
+      "type": "process_flow",
+      "title": "変換フロー",
+      "requiredElementTypes": [
+        "text",
+        "shape",
+        "connector",
+        "footer",
+        "pageNumber"
+      ]
+    },
+    {
+      "index": 5,
+      "id": "slide-05",
+      "type": "before_after",
+      "title": "Before / After",
+      "requiredElementTypes": [
+        "text",
+        "shape",
+        "bullets",
+        "footer",
+        "pageNumber"
+      ]
+    },
+    {
+      "index": 6,
+      "id": "slide-06",
+      "type": "kpi_cards",
+      "title": "数値カード",
+      "requiredElementTypes": [
+        "text",
+        "shape",
+        "footer",
+        "pageNumber"
+      ]
+    },
+    {
+      "index": 7,
+      "id": "slide-07",
+      "type": "table",
+      "title": "要素別の変換方式",
+      "requiredElementTypes": [
+        "text",
+        "table",
+        "footer",
+        "pageNumber"
+      ]
+    },
+    {
+      "index": 8,
+      "id": "slide-08",
+      "type": "images",
+      "title": "画像配置",
+      "requiredElementTypes": [
+        "text",
+        "image",
+        "footer",
+        "pageNumber"
+      ]
+    },
+    {
+      "index": 9,
+      "id": "slide-09",
+      "type": "composite",
+      "title": "複合レイアウト",
+      "requiredElementTypes": [
+        "text",
+        "shape",
+        "connector",
+        "footer",
+        "pageNumber"
+      ]
+    },
+    {
+      "index": 10,
+      "id": "slide-10",
+      "type": "long_text",
+      "title": "長文・オーバーフロー試験",
+      "requiredElementTypes": [
+        "text",
+        "shape",
+        "footer",
+        "pageNumber"
+      ]
+    },
+    {
+      "index": 11,
+      "id": "slide-11",
+      "type": "scope",
+      "title": "対象外要素の説明",
+      "requiredElementTypes": [
+        "text",
+        "shape",
+        "footer",
+        "pageNumber"
+      ]
+    },
+    {
+      "index": 12,
+      "id": "slide-12",
+      "type": "summary",
+      "title": "まとめ",
+      "requiredElementTypes": [
+        "text",
+        "shape",
+        "footer",
+        "pageNumber"
+      ]
+    }
+  ]
+}

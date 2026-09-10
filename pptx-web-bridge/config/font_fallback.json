@@ -1,0 +1,19 @@
+{
+  "_comment": "フォント代替表。左の名称がPPTX/HTMLで見つかった場合、右の候補順に置き換える。環境差の吸収に使う。",
+  "default_heading": "Meiryo",
+  "default_body": "Meiryo",
+  "web_font_stack": "\"Meiryo\", \"Hiragino Sans\", \"Hiragino Kaku Gothic ProN\", \"Yu Gothic\", \"Noto Sans JP\", \"IPAPGothic\", sans-serif",
+  "aliases": {
+    "游ゴシック": ["Yu Gothic", "Hiragino Sans", "Meiryo"],
+    "Yu Gothic": ["Yu Gothic", "Hiragino Sans", "Meiryo"],
+    "メイリオ": ["Meiryo", "Hiragino Sans", "Yu Gothic"],
+    "MS Pゴシック": ["Hiragino Sans", "Meiryo", "Yu Gothic"],
+    "MS ゴシック": ["Hiragino Sans", "Meiryo", "Yu Gothic"],
+    "ＭＳ Ｐゴシック": ["Hiragino Sans", "Meiryo", "Yu Gothic"],
+    "Hiragino Sans": ["Hiragino Sans", "Meiryo", "Yu Gothic"],
+    "Noto Sans JP": ["Noto Sans JP", "Hiragino Sans", "Meiryo"],
+    "Calibri": ["Calibri", "Arial", "Helvetica"],
+    "Arial": ["Arial", "Helvetica"],
+    "Segoe UI": ["Segoe UI", "Helvetica", "Arial"]
+  }
+}

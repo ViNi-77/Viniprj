@@ -1,0 +1,31 @@
+[project]
+name = "contextgen"
+version = "3.0.0"
+description = "Copilot M365用コンテキスト生成ツール（改善版）: フォルダを走査しAI向けコンテキストパッケージを生成"
+requires-python = ">=3.12"
+dependencies = [
+    "python-docx>=1.1",
+    "pypdf>=4.0",
+    "openpyxl>=3.1",
+    "python-pptx>=0.6",
+    "charset-normalizer>=3.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+# v2.1 F7: OCR（needs_ocr の PDF を本文化）
+ocr-windows = ["pypdfium2>=4.0", "winsdk>=1.0.0b10"]
+ocr-macos = ["pypdfium2>=4.0", "pyobjc-framework-Vision>=10.0", "pyobjc-framework-Quartz>=10.0"]
+
+[project.scripts]
+contextgen = "contextgen.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["contextgen*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

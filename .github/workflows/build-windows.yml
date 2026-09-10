@@ -1,0 +1,94 @@
+# Windows 用 exe（onedir）を GitHub Actions の Windows ランナーでビルドし、ZIP を成果物として保存する。
+# 実行方法: Actions → build-windows → Run workflow（任意のブランチ）。タグ v* を push すると Release にも添付する。
+name: build-windows
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+    branches: ["**"]
+    paths:
+      - "pptx-web-bridge/backend/**"
+      - "pptx-web-bridge/frontend/**"
+      - "pptx-web-bridge/config/**"
+      - "pptx-web-bridge/schema/**"
+      - "pptx-web-bridge/packaging/**"
+      - "pptx-web-bridge/requirements.txt"
+      - ".github/workflows/build-windows.yml"
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    # run: は pptx-web-bridge/ を基準に実行される。actions の with: に書くパスはリポジトリルート基準のまま。
+    defaults:
+      run:
+        working-directory: pptx-web-bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pptx-web-bridge/requirements.txt
+      - name: 依存導入
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: exe ビルド
+        run: python packaging/build_exe.py
+      - name: 起動スモークテスト（exe を起動して /api/health を確認）
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist\pptx-web-bridge\pptx-web-bridge.exe" -ArgumentList "--no-browser" -PassThru -NoNewWindow
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            Start-Sleep -Seconds 1
+            try { $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/api/health; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {}
+          }
+          if ($ok) {
+            $cfg = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/api/config
+            Write-Host $cfg.Content
+            # サンプル PPTX を取込→PPTX 出力まで通す
+            $f = Get-Item "dist\pptx-web-bridge\samples\sample_deck.pptx"
+            $resp = curl.exe -s -F "file=@$($f.FullName)" http://127.0.0.1:8765/api/import/pptx
+            if (-not $resp.Contains('"slides"')) { Write-Error "取込に失敗: $resp" }
+          }
+          Stop-Process -Id $p.Id -Force
+          if (-not $ok) { Get-Content dist\pptx-web-bridge\logs\app.log -ErrorAction SilentlyContinue; Write-Error "exe が起動しませんでした" }
+      - name: 成果物を保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: pptx-web-bridge-windows
+          path: pptx-web-bridge/dist/pptx-web-bridge-windows.zip
+          if-no-files-found: error
+      - name: 配布ブランチ dist/windows へ ZIP を置く（常に最新 1 件だけを保持）
+        shell: pwsh
+        env:
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          $zip = Resolve-Path "dist\pptx-web-bridge-windows.zip"
+          $tmp = Join-Path $env:RUNNER_TEMP "distbranch"
+          New-Item -ItemType Directory -Force $tmp | Out-Null
+          Copy-Item $zip $tmp
+          Set-Content -Path (Join-Path $tmp "BUILD_INFO.txt") -Value @("branch: $env:BRANCH", "commit: $env:SHA", "run: ${{ github.run_number }}", "built_at_utc: $((Get-Date).ToUniversalTime().ToString('s'))Z") -Encoding utf8
+          Set-Content -Path (Join-Path $tmp "README.md") -Value "# dist/windows`n`nGitHub Actions build-windows が作った Windows 用 exe の ZIP。常に最新 1 件のみ（履歴は残さない）。`n`n入手: この ZIP を C:\pptx-web-bridge のような短いパスに展開し pptx-web-bridge.exe を実行（Python 不要）。起動に失敗する場合は logs/startup_error.log を確認。" -Encoding utf8
+          Push-Location $tmp
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q -b dist/windows
+          git add -A
+          git commit -q -m "Windows build r${{ github.run_number }} from $env:BRANCH@$($env:SHA.Substring(0,7))"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" dist/windows
+          Pop-Location
+      - name: Release に添付（タグ push 時のみ）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: pptx-web-bridge/dist/pptx-web-bridge-windows.zip

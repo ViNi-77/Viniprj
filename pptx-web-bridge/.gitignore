@@ -1,0 +1,10 @@
+# 実行時生成物（成果物は output/ と logs/ に出るが、リポジトリには含めない）
+logs/*
+!logs/.gitkeep
+output/*
+!output/.gitkeep
+projects/*
+!projects/.gitkeep
+!projects/README.md
+# 試験用一時ファイル
+tests/_tmp/

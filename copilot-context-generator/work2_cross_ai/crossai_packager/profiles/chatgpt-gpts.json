@@ -1,0 +1,19 @@
+{
+    "name": "chatgpt-gpts",
+    "display_name": "ChatGPT カスタムGPT / Projects",
+    "basename": "GPTKnowledge",
+    "file_extension": ".txt",
+    "max_body_files": 19,
+    "target_chars_per_file": 100000,
+    "include_index": true,
+    "upload_limit_note": "1 index file + up to 19 body files = 20 files (GPT knowledge upload limit)",
+    "retrieval_notes": [
+        "- This file is generated as knowledge for a custom GPT.",
+        "- Each Source section carries FileName / SourcePath / Chunk metadata.",
+        "- Cite SourcePath and FileName when the answer depends on a specific document."
+    ],
+    "how_to_use": [
+        "- Upload the INDEX file and all body files to the GPT's Knowledge (max 20 files).",
+        "- Keep the fixed file names unchanged so re-uploads replace the same files."
+    ]
+}

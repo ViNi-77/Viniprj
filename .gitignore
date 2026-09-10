@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+.DS_Store
+# ビルド生成物
+build/
+dist/
+# ツール固有の除外（実行時生成物など）は各ツールのフォルダの .gitignore に置く

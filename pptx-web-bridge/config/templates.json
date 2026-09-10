@@ -1,0 +1,66 @@
+{
+  "_comment": "利用可能テンプレート一覧。色・フォント・表紙/中身/最終ページの部品位置はすべてここで定義し、コードへ固定しない。座標は pt（キャンバス 960×540 基準、比率が違う場合は相対的に拡縮）。画像パスはリポジトリ直下からの相対パス。",
+  "templates": [
+    {
+      "id": "plain",
+      "name": "プレーン（既定）",
+      "description": "白背景・濃灰文字。ブランド規則が未確定の場合の安全な既定値。",
+      "fonts": {"heading": "Meiryo", "body": "Meiryo"},
+      "colors": {
+        "primary": "#1F3A5F", "secondary": "#4F6D8F", "accent": "#E07A1F", "background": "#FFFFFF",
+        "surface": "#F4F6F9", "text": "#222222", "muted": "#666666", "line": "#C9D1DB"
+      },
+      "footer": {"enabled": true, "text": "{title}", "show_page_number": true},
+      "confidential_mark": {"enabled": false, "text": "社外秘", "position": "top-right"}
+    },
+    {
+      "id": "corporate_standard",
+      "name": "コーポレート標準スタイル",
+      "description": "参考テンプレート画像（表紙・中身・最終ページ）を基に定義。A色 #001A72、メイリオ。ロゴ・背景は暫定素材のため config/template_assets/ を正式素材へ差し替えること。",
+      "fonts": {"heading": "Meiryo", "body": "Meiryo"},
+      "colors": {
+        "primary": "#001A72", "primary_75": "#405395", "primary_50": "#808CB8", "primary_25": "#BFC6DC", "primary_12": "#DEE1ED",
+        "secondary": "#405395", "accent": "#4BC3FF", "accent_red": "#E60A3C",
+        "background": "#FFFFFF", "surface": "#DEE1ED", "text": "#333333", "muted": "#666666", "line": "#BFC6DC",
+        "gray_75": "#666666", "gray_50": "#999999", "gray_25": "#CCCCCC", "gray_10": "#EBEBEB"
+      },
+      "footer": {"enabled": false, "text": "", "show_page_number": true},
+      "confidential_mark": {"enabled": false, "text": "社外秘", "position": "top-right"},
+      "cover": {
+        "background_color": "#001A72",
+        "background_image": "config/template_assets/cover_background.jpg",
+        "logo": {"image": "config/template_assets/logo_stacked_white.png", "x": 40, "y": 22, "w": 130},
+        "title": {"x": 60, "y": 235, "w": 660, "h": 80, "size_pt": 32, "color": "#FFFFFF", "bold": true, "align": "left"},
+        "subtitle": {"x": 60, "y": 335, "w": 660, "h": 44, "size_pt": 21, "color": "#FFFFFF", "bold": false, "align": "left"},
+        "footer": {"text": "{date} / © {organization} All Rights Reserved.", "x": 480, "y": 512, "w": 456, "h": 16, "size_pt": 8, "color": "#FFFFFF", "align": "right"},
+        "date_format": "%B %-d, %Y",
+        "organization": "SAMPLE CORPORATION"
+      },
+      "content": {
+        "background_color": "#FFFFFF",
+        "logo": {"image": "config/template_assets/logo_horizontal_blue.png", "x": 24, "y": 516, "w": 150},
+        "bar": {"x": 200, "y": 516, "w": 760, "h": 18, "color": "#001A72", "slant_pt": 14},
+        "title": {"x": 36, "y": 28, "w": 888, "h": 60, "size_pt": 28, "color": "#001A72", "bold": true},
+        "page_number": {"x": 880, "y": 494, "w": 56, "h": 16, "size_pt": 9, "color": "#666666", "align": "right"},
+        "footer": {"text": "", "x": 200, "y": 494, "w": 600, "h": 16, "size_pt": 8, "color": "#666666", "align": "left"}
+      },
+      "closing": {
+        "background_color": "#FFFFFF",
+        "logo": {"image": "config/template_assets/logo_stacked_blue.png", "x": 370, "y": 195, "w": 220},
+        "message": {"x": 120, "y": 330, "w": 720, "h": 40, "size_pt": 16, "color": "#333333", "align": "center"}
+      }
+    },
+    {
+      "id": "generic_corporate_blue",
+      "name": "Generic Corporate Blue（模擬資料用）",
+      "description": "匿名化スライド仕様書のテーマ。模擬 12 枚 PPTX と同じ配色。",
+      "fonts": {"heading": "Arial", "body": "Arial"},
+      "colors": {
+        "primary": "#082B5C", "secondary": "#1261A0", "accent": "#00A6C7", "background": "#FFFFFF",
+        "surface": "#EEF4F8", "text": "#243447", "muted": "#5B6B7C", "line": "#C5D3E0", "warning": "#F39C3D", "success": "#17845B"
+      },
+      "footer": {"enabled": true, "text": "Anonymous Conversion Test / Sample Only", "show_page_number": true},
+      "confidential_mark": {"enabled": false, "text": "", "position": "top-right"}
+    }
+  ]
+}

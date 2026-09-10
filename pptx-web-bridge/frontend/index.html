@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PPTX ⇄ Web図解 変換アプリ</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%273%27 fill=%27%231f3a5f%27/%3E%3Cpath d=%27M3 8h10M8 3l5 5-5 5%27 stroke=%27%23e07a1f%27 stroke-width=%272%27 fill=%27none%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>PPTX ⇄ Web図解 変換アプリ</h1>
+  <span class="status" id="status">準備完了</span>
+  <span class="badge" id="raster-badge" title="見た目優先モードに必要な画像化環境">画像化: 確認中</span>
+  <label class="loglevel" title="ログレベル（設計基準 7.3）">ログ <select id="loglevel-select"><option>DEBUG</option><option selected>INFO</option><option>WARNING</option><option>ERROR</option></select></label>
+</header>
+<div id="progress" class="progress hidden" role="progressbar" aria-live="polite">
+  <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+  <div class="progress-text"><span id="progress-step"></span> <span id="progress-pct">0%</span> <span id="progress-eta" class="muted"></span></div>
+</div>
+
+<main class="layout">
+  <!-- 左: 入力・プロジェクト -->
+  <aside class="pane pane-left">
+    <section class="card">
+      <h2>1. ファイル投入</h2>
+      <div id="dropzone" class="dropzone" tabindex="0">
+        <p><strong>ここに PPTX / HTML / ZIP / JSON をドロップ</strong></p>
+        <p class="muted">またはクリックして選択（HTML は画像を含む ZIP 推奨）</p>
+        <input type="file" id="file-input" accept=".pptx,.html,.htm,.zip,.json" hidden>
+      </div>
+      <label>テンプレート
+        <select id="template-select"></select>
+      </label>
+      <div class="row wrap">
+        <button id="btn-new" class="secondary" data-action="new">空の資料を作る</button>
+        <button id="btn-closing" class="secondary" data-action="closing" title="テンプレートの最終ページ（ロゴ中央）を末尾に追加">最終ページを追加</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2. 保存・復元</h2>
+      <div class="row">
+        <input type="text" id="project-name" placeholder="プロジェクト名">
+        <button id="btn-save" data-action="save">保存</button>
+      </div>
+      <ul id="project-list" class="list"></ul>
+      <p class="muted">保存先: <code id="projects-dir"></code></p>
+    </section>
+
+    <section class="card">
+      <h2>3. 出力</h2>
+      <label>PPTX 出力モード
+        <select id="mode-select"></select>
+      </label>
+      <label class="check"><input type="checkbox" id="write-output"> output フォルダにも書き出す</label>
+      <div class="row wrap">
+        <button id="btn-export-html" data-action="export-html">Web 一式 (ZIP)</button>
+        <button id="btn-export-pptx" data-action="export-pptx">PPTX</button>
+        <button id="btn-export-json" class="secondary" data-action="export-json">JSON</button>
+      </div>
+      <p class="muted">出力先: <code id="output-dir"></code></p>
+    </section>
+  </aside>
+
+  <!-- 中央: スライド編集 -->
+  <section class="pane pane-center">
+    <div class="card grow">
+      <div class="row between">
+        <h2>スライド一覧 <span class="muted" id="slide-count"></span></h2>
+        <div class="row">
+          <button id="btn-relayout" class="secondary" data-action="relayout" title="座標未確定の要素を自動配置">再レイアウト</button>
+          <button id="btn-check" class="secondary" data-action="check">品質検査</button>
+        </div>
+      </div>
+      <ol id="slide-list" class="slide-list"></ol>
+    </div>
+    <div class="card" id="editor-card">
+      <h2>要素の編集 <span class="muted" id="editor-target"></span></h2>
+      <div id="editor-body" class="editor-body"><p class="muted">スライドを選ぶと文字を編集できます。</p></div>
+    </div>
+  </section>
+
+  <!-- 右: プレビューと警告 -->
+  <section class="pane pane-right">
+    <div class="card grow">
+      <div class="row between">
+        <h2>プレビュー</h2>
+        <div class="row">
+          <button id="btn-refresh" class="secondary" data-action="refresh">更新</button>
+          <button id="btn-open-preview" class="secondary" data-action="open-preview">別タブで開く</button>
+        </div>
+      </div>
+      <iframe id="preview" title="Web図解プレビュー" sandbox="allow-scripts allow-same-origin"></iframe>
+    </div>
+    <div class="card">
+      <div class="tabs">
+        <button class="tab active" data-tab="warnings">警告 <span id="warn-count" class="pill">0</span></button>
+        <button class="tab" data-tab="quality">品質検査 <span id="quality-count" class="pill">0</span></button>
+        <button class="tab" data-tab="report">要素一覧</button>
+        <button class="tab" data-tab="json">JSON</button>
+        <button class="tab" data-tab="log">ログ</button>
+      </div>
+      <div class="tab-body" id="tab-warnings"><ul id="warning-list" class="list small"></ul></div>
+      <div class="tab-body hidden" id="tab-quality"><ul id="quality-list" class="list small"></ul></div>
+      <div class="tab-body hidden" id="tab-report">
+        <p class="muted">文字は画像ではなくテキストシェイプとして、座標 (x, y, w, h: pt) とフォント pt を数値で保持します。</p>
+        <div class="row"><button class="secondary small" data-action="report">最新化</button><span id="report-summary" class="muted"></span></div>
+        <div class="table-wrap"><table id="report-table" class="report"><thead><tr><th>頁</th><th>ID</th><th>種別</th><th>役割</th><th>x</th><th>y</th><th>w</th><th>h</th><th>pt</th><th>文字（抜粋）</th><th>画像px</th><th>編集</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="tab-body hidden" id="tab-json">
+        <textarea id="json-editor" spellcheck="false"></textarea>
+        <div class="row"><button id="btn-json-apply" data-action="json-apply">JSON を反映（検証・修復）</button></div>
+      </div>
+      <div class="tab-body hidden" id="tab-log"><pre id="log"></pre></div>
+    </div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

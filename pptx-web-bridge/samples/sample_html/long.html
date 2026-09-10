@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>業務改善の進め方（長尺型サンプル）</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><nav>ナビゲーション（変換対象外）</nav></header>
+<main>
+<h1>業務改善の進め方（長尺型サンプル）</h1>
+<p class="lead">サンプル株式会社（架空）の社内説明用 Web 図解</p>
+
+<h2>1. 現状の課題</h2>
+<p>資料を <strong>PowerPoint</strong> と <em>Web</em> の両方で作ると、修正が片方にしか反映されず二重作業になります。</p>
+<ul>
+  <li>同じ内容を 2 回作り直している</li>
+  <li>修正の反映漏れが起きる
+    <ul>
+      <li>会議資料と社内ポータルで内容が食い違う</li>
+      <li>どちらが最新か分からない</li>
+    </ul>
+  </li>
+  <li>非エンジニアが変換ツールを使えない</li>
+</ul>
+
+<h2>2. 提案する仕組み</h2>
+<p>共通の中間形式（Presentation JSON）を介して双方向に変換します。</p>
+<ol>
+  <li>PowerPoint を解析して JSON にする</li>
+  <li>JSON から Web 図解を生成する</li>
+  <li>Web 図解を解析して JSON にする</li>
+  <li>JSON から PowerPoint を生成する</li>
+</ol>
+<blockquote><p>AI は構造理解と分類を担当し、座標計算とファイル生成は決定的なプログラムが行う。</p></blockquote>
+
+<h2>3. 効果の見込み（架空データ）</h2>
+<figure>
+  <img src="assets/chart_sample.png" alt="月別の作成件数（架空）">
+  <figcaption>図: 月別の作成件数（架空）</figcaption>
+</figure>
+<table>
+  <thead><tr><th>指標</th><th>現状</th><th>導入後（試算）</th></tr></thead>
+  <tbody>
+    <tr><td>資料作成時間</td><td>4 時間</td><td>2 時間</td></tr>
+    <tr><td>修正反映漏れ</td><td>月 5 件</td><td>月 0〜1 件</td></tr>
+    <tr><td>Web 公開までの日数</td><td>3 日</td><td>当日</td></tr>
+  </tbody>
+</table>
+
+<h2>4. 次のステップ</h2>
+<p>MVP を小さな縦切りで実装し、サンプル資料で往復変換を確認します。未対応要素は警告と代替処理で止めない方針です。</p>
+<ul>
+  <li>サンプル PPTX / HTML での E2E 試験</li>
+  <li>文字切れ・重なり・画像歪みの自動検査</li>
+  <li>README と試験結果の整備</li>
+</ul>
+</main>
+<footer>© サンプル株式会社（架空） 変換対象外</footer>
+</body>
+</html>

@@ -1,0 +1,27 @@
+[project]
+name = "crossai-tools"
+version = "1.0.0"
+description = "コンテキスト生成の横展開: AIサービス別パッケージャ + folder-context MCPサーバ"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.0",
+    # contextgen (work1_improvement) が必要:
+    #   pip install -e ../work1_improvement -e .
+]
+
+[project.scripts]
+crossai-packager = "crossai_packager.cli:main"
+folder-context-mcp = "mcp_server.folder_context_server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["crossai_packager", "mcp_server"]
+
+[tool.setuptools.package-data]
+crossai_packager = ["profiles/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
