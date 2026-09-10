@@ -191,6 +191,26 @@ def main() -> int:
     cards = [e for e in fig["slides"][1]["elements"] if e.get("role") == "card"] if len(fig["slides"]) > 1 else []
     record("「図解風に仕上げる」の回答をカード 3 分割・表として取り込む", len(cards) == 3 and fig["slides"][1]["notes"] == "2 分で" and fig["slides"][2]["layout"] == "table", f"slides={len(fig['slides'])} cards={len(cards)}")
 
+    # --- Copilot エージェント一式（Phase E、API 不使用） ---
+    from app import copilot_agent_kit as kit
+
+    kit_bytes = kit.build_kit_zip()
+    (OUT / "copilot_agent.zip").write_bytes(kit_bytes)
+    with zipfile.ZipFile(io.BytesIO(kit_bytes)) as zk:
+        names_k = set(zk.namelist())
+        manifest = json.loads(zk.read("declarativeAgent.json").decode("utf-8"))
+        bodies_k = [n for n in names_k if n.startswith("knowledge/") and "INDEX" not in n]
+        index_k = zk.read(f"knowledge/{kit.KNOWLEDGE_PREFIX}_INDEX.txt").decode("utf-8")
+        within = all(len(zk.read(n).decode("utf-8")) <= kit.MAX_CHARS for n in bodies_k)
+    ok_kit = (
+        {"declarativeAgent.json", "instructions.md", "kit.json", "READ_ME.txt"} <= names_k
+        and manifest["instructions"] == "$[file('instructions.md')]"
+        and all(n.split("/")[-1] in index_k for n in bodies_k)
+        and len(bodies_k) <= kit.MAX_FILES
+        and within
+    )
+    record("Copilot エージェント一式（定義・指示文・ナレッジ・目次）", ok_kit, f"files={len(names_k)} knowledge={len(bodies_k)} starters={len(manifest['conversation_starters'])}")
+
     # --- 例外系 ---
     try:
         pipeline.import_pptx(b"broken", "broken.pptx")

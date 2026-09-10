@@ -87,7 +87,7 @@ def main() -> int:
             except Exception as e:  # noqa: BLE001
                 print(f"[SKIP] ブラウザを起動できません: {e}")
                 return 0
-            page = browser.new_page(viewport={"width": 1600, "height": 950})
+            page = browser.new_page(viewport={"width": 1600, "height": 950}, accept_downloads=True)
             errors: list[str] = []
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(base + "/")
@@ -258,6 +258,19 @@ def main() -> int:
             record("回答を貼り付けて新しい資料にする（カード 3 分割・ノート）", kinds[1] == "three_column" and note == "2 分で", f"layouts={kinds}")
             if shots:
                 page.screenshot(path=str(shots / "ui_06_copilot_reply.png"))
+
+            # --- Copilot エージェント一式の書き出し ---
+            page.click("button[data-action='copilot']")
+            page.wait_for_selector("#copilot-modal:not([hidden])")
+            page.click("button[data-copilot-tab='agent']")
+            page.wait_for_function("() => document.getElementById('copilot-agent-instructions').value.length > 100", timeout=20000)
+            files = page.evaluate("() => PWB.copilot.state().agent.files.length")
+            name = page.evaluate("() => document.getElementById('copilot-agent-name').value")
+            with page.expect_download() as dl:
+                page.click("button[data-copilot-act='download-agent']")
+            path = dl.value.path()
+            size = os.path.getsize(path) if path else 0
+            record("Copilot エージェント一式の書き出し（指示文・ナレッジ・ZIP）", files >= 3 and bool(name) and size > 1000, f"knowledge={files} name={name} bytes={size}")
 
             record("JavaScript エラーなし", not errors, "; ".join(errors)[:200])
             browser.close()

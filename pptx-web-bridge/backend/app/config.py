@@ -84,7 +84,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "web_export": {"bundle_dir_name": "web", "viewer_title_suffix": " | Web図解", "flow_breakpoint_px": 720},
     "quality": {"text_overflow_ratio_warn": 1.0, "overlap_area_ratio_warn": 0.15, "image_aspect_tolerance": 0.03},
     "logging": {"level": "INFO", "file_name": "app.log", "max_bytes": 2000000, "backup_count": 3},
-    "copilot": {"chat_url": "https://m365.cloud.microsoft/chat", "max_chars": 60000, "image_note": True},
+    "copilot": {"chat_url": "https://m365.cloud.microsoft/chat", "max_chars": 60000, "image_note": True, "agent_name": "資料づくりの相棒", "agent_description": "PowerPoint・Web 図解 双方向変換アプリと同じ書式で、資料の構成を整えるエージェント。", "agent_starters_max": 6},
 }
 
 
@@ -194,6 +194,7 @@ class AppConfig:
         if not data.get("purposes"):
             data = {"chat_url": self.get("copilot.chat_url"), "purposes": [{"id": "summarize", "name": "要約する", "description": "", "content_format": "markdown", "options": {"count": 8}, "prompt": "次の資料を {count} 枚に要約してください。\n\n---\n"}]}
         data.setdefault("chat_url", self.get("copilot.chat_url"))
+        data.setdefault("agent", {"name": self.get("copilot.agent_name"), "description": self.get("copilot.agent_description"), "starters_max": self.get("copilot.agent_starters_max", 6)})
         return data
 
     def font_fallback(self) -> dict:

@@ -204,6 +204,7 @@
         <div class="tabs">
           <button class="tab active" data-copilot-tab="ask">1. 渡す</button>
           <button class="tab" data-copilot-tab="reply">2. 回答を反映</button>
+          <button class="tab" data-copilot-tab="agent">3. エージェント</button>
         </div>
         <div id="copilot-ask-side">
           <label>用途 <select id="copilot-purpose"></select></label>
@@ -232,6 +233,16 @@
           <p class="muted">Markdown（# 題名 / ## 1. スライド題名 / - 箇条書き / 型: カード / ノート: …）か、簡易 JSON を貼り付けます。Copilot が作った PowerPoint は左の「ファイル投入」からそのまま取り込めます。</p>
           <div class="row wrap"><button data-copilot-act="apply">反映する</button><button class="secondary" data-copilot-act="clear-reply">消す</button></div>
         </div>
+        <div id="copilot-agent-side" hidden>
+          <label>エージェント名 <input type="text" id="copilot-agent-name"></label>
+          <label>説明 <input type="text" id="copilot-agent-desc"></label>
+          <div class="row wrap">
+            <button data-copilot-act="download-agent" title="declarativeAgent.json / instructions.md / ナレッジ の一式">一式を ZIP で保存</button>
+            <button class="secondary" data-copilot-act="copy-instructions">指示文をコピー</button>
+          </div>
+          <p class="muted">Copilot Studio でエージェントを作り、指示文を貼り、knowledge/ のテキストをナレッジとして添付すると、このアプリの書式のまま回答してくれます。</p>
+          <div id="copilot-agent-files" class="col"></div>
+        </div>
       </aside>
       <section class="tpl-main">
         <div id="copilot-ask-main" class="col grow">
@@ -240,6 +251,9 @@
         </div>
         <div id="copilot-reply-main" class="col grow" hidden>
           <label class="grow">Copilot の回答を貼り付け<textarea id="copilot-reply" spellcheck="false" placeholder="# 資料題名&#10;&#10;## 1. スライド題名&#10;- 箇条書き&#10;ノート: 発表者向けの補足"></textarea></label>
+        </div>
+        <div id="copilot-agent-main" class="col grow" hidden>
+          <label class="grow">エージェントへの指示文（instructions.md）<textarea id="copilot-agent-instructions" spellcheck="false" readonly></textarea></label>
         </div>
       </section>
     </div>
