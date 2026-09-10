@@ -57,6 +57,7 @@ python backend/run_server.py
 | レイアウト改善（Phase A） | 文字サイズの一本化（`typography.py`）、画像の実寸配置と本文との横並び、分割前の自動縮小と分割抑制、HTML の背景色・帯・区切り線・代替画像、PPTX のトリミング焼き込み・回転・固定要素との衝突回避。スキーマ 1.1 | pytest 88、E2E 33 |
 | 編集 UI（Phase B） | iframe プレビューをやめ、サーバ描画の断片を同一オリジンのキャンバスに差し込んで直接編集（選択・ドラッグ・リサイズ・スナップ・キーボード・undo/redo・数値入力・画像差し替え・要素追加）。サムネイル付きスライド一覧と D&D 並べ替え、ペイン幅の調整。API: `/api/render/slides` `/api/layout/slide` `/api/layout/fit` | pytest 96、E2E 33、UI スモーク 13 |
 | PPTX からテンプレート作成（Phase C） | 自分の PowerPoint（表紙・中身・最終ページ）を読み込み、背景・ロゴ・帯・題名/副題/本文領域・フッター・ページ番号・一言を推定して「この解釈で入ります」を番号付きの枠で表示。枠をドラッグして直し、ユーザーテンプレートとして保存（`config/user_templates.json`）。中身の本文はテンプレートの本文領域に流し込む。任意で元の PowerPoint を土台にした PPTX 出力。API: `/api/templates/from-pptx` `/api/templates/preview` `PUT/DELETE /api/templates/{id}` | pytest 106、E2E 37、UI スモーク 20 |
+| Copilot 連携（Phase D） | API を使わず M365 Copilot と受け渡す。「Copilot に頼む」で用途（ブランドスライド化 / 図解風 / 要約 / 発表者ノート / 翻訳 / JSON）を選び、指示と資料の内容（Markdown）をコピーして Copilot に貼る。Word 文書（Copilot in PowerPoint の「ファイルから作成」用）と一式 ZIP も保存できる。回答（Markdown / 簡易 JSON）を貼り付けると新しい資料になり、`型: カード / 比較` は図解風の列配置、`ノート:` は発表者ノートになる。プロンプトは `config/copilot_prompts.json` | pytest 113、E2E 40、UI スモーク 23 |
 | 配布 | `start_windows.bat`（Windows）、`start.sh`（Linux）、exe 版（PyInstaller、Actions の Windows ランナーでビルド、Edge で画像化） | Linux 版バイナリで凍結ロジックを検証、Windows は CI のスモークテスト |
 
 ## 1.2 第2版で追加したもの
@@ -71,6 +72,7 @@ python backend/run_server.py
 3. **プレビュー**: 「全体プレビュー」で Web図解ビューア（目次、ページ送り、全画面、縦読み、ノート、印刷）を別タブに開く。
 4. **出力**: Web 一式（ZIP）、PPTX（モード選択）、JSON。「output フォルダにも書き出す」で `output/` へ保存。「最終ページを追加」でテンプレートの最終ページを末尾に付ける。PPTX から作ったテンプレートでは「元の PowerPoint を土台にする」を付けると、マスター・テーマ・フォントを元ファイルのまま出力する。
 5. **保存・復元**: プロジェクト名で `projects/<名前>.json` に保存し、「開く」で復元。
+6. **Copilot 連携（API 不使用）**: 「Copilot に頼む」で用途を選び「全部コピー」→ M365 Copilot チャットに貼る → 回答をコピー → 「回答を貼り付けて反映」。PowerPoint で作らせるときは「Word 文書を保存」して Copilot in PowerPoint の「ファイルから作成」に使い、ブランドキットを適用する。できた PowerPoint はそのまま「ファイル投入」で取り込んで Web 化できる。資料の文章をそのまま Copilot に貼るため、社外秘の資料は社内テナントの M365 Copilot でのみ使うこと（外部の AI サービスには貼らない）。
 
 コマンドラインでも変換できます:
 ```bash
@@ -98,6 +100,7 @@ backend/app/
   template_kit.py    テンプレート部品（表紙・中身・最終ページ）の共通処理
   template_from_pptx.py  PowerPoint からテンプレート部品を推定（Phase C）
   template_store.py  ユーザーテンプレートの保存・削除
+  copilot_handoff.py Copilot 連携（Markdown / JSON / Word への変換、回答の取込。API 不使用）
   report.py          要素判別レポート（文字/画像、座標、フォント pt）
   config.py          設定読込（値はすべて config/*.json）
 frontend/            ブラウザ UI（素の HTML / CSS / JS）
@@ -118,6 +121,7 @@ docs/                企画書に対するレビュー、要件、仕様、試�
 | `config/template_assets/` | テンプレートのロゴ・背景画像（暫定。正式素材へ同名で差し替え） |
 | `config/user_templates.json`, `config/template_assets/user/<id>/` | 「PPTX からテンプレート作成」で保存したテンプレートと画像・元ファイル（実行時生成。exe 版は exe の隣） |
 | `config/font_fallback.json` | フォント代替表（環境間のフォント差を吸収） |
+| `config/copilot_prompts.json` | 「Copilot に頼む」の用途プリセット（プロンプト文面、既定の枚数・言語、Copilot チャットの URL） |
 
 環境変数 `PPTX_WEB_BRIDGE_CONFIG` で設定ファイルを差し替え、`PLAYWRIGHT_CHROMIUM_PATH` で Chromium の場所を指定できます。
 

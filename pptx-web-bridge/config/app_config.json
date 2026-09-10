@@ -13,7 +13,8 @@
     "font_fallback_file": "config/font_fallback.json",
     "schema_file": "schema/presentation.schema.json",
     "user_templates_file": "config/user_templates.json",
-    "user_template_assets_dir": "config/template_assets/user"
+    "user_template_assets_dir": "config/template_assets/user",
+    "copilot_prompts_file": "config/copilot_prompts.json"
   },
   "limits": {
     "max_upload_mb": 50,
@@ -71,6 +72,11 @@
     "text_overflow_ratio_warn": 1.0,
     "overlap_area_ratio_warn": 0.15,
     "image_aspect_tolerance": 0.03
+  },
+  "copilot": {
+    "chat_url": "https://m365.cloud.microsoft/chat",
+    "max_chars": 60000,
+    "image_note": true
   },
   "logging": {
     "level": "INFO",

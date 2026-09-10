@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 import logging
 
-from . import pipeline, storage, template_from_pptx, template_kit, template_store
+from . import copilot_handoff, pipeline, storage, template_from_pptx, template_kit, template_store
 from .layout import element_height, layout_slide
 from .report import build_report
 from .config import get_config, resource_path
@@ -421,6 +421,79 @@ def api_template_delete(template_id: str) -> dict:
         raise HTTPException(400, "組込テンプレートは削除できません。")
     deleted = template_store.delete_template(template_id)
     return {"deleted": deleted, "templates": api_config()["templates"]}
+
+
+# ---------------------------------------------------------------- Copilot 連携（API を使わない受け渡し）
+class HandoffBody(PresentationBody):
+    purpose: str | None = None
+    options: dict[str, Any] | None = None
+
+
+class CopilotReplyBody(BaseModel):
+    text: str = Field(min_length=1)
+    apply: str = "new"  # new: 新しい資料として取り込む / notes: 既存資料のノートへ反映
+    presentation: dict[str, Any] | None = None
+    template_id: str | None = None
+
+
+@app.get("/api/copilot/prompts")
+def api_copilot_prompts() -> dict:
+    data = _cfg().copilot_prompts()
+    return {"chat_url": data.get("chat_url"), "purposes": [{k: v for k, v in p.items() if k != "prompt"} for p in data.get("purposes", [])]}
+
+
+@app.post("/api/copilot/handoff")
+def api_copilot_handoff(body: HandoffBody) -> dict:
+    """資料を Copilot に貼る形（プロンプト + Markdown / JSON）にする。"""
+    pres, _e, _f = validate_and_repair(_apply_template(body.presentation, body.template_id))
+    return copilot_handoff.build_prompt(pres, body.purpose, body.options)
+
+
+@app.post("/api/copilot/handoff.zip")
+def api_copilot_handoff_zip(body: HandoffBody) -> Response:
+    """Copilot へ渡す一式（prompt.txt / outline.md / outline.json / outline.docx / images）。"""
+    pres, _e, _f = validate_and_repair(_apply_template(body.presentation, body.template_id))
+    name = storage.safe_name(body.name or pres.get("meta", {}).get("title") or "copilot")
+    data = copilot_handoff.bundle_zip(pres, body.purpose, body.options)
+    headers = {"Content-Disposition": _content_disposition(f"{name}_copilot.zip")}
+    if body.write_to_output:
+        path = storage.write_output("copilot", name, data, "zip")
+        headers["X-Output-Path"] = quote(str(path))
+    return Response(content=data, media_type="application/zip", headers=headers)
+
+
+@app.post("/api/copilot/docx")
+def api_copilot_docx(body: PresentationBody) -> Response:
+    """Word 文書だけ（Copilot in PowerPoint の「ファイルから作成」用）。"""
+    pres, _e, _f = validate_and_repair(_apply_template(body.presentation, body.template_id))
+    name = storage.safe_name(body.name or pres.get("meta", {}).get("title") or "outline")
+    return Response(content=copilot_handoff.to_docx(pres), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": _content_disposition(f"{name}.docx")})
+
+
+@app.post("/api/copilot/import")
+def api_copilot_import(body: CopilotReplyBody) -> dict:
+    """Copilot の回答（Markdown / 簡易 JSON）を資料にする。apply=new で新規、notes で既存資料のノートへ。"""
+    if len(body.text) > _MAX_UPLOAD:
+        raise HTTPException(413, "貼り付けた文章が大きすぎます。")
+    if body.apply == "notes":
+        if not body.presentation:
+            raise HTTPException(400, "ノートを反映する資料がありません。")
+        pres, _e, _f = validate_and_repair(body.presentation)
+        pres, count = copilot_handoff.apply_notes(pres, body.text)
+        return {"presentation": pres, "applied": count, "mode": "notes", "warnings": [], "schema_errors": [], "quality": pipeline.quality(pres)}
+    kind, data = copilot_handoff.parse_copilot_reply(body.text)
+    try:
+        pres = copilot_handoff.import_outline_json(data, body.template_id) if kind == "json" else copilot_handoff.import_markdown(body.text, body.template_id)
+    except Exception as e:  # noqa: BLE001
+        log.exception("Copilot 回答の取込に失敗")
+        raise HTTPException(422, f"回答を読み取れませんでした（工程: copilot_handoff）: {e}") from e
+    if not pres.get("slides"):
+        raise HTTPException(422, "回答からスライドを作れませんでした。見出し（## 1. 題名）と箇条書き（- ）の形式で貼り付けてください。")
+    from .layout import layout_presentation
+
+    pres = layout_presentation(pres)
+    pres, errors, fixes = validate_and_repair(pres)
+    return {"presentation": pres, "mode": "new", "format": kind, "warnings": pres.get("warnings", []) + fixes, "schema_errors": errors, "quality": pipeline.quality(pres)}
 
 
 class LogLevelBody(BaseModel):

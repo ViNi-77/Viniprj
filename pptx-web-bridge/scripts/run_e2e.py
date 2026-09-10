@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 from pptx import Presentation  # noqa: E402
 
 from app import pipeline  # noqa: E402
+from app.layout import layout_presentation  # noqa: E402
 from app.pptx_parser import parse_pptx  # noqa: E402
 from app.quality_check import check_presentation, summarize  # noqa: E402
 from app.rasterize import is_available  # noqa: E402
@@ -170,6 +171,25 @@ def main() -> int:
         template_store.delete_template("e2e_brand")
     finally:
         app_config._config_singleton = saved_cfg
+
+    # --- Copilot 連携（Phase D、API 不使用）: 渡す形（Markdown / Word / 一式）と回答の取込 ---
+    from app import copilot_handoff as ch
+
+    md = ch.to_markdown(pres)
+    built = ch.build_prompt(pres, "brand_deck")
+    bundle = ch.bundle_zip(pres, "brand_deck")
+    (OUT / "copilot_handoff.zip").write_bytes(bundle)
+    with zipfile.ZipFile(io.BytesIO(bundle)) as zb:
+        names_b = set(zb.namelist())
+        docx_ok = zb.read("outline.docx")[:2] == b"PK"
+    record("Copilot へ渡す一式（prompt / Markdown / JSON / Word / 画像）", "## 2. 背景と課題" in md and "ブランドキット" in built["instruction"] and {"prompt.txt", "outline.md", "outline.json", "outline.docx"} <= names_b and docx_ok, f"chars={built['chars']} files={sorted(names_b)[:5]}")
+    back = ch.import_markdown(md)
+    back = layout_presentation(back)
+    record("Copilot の回答（Markdown）を資料に戻す（往復で枚数一致）", len(back["slides"]) == len(pres["slides"]) and all(el.get("bbox") for s_ in back["slides"] for el in s_["elements"]), f"slides={len(back['slides'])}")
+    reply = "# 図解版\n\n## 1. 背景\n型: カード\n- 課題: 二重作業\n- 原因: 形式が違う\n- 対策: 共通形式\nノート: 2 分で\n\n## 2. 効果\n| 項目 | 前 | 後 |\n| --- | --- | --- |\n| 時間 | 10h | 5h |\n"
+    fig = layout_presentation(ch.import_markdown(reply))
+    cards = [e for e in fig["slides"][1]["elements"] if e.get("role") == "card"] if len(fig["slides"]) > 1 else []
+    record("「図解風に仕上げる」の回答をカード 3 分割・表として取り込む", len(cards) == 3 and fig["slides"][1]["notes"] == "2 分で" and fig["slides"][2]["layout"] == "table", f"slides={len(fig['slides'])} cards={len(cards)}")
 
     # --- 例外系 ---
     try:

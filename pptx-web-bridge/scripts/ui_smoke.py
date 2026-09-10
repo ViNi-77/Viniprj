@@ -3,7 +3,7 @@
 - Playwright / Chromium（または Edge/Chrome）が無い環境では skip（終了コード 0）。
 - 実行: python scripts/ui_smoke.py [--screenshots DIR]
 確認項目: キャンバス描画、サムネイル、ドラッグで bbox が変わる、Undo で戻る、インスペクタの数値入力、要素追加・削除、スライド並べ替え、
-          PPTX からテンプレート作成（解析 → 枠のドラッグ → 部品の除外 → 保存 → 適用 → 削除）。
+          PPTX からテンプレート作成（解析 → 枠のドラッグ → 部品の除外 → 保存 → 適用 → 削除）、Copilot に頼む（指示作成 → 回答の貼り付け → 反映）。
 ユーザーテンプレートの保存先は一時ディレクトリ（リポジトリの config/ を汚さない）。
 """
 from __future__ import annotations
@@ -234,6 +234,30 @@ def main() -> int:
             page.click("#btn-template-delete")
             page.wait_for_function("() => Array.prototype.every.call(document.getElementById('template-select').options, function (o) { return o.value !== 'ui_brand'; })", timeout=20000)
             record("ユーザーテンプレートの削除", True)
+
+            # --- Copilot に頼む（API 不使用）: プロンプト作成 → 回答の貼り付け → 反映 ---
+            page.click("button[data-action='copilot']")
+            page.wait_for_selector("#copilot-modal:not([hidden])")
+            page.wait_for_function("() => document.getElementById('copilot-content').value.length > 100", timeout=20000)
+            instr = page.evaluate("() => document.getElementById('copilot-instruction').value")
+            content = page.evaluate("() => document.getElementById('copilot-content').value")
+            record("Copilot 向けの指示と内容が作られる", "Markdown" in instr and content.startswith("# ") and "## 2." in content, f"chars={len(instr) + len(content)}")
+            page.select_option("#copilot-purpose", "summarize")
+            page.wait_for_function("() => document.getElementById('copilot-instruction').value.indexOf('枚のスライド') >= 0", timeout=20000)
+            page.fill("#copilot-options input[data-copilot-opt='count']", "5")
+            page.dispatch_event("#copilot-options input[data-copilot-opt='count']", "change")
+            page.wait_for_function("() => document.getElementById('copilot-instruction').value.indexOf('5 枚') >= 0", timeout=20000)
+            record("用途の切替と枚数の反映", True)
+            page.click("button[data-copilot-tab='reply']")
+            page.fill("#copilot-reply", "# Copilot 回答\n\n## 1. 背景\n型: カード\n- 課題: 二重作業\n- 原因: 形式が違う\n- 対策: 共通形式\nノート: 2 分で\n\n## 2. 効果\n- 半減\n")
+            page.click("button[data-copilot-act='apply']")
+            page.wait_for_function("() => document.getElementById('copilot-modal').hidden && qcDebug.presentation().slides.length === 3", timeout=20000)
+            page.wait_for_timeout(600)
+            kinds = page.evaluate("() => qcDebug.presentation().slides.map(function (s) { return s.layout; })")
+            note = page.evaluate("() => qcDebug.presentation().slides[1].notes")
+            record("回答を貼り付けて新しい資料にする（カード 3 分割・ノート）", kinds[1] == "three_column" and note == "2 分で", f"layouts={kinds}")
+            if shots:
+                page.screenshot(path=str(shots / "ui_06_copilot_reply.png"))
 
             record("JavaScript エラーなし", not errors, "; ".join(errors)[:200])
             browser.close()
