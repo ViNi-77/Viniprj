@@ -206,7 +206,27 @@ def template_asset_filename(rel_path: str) -> str:
     return "template_" + Path(rel_path).name
 
 
-def slide_html(slide: dict, presentation: dict, inline_assets: bool, template: dict) -> str:
+def viewer_css() -> str:
+    """出力一式・プレビュー用の CSS（スライド本体 slide.css + ビューア枠 viewer.css を結合）。"""
+    return (_VIEWER_DIR / "slide.css").read_text(encoding="utf-8") + "\n" + (_VIEWER_DIR / "viewer.css").read_text(encoding="utf-8")
+
+
+def theme_css(presentation: dict) -> str:
+    """テーマ（フォント・色）を CSS 変数にする。アプリの編集キャンバスでは :root をステージのセレクタへ置き換えて使う。"""
+    cfg = get_config()
+    fonts = cfg.font_fallback()
+    colors = presentation.get("theme", {}).get("colors", {})
+    return ":root{--font:%s;--text:%s;--muted:%s;--line:%s;--surface:%s;--accent:%s}" % (
+        fonts.get("web_font_stack", "sans-serif"),
+        colors.get("text", "#222222"),
+        colors.get("muted", "#666666"),
+        colors.get("line", "#C9D1DB"),
+        colors.get("surface", "#F4F6F9"),
+        colors.get("accent", "#E07A1F"),
+    )
+
+
+def slide_html(slide: dict, presentation: dict, inline_assets: bool, template: dict, with_notes: bool = True) -> str:
     """1 スライドの HTML。テンプレート部品（背景・ロゴ・帯・フッター・ページ番号）は template_kit の座標で描く。"""
     canvas = presentation["canvas"]
     w, h = float(canvas["width_pt"]), float(canvas["height_pt"])
@@ -237,7 +257,7 @@ def slide_html(slide: dict, presentation: dict, inline_assets: bool, template: d
         parts.append(element_html(el, presentation, inline_assets))
     parts.append("</section>")
     notes = slide.get("notes")
-    notes_html = f'<aside class="notes">{_esc(notes)}</aside>' if notes else ""
+    notes_html = f'<aside class="notes">{_esc(notes)}</aside>' if notes and with_notes else ""
     return f'<div class="slide-wrap" data-index="{int(slide.get("index", 0))}">' + "".join(parts) + "</div>" + notes_html
 
 
@@ -251,16 +271,9 @@ def render_html(presentation: dict, inline_assets: bool = False, inline_viewer: 
     canvas = presentation["canvas"]
     toc = "".join(f'<li><span class="num">{i + 1}</span>{_esc(slide_title(s))}</li>' for i, s in enumerate(presentation.get("slides", [])))
     slides = "".join(slide_html(s, presentation, inline_assets, template) for s in presentation.get("slides", []))
-    theme_css = ":root{--font:%s;--text:%s;--muted:%s;--line:%s;--surface:%s;--accent:%s}" % (
-        fonts.get("web_font_stack", "sans-serif"),
-        colors.get("text", "#222222"),
-        colors.get("muted", "#666666"),
-        colors.get("line", "#C9D1DB"),
-        colors.get("surface", "#F4F6F9"),
-        colors.get("accent", "#E07A1F"),
-    )
+    theme_vars = theme_css(presentation)
     if inline_viewer:
-        css = f"<style>{(_VIEWER_DIR / 'viewer.css').read_text(encoding='utf-8')}</style>"
+        css = f"<style>{viewer_css()}</style>"
         js = f"<script>{(_VIEWER_DIR / 'viewer.js').read_text(encoding='utf-8')}</script>"
     else:
         css = '<link rel="stylesheet" href="viewer.css">'
@@ -274,7 +287,7 @@ def render_html(presentation: dict, inline_assets: bool = False, inline_viewer: 
 <title>{_esc(title)}{_esc(cfg.get("web_export.viewer_title_suffix", ""))}</title>
 <meta name="generator" content="{_esc(presentation.get("meta", {}).get("generator", ""))}">
 {css}
-<style>{theme_css}</style>
+<style>{theme_vars}</style>
 </head>
 <body class="slide-mode" data-canvas-w="{float(canvas["width_pt"]):g}" data-canvas-h="{float(canvas["height_pt"]):g}" data-flow-breakpoint="{int(cfg.get("web_export.flow_breakpoint_px", 720))}">
 <header class="viewer-header">
@@ -303,7 +316,7 @@ def build_bundle(presentation: dict) -> dict[str, bytes]:
     """静的一式を {相対パス: バイト列} で返す。ZIP 化やディレクトリ書き出しは呼び出し側が行う。"""
     files: dict[str, bytes] = {}
     files["index.html"] = render_html(presentation, inline_assets=False, inline_viewer=False).encode("utf-8")
-    files["viewer.css"] = (_VIEWER_DIR / "viewer.css").read_bytes()
+    files["viewer.css"] = viewer_css().encode("utf-8")
     files["viewer.js"] = (_VIEWER_DIR / "viewer.js").read_bytes()
     for asset_id, asset in presentation.get("assets", {}).items():
         try:

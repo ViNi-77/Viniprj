@@ -144,8 +144,9 @@ def apply_cover_positions(slide: dict, presentation: dict, template: dict) -> No
         box = scale({k: float(spec.get(k, d)) for k, d in zip(("x", "y", "w", "h"), defaults)}, canvas)
         for el in slide.get("elements", []):
             if el.get("type") == "text" and el.get("role") == role:
-                el["bbox"] = {"x": box["x"], "y": box["y"], "w": box["w"], "h": box["h"]}
-                el["vertical_align"] = "middle"
+                if not el.get("user_bbox"):  # 利用者が動かした枠はテンプレート位置で上書きしない
+                    el["bbox"] = {"x": box["x"], "y": box["y"], "w": box["w"], "h": box["h"]}
+                    el["vertical_align"] = el.get("vertical_align") or "middle"
                 for para in el.get("paragraphs", []):
                     para["align"] = spec.get("align") or para.get("align")
                     for r in para.get("runs", []):
@@ -157,7 +158,7 @@ def apply_cover_positions(slide: dict, presentation: dict, template: dict) -> No
                 bottom = box["y"] + box["h"]
                 break
     # 題名・副題以外の文字（説明文など）は、副題の下へ順に積み直して重なりを避ける
-    others = sorted([el for el in slide.get("elements", []) if el.get("type") == "text" and el not in placed and el.get("bbox")], key=lambda e: e["bbox"]["y"])
+    others = sorted([el for el in slide.get("elements", []) if el.get("type") == "text" and el not in placed and el.get("bbox") and not el.get("user_bbox")], key=lambda e: e["bbox"]["y"])
     if others and bottom is not None:
         ref = scale({"x": float((cover.get("title") or {}).get("x", 60)), "w": float((cover.get("title") or {}).get("w", 660))}, canvas)
         y = bottom + 10

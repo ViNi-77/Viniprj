@@ -1,13 +1,15 @@
 /**
- * アプリ UI ロジック（MVP: 素の JavaScript）。
+ * アプリ UI ロジック（素の JavaScript）。司令塔として、状態・API・各モジュール（canvas / inspector / slidelist / history / splitter）をつなぐ。
  *
  * 設計基準の反映:
  * - 状態は state.presentation（Presentation JSON）1 つに集約し、編集は必ずここを書き換えてから描画する。
- * - 座標計算・ファイル生成はすべてローカル API に任せ、ブラウザ側では行わない。
+ * - 座標計算・ファイル生成・スライドの描画はローカル API に任せる（描画器は web_renderer の 1 つだけ）。
+ *   キャンバスはサーバが描いた断片を差し込み、ドラッグ中だけ DOM を直接動かす。
  * - ボタン操作はドキュメントレベルのイベント委譲（data-action 属性）で受ける（設計基準 3.3）。
  * - 進捗バーは大ステップ表記 + 累積％ + タイマー補間 + 完了時サクセス表示（設計基準 3.1）。
  * - デバッグ用に window.qcDebug を常備し、ログレベルを実行時に切り替えられる（設計基準 7）。
  */
+window.PWB = window.PWB || {};
 (function () {
   "use strict";
 
@@ -17,15 +19,11 @@
   var LOG_LEVELS = { DEBUG: 10, INFO: 20, WARNING: 30, ERROR: 40 };
   var logLevel = "INFO";
   var $ = function (id) { return document.getElementById(id); };
+  var lastCoalesce = { key: null, at: 0 };
 
   // ---------------------------------------------------------------------
   // ログ・状態表示
   // ---------------------------------------------------------------------
-  /**
-   * 画面のログタブとコンソールへ出力する。
-   * @param {string} msg メッセージ
-   * @param {"DEBUG"|"INFO"|"WARNING"|"ERROR"} [level] ログレベル
-   */
   function log(msg, level) {
     level = (level || "INFO").toUpperCase();
     if (level === "WARN") level = "WARNING";
@@ -42,18 +40,12 @@
   // 進捗バー（事前見積 + サブステップ累積％ + タイマー補間）
   // ---------------------------------------------------------------------
   var progress = { timer: null, start: 0, estimate: 0, base: 0, span: 0 };
-  /**
-   * 進捗を開始する。
-   * @param {string[]} steps 大ステップ名の配列
-   * @param {number} estimateMs 全体の推定時間（ミリ秒）
-   */
   function progressStart(steps, estimateMs) {
     progress.steps = steps; progress.estimate = estimateMs; progress.start = Date.now(); progress.base = 0; progress.span = 100 / steps.length;
     var el = $("progress"); el.classList.remove("hidden", "success");
     progressStep(0);
     clearInterval(progress.timer);
     progress.timer = setInterval(function () {
-      // AI/変換待ちの停止感を消すため、経過時間から現在ステップ内を補間する
       var elapsed = Date.now() - progress.start;
       var within = Math.min(0.9, elapsed / Math.max(1, progress.estimate / progress.steps.length));
       progressSet(progress.base + progress.span * within);
@@ -89,7 +81,6 @@
   function apiJson(path, body) {
     return api(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined).then(function (r) { return r.json(); });
   }
-  /** 現在の状態を API へ送る本文を作る。 */
   function currentBody(extra) {
     var b = { presentation: state.presentation, template_id: $("template-select").value, mode: $("mode-select").value, write_to_output: $("write-output").checked };
     for (var k in (extra || {})) b[k] = extra[k];
@@ -99,12 +90,15 @@
   // ---------------------------------------------------------------------
   // 取込
   // ---------------------------------------------------------------------
-  function applyImport(result, sourceLabel) {
+  function applyImport(result, sourceLabel, keepHistory) {
     state.presentation = result.presentation;
     state.warnings = result.warnings || [];
     state.quality = result.quality || null;
     state.report = null;
-    state.selectedSlide = 0;
+    state.selectedSlide = Math.min(state.selectedSlide, Math.max(0, state.presentation.slides.length - 1));
+    if (!keepHistory) { state.selectedSlide = 0; PWB.history.clear(); }
+    PWB.slidelist.clearThumbs();
+    PWB.canvas.setSelection([]);
     if (result.schema_errors && result.schema_errors.length) log("スキーマ違反が残っています: " + result.schema_errors.join(" / "), "ERROR");
     $("project-name").value = $("project-name").value || (state.presentation.meta && state.presentation.meta.title) || "";
     renderAll();
@@ -112,7 +106,6 @@
     log(sourceLabel + " 取込完了: slides=" + state.presentation.slides.length + " warnings=" + state.warnings.length);
   }
 
-  /** ファイル種別ごとに取込 API を切り替える（設計基準 4.1 のマトリクスに相当）。 */
   function importFile(file) {
     var name = file.name.toLowerCase();
     var fd = new FormData();
@@ -124,7 +117,6 @@
     else if (name.endsWith(".json")) path = "/api/import/json";
     else { setStatus("対応していない拡張子です: " + file.name, true); return; }
     setStatus("変換中: " + file.name + " …");
-    // 推定時間: 1MB あたり 1.5 秒 + 基本 1.5 秒（PPTX は画像取り出し分を加味）
     progressStart(["送信", "解析・レイアウト", "プレビュー描画"], 1500 + file.size / 1e6 * 1500);
     api(path, { method: "POST", body: fd }).then(function (r) { progressStep(1); return r.json(); })
       .then(function (result) { progressStep(2); applyImport(result, file.name); progressDone(true); })
@@ -134,102 +126,57 @@
   // ---------------------------------------------------------------------
   // 描画
   // ---------------------------------------------------------------------
-  function slideTitle(s) {
-    if (s.title) return s.title;
-    var els = s.elements || [];
-    for (var i = 0; i < els.length; i++) { var t = elementText(els[i]); if (t) return t.split("\n")[0].slice(0, 40); }
-    return "スライド " + (s.index + 1);
-  }
-  function elementText(el) {
-    if (el.type === "text" || el.type === "shape") return (el.paragraphs || []).map(function (p) { return (p.runs || []).map(function (r) { return r.text; }).join(""); }).join("\n");
-    if (el.type === "table") return (el.rows || []).map(function (row) { return row.map(function (c) { return c.text; }).join("\t"); }).join("\n");
-    return "";
-  }
-  function renderAll() {
-    renderSlideList(); renderEditor(); renderWarnings(); renderQuality(); renderReport();
+  function renderAll(opts) {
+    opts = opts || {};
+    PWB.slidelist.render();
+    $("slide-count").textContent = state.presentation ? "(" + state.presentation.slides.length + " 枚)" : "";
+    if (!opts.keepInspector) PWB.inspector.render();
+    renderWarnings(); renderQuality(); renderReport();
     $("json-editor").value = state.presentation ? JSON.stringify(state.presentation, null, 2) : "";
-    refreshPreview(); autosave();
+    updateUndoButtons();
+    scheduleRender();
+    autosave();
   }
   function reindex() { state.presentation.slides.forEach(function (s, i) { s.index = i; }); }
+  function updateUndoButtons() { $("btn-undo").disabled = !PWB.history.canUndo(); $("btn-redo").disabled = !PWB.history.canRedo(); }
 
-  function renderSlideList() {
-    var ol = $("slide-list");
-    ol.innerHTML = "";
-    if (!state.presentation) { $("slide-count").textContent = ""; return; }
-    var slides = state.presentation.slides;
-    $("slide-count").textContent = "(" + slides.length + " 枚)";
-    slides.forEach(function (s, i) {
-      var li = document.createElement("li");
-      li.className = "slide-item" + (i === state.selectedSlide ? " selected" : "");
-      li.setAttribute("data-slide", i);
-      var warnCount = (s.warnings || []).length;
-      li.innerHTML = '<span class="num">' + (i + 1) + '</span>' +
-        '<div><input class="title-input" type="text" data-slide-title="' + i + '" value="' + escapeAttr(slideTitle(s)) + '" title="スライド題名">' +
-        '<div class="meta">' + escapeHtml(s.layout || "") + ' / 要素 ' + (s.elements || []).length + (warnCount ? ' / <span class="warn">警告 ' + warnCount + '</span>' : "") + '</div></div>' +
-        '<div class="row"><button class="small secondary" data-slide-act="up" data-slide="' + i + '" title="上へ">↑</button><button class="small secondary" data-slide-act="down" data-slide="' + i + '" title="下へ">↓</button><button class="small secondary" data-slide-act="dup" data-slide="' + i + '" title="複製">⧉</button><button class="small secondary" data-slide-act="del" data-slide="' + i + '" title="削除">✕</button></div>';
-      ol.appendChild(li);
-    });
+  var renderTimer = null;
+  var renderSeq = 0;
+  /** 選択スライド（＋サムネイル未取得分）をサーバで描き、キャンバスとサムネイルへ反映する。 */
+  function scheduleRender() {
+    clearTimeout(renderTimer);
+    if (!state.presentation) { PWB.canvas.clear(); return; }
+    renderTimer = setTimeout(renderNow, 120);
   }
-  /** スライド一覧の操作（イベント委譲から呼ばれる）。 */
-  function slideAction(act, i) {
-    var slides = state.presentation.slides, s = slides[i];
-    if (act === "up" && i > 0) { slides.splice(i - 1, 0, slides.splice(i, 1)[0]); state.selectedSlide = i - 1; }
-    if (act === "down" && i < slides.length - 1) { slides.splice(i + 1, 0, slides.splice(i, 1)[0]); state.selectedSlide = i + 1; }
-    if (act === "dup") { var copy = JSON.parse(JSON.stringify(s)); copy.id = s.id + "_copy" + Date.now().toString(36); copy.elements.forEach(function (el, k) { el.id = copy.id + "_e" + (k + 1); }); slides.splice(i + 1, 0, copy); }
-    if (act === "del") { if (!confirm("スライド " + (i + 1) + " を削除しますか？")) return; slides.splice(i, 1); state.selectedSlide = Math.max(0, Math.min(state.selectedSlide, slides.length - 1)); }
-    reindex(); renderAll();
+  function renderNow() {
+    if (!state.presentation) return;
+    var pres = state.presentation;
+    var indices = [state.selectedSlide];
+    pres.slides.forEach(function (s, i) { if (!PWB.slidelist.hasThumb(s.id) && indices.indexOf(i) < 0) indices.push(i); });
+    var seq = ++renderSeq;
+    apiJson("/api/render/slides", currentBody({ indices: indices })).then(function (r) {
+      if (seq !== renderSeq) return; // 古い応答は捨てる
+      var editing = document.activeElement && $("inspector").contains(document.activeElement);
+      state.presentation = r.presentation; // prepare 後（修復・正規化・レイアウト・テンプレート適用）の状態を採用する
+      var slides = state.presentation.slides;
+      if (state.selectedSlide >= slides.length) state.selectedSlide = Math.max(0, slides.length - 1);
+      Object.keys(r.slides).forEach(function (k) { var i = parseInt(k, 10); if (slides[i]) PWB.slidelist.setThumb(slides[i].id, r.slides[k]); });
+      var html = r.slides[String(state.selectedSlide)];
+      if (html) PWB.canvas.mount(html, r.canvas.width_pt, r.canvas.height_pt, r.theme_css);
+      $("zoom-label").textContent = Math.round(PWB.canvas.scale() * 100) + "%";
+      if (!editing) PWB.inspector.render();
+      $("json-editor").value = JSON.stringify(state.presentation, null, 2);
+      autosave();
+    }).catch(function (e) { log("描画失敗: " + e.message, "ERROR"); });
   }
+
   function selectSlide(i) {
-    state.selectedSlide = i;
-    document.querySelectorAll(".slide-item").forEach(function (x, k) { x.classList.toggle("selected", k === i); });
-    renderEditor(); previewGoto(i);
-  }
-
-  function renderEditor() {
-    var body = $("editor-body");
-    body.innerHTML = "";
-    if (!state.presentation || !state.presentation.slides.length) { body.innerHTML = '<p class="muted">スライドがありません。</p>'; $("editor-target").textContent = ""; return; }
-    var s = state.presentation.slides[state.selectedSlide];
-    if (!s) return;
-    $("editor-target").textContent = "(スライド " + (state.selectedSlide + 1) + ")";
-    (s.elements || []).forEach(function (el, k) {
-      var box = document.createElement("div");
-      box.className = "el-editor";
-      var b = el.bbox ? " / x" + Math.round(el.bbox.x) + " y" + Math.round(el.bbox.y) + " w" + Math.round(el.bbox.w) + " h" + Math.round(el.bbox.h) + "pt" : " / 座標未確定";
-      var head = '<div class="head"><span>' + escapeHtml(el.type + (el.role ? " / " + el.role : "") + b) + '</span><span>' + escapeHtml(el.id) + '</span></div>';
-      if (el.type === "text" || el.type === "shape") box.innerHTML = head + '<textarea data-el="' + k + '" data-el-kind="text" title="1 行 = 1 段落。書式は元の段落のものを保ちます。">' + escapeHtml(elementText(el)) + '</textarea>';
-      else if (el.type === "table") box.innerHTML = head + '<textarea data-el="' + k + '" data-el-kind="table" title="タブ区切りでセル、改行で行">' + escapeHtml(elementText(el)) + '</textarea>';
-      else if (el.type === "image") box.innerHTML = head + '<label>代替テキスト <input type="text" data-el="' + k + '" data-el-kind="alt" value="' + escapeAttr(el.alt || "") + '"></label>';
-      else box.innerHTML = head + '<p class="muted">' + escapeHtml(el.alt || "編集対象外の要素") + '</p>';
-      body.appendChild(box);
-    });
-    var n = document.createElement("div");
-    n.className = "el-editor";
-    n.innerHTML = '<div class="head"><span>ノート</span></div><textarea data-el-kind="notes">' + escapeHtml(s.notes || "") + '</textarea>';
-    body.appendChild(n);
-  }
-  /** 要素編集欄の change を状態へ反映する（イベント委譲から呼ばれる）。 */
-  function editorChange(target) {
-    var s = state.presentation.slides[state.selectedSlide];
-    var kind = target.getAttribute("data-el-kind");
-    if (kind === "notes") { s.notes = target.value || null; autosave(); return; }
-    var el = s.elements[parseInt(target.getAttribute("data-el"), 10)];
-    if (!el) return;
-    if (kind === "text") {
-      var old = el.paragraphs || [];
-      el.paragraphs = target.value.split("\n").map(function (line, k) {
-        var base = old[k] || old[old.length - 1] || { runs: [{ text: "" }], level: 0, bullet: null };
-        var run0 = (base.runs && base.runs[0]) ? base.runs[0] : {};
-        var newRun = {}; for (var key in run0) if (key !== "text") newRun[key] = run0[key];
-        newRun.text = line;
-        return { runs: [newRun], level: base.level || 0, bullet: base.bullet || null, align: base.align };
-      });
-    } else if (kind === "table") {
-      el.rows = target.value.split("\n").map(function (line, r) {
-        return line.split("\t").map(function (t, c) { var oldc = (el.rows[r] && el.rows[r][c]) || {}; var nc = {}; for (var key in oldc) nc[key] = oldc[key]; nc.text = t; return nc; });
-      });
-    } else if (kind === "alt") { el.alt = target.value; }
-    renderAll();
+    if (!state.presentation) return;
+    state.selectedSlide = Math.max(0, Math.min(i, state.presentation.slides.length - 1));
+    PWB.canvas.setSelection([]);
+    PWB.slidelist.render();
+    PWB.inspector.render();
+    scheduleRender();
   }
 
   function renderWarnings() {
@@ -255,7 +202,6 @@
       ul.appendChild(li);
     });
   }
-  /** 要素判別レポート（文字/画像、座標、フォント pt）を表に描く。 */
   function renderReport() {
     var tbody = document.querySelector("#report-table tbody");
     tbody.innerHTML = "";
@@ -275,18 +221,165 @@
     apiJson("/api/report", currentBody()).then(function (r) { state.report = r; renderReport(); activateTab("report"); }).catch(function (e) { setStatus(e.message, true); });
   }
 
-  var previewTimer = null;
-  function refreshPreview() {
-    if (!state.presentation) { $("preview").srcdoc = "<p style='color:#ccc;font-family:sans-serif;padding:20px'>ファイルを投入するとここにプレビューが表示されます。</p>"; return; }
-    clearTimeout(previewTimer);
-    previewTimer = setTimeout(function () {
-      api("/api/preview/html", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(currentBody()) })
-        .then(function (r) { return r.text(); })
-        .then(function (html) { $("preview").srcdoc = html; setTimeout(function () { previewGoto(state.selectedSlide); }, 300); })
-        .catch(function (e) { log("プレビュー失敗: " + e.message, "ERROR"); });
-    }, 250);
+  // ---------------------------------------------------------------------
+  // 編集（各モジュールから PWB.core 経由で呼ばれる）
+  // ---------------------------------------------------------------------
+  function snapshot() { return JSON.parse(JSON.stringify(state.presentation)); }
+  function currentSlide() { return state.presentation && state.presentation.slides[state.selectedSlide]; }
+  function marginPt() { return (state.config && state.config.layout && state.config.layout.margin_pt) || 36; }
+  function newId(prefix) { var s = currentSlide(); return (s ? s.id : "s") + "_" + prefix + Date.now().toString(36) + Math.floor(Math.random() * 1e3).toString(36); }
+
+  /** 変更の共通処理: 履歴 → 更新日時 → 再描画。before は変更前のスナップショット。 */
+  function changed(opts) {
+    opts = opts || {};
+    if (opts.before) {
+      var now = Date.now();
+      if (!(opts.coalesce && lastCoalesce.key === opts.coalesce && now - lastCoalesce.at < 1000)) PWB.history.push(opts.before);
+      lastCoalesce = { key: opts.coalesce || null, at: now };
+    }
+    if (state.presentation) { state.presentation.meta = state.presentation.meta || {}; state.presentation.meta.edited_at = new Date().toISOString(); }
+    if (opts.structural) PWB.slidelist.render();
+    renderAll({ keepInspector: !!opts.keepInspector });
   }
-  function previewGoto(i) { try { var w = $("preview").contentWindow; if (w && w.location) w.location.hash = "#s" + (i + 1); } catch (e) { /* sandbox 制約時は無視 */ } }
+
+  function deleteElements(ids) {
+    var s = currentSlide();
+    if (!s || !ids.length) return;
+    var before = snapshot();
+    s.elements = s.elements.filter(function (el) { return ids.indexOf(el.id) < 0; });
+    PWB.canvas.setSelection([]);
+    changed({ index: state.selectedSlide, before: before });
+  }
+  function duplicateElements(ids) {
+    var s = currentSlide();
+    if (!s || !ids.length) return;
+    var before = snapshot();
+    var maxZ = s.elements.reduce(function (m, el) { return Math.max(m, el.z || 0); }, 0);
+    var created = [];
+    ids.forEach(function (id, k) {
+      var src = s.elements.filter(function (el) { return el.id === id; })[0];
+      if (!src) return;
+      var copy = JSON.parse(JSON.stringify(src));
+      copy.id = newId("e");
+      if (copy.bbox) { copy.bbox.x += 12; copy.bbox.y += 12; copy.user_bbox = true; }
+      copy.z = maxZ + 1 + k;
+      s.elements.push(copy);
+      created.push(copy.id);
+    });
+    PWB.canvas.setSelection(created);
+    changed({ index: state.selectedSlide, before: before });
+  }
+  function reorderZ(ids, dir) {
+    var s = currentSlide();
+    if (!s || !ids.length) return;
+    var before = snapshot();
+    var zs = s.elements.map(function (el) { return el.z || 0; });
+    var target = dir > 0 ? Math.max.apply(null, zs) + 1 : Math.min.apply(null, zs) - 1;
+    s.elements.forEach(function (el) { if (ids.indexOf(el.id) >= 0) el.z = target; });
+    changed({ index: state.selectedSlide, before: before });
+  }
+  function alignSelection(ids, act) {
+    var s = currentSlide();
+    if (!s || ids.length < 2) return;
+    var before = snapshot();
+    var els = s.elements.filter(function (el) { return ids.indexOf(el.id) >= 0 && el.bbox; });
+    if (act === "align-left") { var x = Math.min.apply(null, els.map(function (e) { return e.bbox.x; })); els.forEach(function (e) { e.bbox.x = x; e.user_bbox = true; }); }
+    if (act === "align-top") { var y = Math.min.apply(null, els.map(function (e) { return e.bbox.y; })); els.forEach(function (e) { e.bbox.y = y; e.user_bbox = true; }); }
+    if (act === "same-width") { var w = els[0].bbox.w; els.forEach(function (e) { e.bbox.w = w; e.user_bbox = true; }); }
+    changed({ index: state.selectedSlide, before: before });
+  }
+  function fitHeight(id) {
+    apiJson("/api/layout/fit", currentBody({ index: state.selectedSlide, element_id: id })).then(function (r) {
+      var s = currentSlide();
+      var el = s && s.elements.filter(function (e) { return e.id === id; })[0];
+      if (!el || !el.bbox) return;
+      var before = snapshot();
+      el.bbox.h = Math.round(r.h * 10) / 10; el.user_bbox = true;
+      changed({ index: state.selectedSlide, before: before });
+    }).catch(function (e) { setStatus(e.message, true); });
+  }
+  function addElement(kind, file) {
+    var s = currentSlide();
+    if (!s) { setStatus("先にスライドを用意してください。", true); return; }
+    var before = snapshot();
+    var m = marginPt();
+    var cw = state.presentation.canvas.width_pt, ch = state.presentation.canvas.height_pt;
+    var colors = (state.presentation.theme && state.presentation.theme.colors) || {};
+    var maxZ = s.elements.reduce(function (mm, el) { return Math.max(mm, el.z || 0); }, 0);
+    var el = null;
+    if (kind === "text") el = { id: newId("e"), type: "text", role: "body", bbox: { x: m + 24, y: m + 100, w: 400, h: 60 }, paragraphs: [{ runs: [{ text: "テキスト" }], level: 0, bullet: null }], editable: true };
+    if (kind === "shape") el = { id: newId("e"), type: "shape", role: null, bbox: { x: m + 24, y: m + 120, w: 240, h: 100 }, shape: "rounded_rect", fill: colors.surface || "#F4F6F9", stroke: colors.line || "#C9D1DB", stroke_width_pt: 1, paragraphs: [], editable: true };
+    if (kind === "line") el = { id: newId("e"), type: "line", role: null, bbox: { x: m, y: ch / 2, w: cw - 2 * m, h: 1 }, points: [[m, ch / 2], [cw - m, ch / 2]], stroke: colors.line || "#999999", stroke_width_pt: 1.5, editable: true };
+    if (kind === "image" && file) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var mm = /^data:([^;]+);base64,(.*)$/.exec(String(reader.result));
+        if (!mm) return;
+        var img = new Image();
+        img.onload = function () {
+          var aid = "img_u" + Date.now().toString(36);
+          state.presentation.assets[aid] = { mime: mm[1], filename: aid + "." + (mm[1].split("/")[1] || "png"), data_base64: mm[2], width_px: img.naturalWidth, height_px: img.naturalHeight };
+          var w = Math.min(img.naturalWidth * 0.75, (cw - 2 * m) * 0.5), h = w * img.naturalHeight / img.naturalWidth;
+          var e2 = { id: newId("e"), type: "image", role: null, bbox: { x: m + 24, y: m + 100, w: Math.round(w * 10) / 10, h: Math.round(h * 10) / 10 }, asset_id: aid, alt: file.name, fit: "contain", editable: true, z: maxZ + 1, user_bbox: true };
+          s.elements.push(e2);
+          PWB.canvas.setSelection([e2.id]);
+          changed({ index: state.selectedSlide, before: before });
+        };
+        img.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+    if (!el) return;
+    el.z = maxZ + 1; el.user_bbox = true;
+    s.elements.push(el);
+    PWB.canvas.setSelection([el.id]);
+    changed({ index: state.selectedSlide, before: before });
+  }
+  function moveSlide(from, to) {
+    var slides = state.presentation.slides;
+    if (from === to || from + 1 === to) return;
+    var before = snapshot();
+    var s = slides.splice(from, 1)[0];
+    if (to > from) to -= 1;
+    slides.splice(to, 0, s);
+    reindex();
+    state.selectedSlide = to;
+    changed({ before: before, structural: true });
+  }
+  function slideAction(act, i) {
+    var slides = state.presentation.slides, s = slides[i];
+    var before = snapshot();
+    if (act === "up" && i > 0) { slides.splice(i - 1, 0, slides.splice(i, 1)[0]); state.selectedSlide = i - 1; }
+    else if (act === "down" && i < slides.length - 1) { slides.splice(i + 1, 0, slides.splice(i, 1)[0]); state.selectedSlide = i + 1; }
+    else if (act === "dup") { var copy = JSON.parse(JSON.stringify(s)); copy.id = s.id + "_copy" + Date.now().toString(36); delete copy.continuation_of; delete copy.continuation_index; copy.elements.forEach(function (el, k) { el.id = copy.id + "_e" + (k + 1); }); slides.splice(i + 1, 0, copy); state.selectedSlide = i + 1; }
+    else if (act === "del") { if (!confirm("スライド " + (i + 1) + " を削除しますか？")) return; slides.splice(i, 1); state.selectedSlide = Math.max(0, Math.min(state.selectedSlide, slides.length - 1)); }
+    else return;
+    reindex();
+    PWB.canvas.setSelection([]);
+    changed({ before: before, structural: true });
+  }
+  function layoutSlide(scope) {
+    if (!state.presentation) return;
+    var before = snapshot();
+    apiJson("/api/layout/slide", currentBody({ index: state.selectedSlide, scope: scope })).then(function (r) {
+      PWB.history.push(before);
+      state.presentation = r.presentation;
+      PWB.canvas.setSelection([]);
+      renderAll();
+      setStatus(r.count > 1 ? "自動配置しました（" + r.count + " 枚に分割）" : "自動配置しました");
+    }).catch(function (e) { setStatus(e.message, true); });
+  }
+  function undo() { var p = PWB.history.undo(state.presentation); if (p) { state.presentation = p; PWB.canvas.setSelection([]); renderAll(); } }
+  function redo() { var p = PWB.history.redo(state.presentation); if (p) { state.presentation = p; PWB.canvas.setSelection([]); renderAll(); } }
+
+  PWB.core = {
+    state: state, api: api, apiJson: apiJson, currentBody: currentBody, log: log, setStatus: setStatus, escapeHtml: escapeHtml,
+    changed: changed, deleteElements: deleteElements, duplicateElements: duplicateElements, reorderZ: reorderZ, alignSelection: alignSelection, fitHeight: fitHeight, addElement: addElement, moveSlide: moveSlide,
+    onSelectionChanged: function () { PWB.inspector.render(); },
+    focusInspector: function (id) { PWB.canvas.setSelection([id]); activateTab("inspector"); PWB.inspector.focusText(); },
+    select: function (ids) { PWB.canvas.setSelection(ids); }
+  };
 
   // ---------------------------------------------------------------------
   // 出力
@@ -342,7 +435,8 @@
     "new": function () { apiJson("/api/new?template_id=" + encodeURIComponent($("template-select").value)).then(function (r) { applyImport({ presentation: r.presentation, warnings: [] }, "空の資料"); }); },
     "closing": function () {
       if (!state.presentation) { setStatus("先にファイルを投入してください。", true); return; }
-      apiJson("/api/closing-slide", currentBody({ name: "" })).then(function (r) { state.presentation = r.presentation; state.selectedSlide = r.presentation.slides.length - 1; renderAll(); setStatus(r.added ? "最終ページを追加しました。" : "最終ページは既にあります。"); }).catch(function (e) { setStatus(e.message, true); });
+      var before = snapshot();
+      apiJson("/api/closing-slide", currentBody({ name: "" })).then(function (r) { PWB.history.push(before); state.presentation = r.presentation; state.selectedSlide = r.presentation.slides.length - 1; renderAll(); setStatus(r.added ? "最終ページを追加しました。" : "最終ページは既にあります。"); }).catch(function (e) { setStatus(e.message, true); });
     },
     "save": function () {
       if (!state.presentation) { setStatus("保存する資料がありません。", true); return; }
@@ -352,23 +446,39 @@
     "export-html": function () { download("/api/export/html", "web.zip"); },
     "export-pptx": function () { download("/api/export/pptx", "presentation.pptx"); },
     "export-json": function () { download("/api/export/json", "presentation.json"); },
-    "refresh": refreshPreview,
-    "open-preview": function () { var html = $("preview").srcdoc; if (!html) return; window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank"); },
-    "relayout": function () { if (!state.presentation) return; apiJson("/api/layout", currentBody()).then(function (r) { applyImport(r, "再レイアウト"); }).catch(function (e) { setStatus(e.message, true); }); },
+    "refresh": function () { PWB.slidelist.clearThumbs(); scheduleRender(); },
+    "open-preview": function () {
+      if (!state.presentation) return;
+      api("/api/preview/html", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(currentBody()) })
+        .then(function (r) { return r.text(); })
+        .then(function (html) { var w = window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank"); if (w) { try { w.location.hash = "#s" + (state.selectedSlide + 1); } catch (e) { /* 無視 */ } } })
+        .catch(function (e) { setStatus("プレビュー失敗: " + e.message, true); });
+    },
+    "relayout": function () { if (!state.presentation) return; var before = snapshot(); apiJson("/api/layout", currentBody()).then(function (r) { PWB.history.push(before); applyImport(r, "再レイアウト", true); }).catch(function (e) { setStatus(e.message, true); }); },
+    "layout-slide-unplaced": function () { layoutSlide("unplaced"); },
+    "layout-slide-all": function () { if (confirm("このスライドの全要素を配置し直します。手で動かした位置も元に戻ります。よろしいですか？")) layoutSlide("all"); },
     "check": function () { if (!state.presentation) return; apiJson("/api/quality", currentBody()).then(function (q) { state.quality = q; renderQuality(); activateTab("quality"); setStatus("品質検査: " + q.summary.total + " 件"); }).catch(function (e) { setStatus(e.message, true); }); },
     "report": fetchReport,
+    "undo": undo,
+    "redo": redo,
+    "add-text": function () { addElement("text"); },
+    "add-shape": function () { addElement("shape"); },
+    "add-line": function () { addElement("line"); },
+    "add-image": function () { if (!currentSlide()) { setStatus("先にスライドを用意してください。", true); return; } $("add-image-input").click(); },
     "json-apply": function () {
       var raw;
       try { raw = JSON.parse($("json-editor").value); } catch (e) { setStatus("JSON 構文エラー: " + e.message, true); return; }
+      var before = snapshot();
       apiJson("/api/validate", { presentation: raw }).then(function (r) {
+        if (before) PWB.history.push(before);
         state.presentation = r.presentation; state.warnings = r.repairs || [];
         if (r.schema_errors.length) log("スキーマ違反: " + r.schema_errors.join(" / "), "ERROR");
+        PWB.slidelist.clearThumbs();
         renderAll(); setStatus(r.valid ? "JSON を反映しました。" : "JSON を反映しましたが違反が残っています（ログ参照）。", !r.valid);
       }).catch(function (e) { setStatus(e.message, true); });
     }
   };
 
-  /** ドキュメントレベルのイベント委譲（設計基準 3.3）。closest() で親要素を判定する。 */
   document.addEventListener("click", function (e) {
     var t = e.target.closest("[data-action], [data-slide-act], [data-project-act], .tab, .slide-item, #dropzone");
     if (!t) return;
@@ -382,7 +492,7 @@
     }
     if (t.classList.contains("tab")) { activateTab(t.getAttribute("data-tab")); return; }
     if (t.id === "dropzone") { $("file-input").click(); return; }
-    if (t.classList.contains("slide-item") && e.target.tagName !== "INPUT") { selectSlide(parseInt(t.getAttribute("data-slide"), 10)); }
+    if (t.classList.contains("slide-item") && e.target.tagName !== "INPUT" && !e.target.closest("button")) { selectSlide(parseInt(t.getAttribute("data-slide"), 10)); }
   });
   document.addEventListener("focusin", function (e) {
     var inp = e.target.closest("[data-slide-title]");
@@ -391,18 +501,26 @@
   document.addEventListener("change", function (e) {
     var t = e.target;
     if (t.hasAttribute("data-slide-title")) {
+      var before = snapshot();
       var s = state.presentation.slides[parseInt(t.getAttribute("data-slide-title"), 10)];
       s.title = t.value;
       var titleEl = (s.elements || []).filter(function (el) { return el.role === "title"; })[0];
       if (titleEl && titleEl.paragraphs && titleEl.paragraphs[0]) { var r0 = titleEl.paragraphs[0].runs[0] || {}; r0.text = t.value; titleEl.paragraphs[0].runs = [r0]; }
-      renderAll(); return;
+      changed({ before: before, structural: true }); return;
     }
-    if (t.hasAttribute("data-el-kind")) { editorChange(t); return; }
     if (t.id === "file-input") { if (t.files[0]) importFile(t.files[0]); t.value = ""; return; }
-    if (t.id === "template-select") { refreshPreview(); state.report = null; renderReport(); return; }
+    if (t.id === "add-image-input") { if (t.files[0]) addElement("image", t.files[0]); t.value = ""; return; }
+    if (t.id === "template-select") { state.report = null; renderReport(); PWB.slidelist.clearThumbs(); scheduleRender(); return; }
     if (t.id === "loglevel-select") { setLogLevel(t.value); return; }
   });
-  document.addEventListener("keydown", function (e) { if (e.target.id === "dropzone" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); $("file-input").click(); } });
+  document.addEventListener("keydown", function (e) {
+    if (e.target.id === "dropzone" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); $("file-input").click(); return; }
+    if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) { e.preventDefault(); undo(); }
+    else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y" || (e.shiftKey && (e.key === "z" || e.key === "Z")))) { e.preventDefault(); redo(); }
+    else if (e.key === "PageDown" && state.presentation) { e.preventDefault(); selectSlide(state.selectedSlide + 1); }
+    else if (e.key === "PageUp" && state.presentation) { e.preventDefault(); selectSlide(state.selectedSlide - 1); }
+  });
   ["dragenter", "dragover"].forEach(function (ev) { document.addEventListener(ev, function (e) { var dz = e.target.closest("#dropzone"); if (dz) { e.preventDefault(); dz.classList.add("over"); } }); });
   ["dragleave", "drop"].forEach(function (ev) { document.addEventListener(ev, function (e) { var dz = e.target.closest("#dropzone"); if (dz) { e.preventDefault(); dz.classList.remove("over"); if (ev === "drop") { var f = e.dataTransfer.files[0]; if (f) importFile(f); } } }); });
 
@@ -411,7 +529,6 @@
     document.querySelectorAll(".tab-body").forEach(function (b) { b.classList.toggle("hidden", b.id !== "tab-" + name); });
     if (name === "report" && !state.report) fetchReport();
   }
-  /** ログレベルをフロントとバックエンドの両方に設定する（設計基準 7.3）。 */
   function setLogLevel(level) {
     logLevel = level.toUpperCase();
     $("loglevel-select").value = logLevel;
@@ -424,11 +541,18 @@
   // デバッグコンソール（設計基準 7.1: 最終ビルド時に削除指示があるまで保持）
   // ---------------------------------------------------------------------
   window.qcDebug = window.__QC_DEBUG__ = {
-    version: "0.2.0",
+    version: "0.3.0",
     state: function () { return state; },
     presentation: function () { return state.presentation; },
-    setPresentation: function (p) { state.presentation = p; renderAll(); },
+    setPresentation: function (p) { state.presentation = p; PWB.slidelist.clearThumbs(); renderAll(); },
     slide: function (i) { return state.presentation && state.presentation.slides[i == null ? state.selectedSlide : i]; },
+    selectSlide: selectSlide,
+    select: function (ids) { PWB.canvas.setSelection(Array.isArray(ids) ? ids : [ids]); },
+    selection: function () { return PWB.canvas.getSelection(); },
+    setBbox: function (id, b) { var s = currentSlide(); var el = s && s.elements.filter(function (e) { return e.id === id; })[0]; if (!el) return false; var before = snapshot(); el.bbox = { x: b.x, y: b.y, w: b.w, h: b.h }; el.user_bbox = true; changed({ index: state.selectedSlide, before: before }); return true; },
+    undo: undo, redo: redo,
+    canvasScale: function () { return PWB.canvas.scale(); },
+    rendered: function () { return renderSeq; },
     setLogLevel: setLogLevel,
     logLevel: function () { return logLevel; },
     runQuality: function () { actions.check(); },
@@ -444,6 +568,10 @@
   // 初期化
   // ---------------------------------------------------------------------
   function init() {
+    PWB.splitter.init();
+    PWB.canvas.init($("canvas-area"));
+    PWB.inspector.init($("inspector"));
+    PWB.slidelist.init($("slide-list"));
     apiJson("/api/config").then(function (c) {
       state.config = c;
       var ts = $("template-select");
@@ -462,8 +590,8 @@
       if (saved && saved.presentation && saved.presentation.slides && saved.presentation.slides.length) {
         state.presentation = saved.presentation; renderAll();
         setStatus("前回の作業内容を復元しました（" + new Date(saved.at).toLocaleString() + "）");
-      } else { refreshPreview(); }
-    } catch (e) { refreshPreview(); }
+      } else { PWB.inspector.render(); }
+    } catch (e) { PWB.inspector.render(); }
     log("qcDebug.help() でデバッグコマンド一覧を表示できます", "DEBUG");
   }
   document.addEventListener("DOMContentLoaded", init);
