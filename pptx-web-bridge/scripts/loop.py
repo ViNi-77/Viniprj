@@ -82,6 +82,7 @@ def main() -> int:
         results.append(run("模擬 12 枚 自動検査", [py, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--override-ini=addopts=", "mock-pptx/tests"]))
         results.append(run("模擬 12 枚 検査記録・プレビュー", [py, "mock-pptx/src/validate_mock_pptx.py"]))
         results.append(run("往復 E2E", [py, "scripts/run_e2e.py"]))
+        results.append(run("UI スモーク (Playwright、無ければ skip)", [py, "scripts/ui_smoke.py"], timeout=600))
     ok_all = all(ok for _n, ok, _s in results)
     line = f"| {datetime.now().isoformat(timespec='minutes')} | {git_head()} | {('#' + args.issue) if args.issue else ''} | {'quick' if args.quick else 'full'} | {'合格' if ok_all else '不合格'} | " + " / ".join(f"{n}: {s}" for n, _ok, s in results) + " |"
     if not args.no_log:

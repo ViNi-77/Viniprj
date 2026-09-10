@@ -70,11 +70,19 @@ def _resolve_font(name: str | None, fallback: dict, default: str) -> str:
 
 
 class _Gen:
-    def __init__(self, presentation: dict, mode: str):
+    def __init__(self, presentation: dict, mode: str, use_base_pptx: bool = False):
         self.p = presentation
         self.mode = mode
         self.cfg = get_config()
-        self.template = self.cfg.template(presentation.get("theme", {}).get("template_id"))
+        self.template = template_kit.template_for(presentation)
+        # 読み込んだ PPTX を土台にする（ユーザーテンプレート）: マスター・レイアウト由来の部品は土台が持つので描かない
+        self.base_path = None
+        if use_base_pptx and self.template.get("base_pptx"):
+            from .config import resource_path
+
+            bp = resource_path(self.template["base_pptx"])
+            self.base_path = bp if bp.exists() else None
+        self.skip_inherited_chrome = self.base_path is not None
         self.fonts = self.cfg.font_fallback()
         self.theme_fonts = presentation.get("theme", {}).get("fonts", {})
         self.colors = presentation.get("theme", {}).get("colors", {})
@@ -349,14 +357,17 @@ class _Gen:
             log.warning("切り出し画像の生成に失敗: %s", e)
             return False
 
+    def _inherited(self, item: dict) -> bool:
+        return self.skip_inherited_chrome and item.get("source") in ("layout", "master")
+
     def add_template_background(self, slide: Any, sd: dict, prs: Any) -> None:
         """テンプレートの背景色・背景画像（本文より先に追加して背面にする）。"""
         chrome = template_kit.chrome_spec(sd, self.p)
         bg = (sd.get("background") or {}).get("color") or chrome.get("background_color")
-        if _rgb(bg):
+        if _rgb(bg) and not (self.skip_inherited_chrome and not (sd.get("background") or {}).get("color")):
             slide.background.fill.solid()
             slide.background.fill.fore_color.rgb = _rgb(bg)
-        if chrome.get("background_image"):
+        if chrome.get("background_image") and not self._inherited({"source": chrome.get("background_source")}):
             data = template_kit.image_data(chrome["background_image"])
             if data:
                 pic = slide.shapes.add_picture(io.BytesIO(base64.b64decode(data[1])), 0, 0, prs.slide_width, prs.slide_height)
@@ -366,6 +377,8 @@ class _Gen:
         """テンプレート部品: 帯・ロゴ・フッター・ページ番号・機密表示。図形名で識別し再読込時に除外する。"""
         chrome = template_kit.chrome_spec(slide_dict, self.p)
         for bar in chrome["bars"]:
+            if self._inherited(bar):
+                continue
             if bar.get("slant_pt"):
                 shp = slide.shapes.add_shape(MSO_SHAPE.PARALLELOGRAM, Emu(pt_to_emu(bar["x"])), Emu(pt_to_emu(bar["y"])), Emu(pt_to_emu(bar["w"])), Emu(pt_to_emu(bar["h"])))
                 try:
@@ -383,11 +396,13 @@ class _Gen:
             shp.shadow.inherit = False
         for img in chrome["images"]:
             data = template_kit.image_data(img["image"])
-            if not data:
+            if not data or self._inherited(img):
                 continue
             pic = slide.shapes.add_picture(io.BytesIO(base64.b64decode(data[1])), Emu(pt_to_emu(img["x"])), Emu(pt_to_emu(img["y"])), Emu(pt_to_emu(img["w"])), Emu(pt_to_emu(img["h"])))
             pic.name = img.get("name", "logo")
         for t in chrome["texts"]:
+            if self._inherited(t):
+                continue
             tb = slide.shapes.add_textbox(Emu(pt_to_emu(t["x"])), Emu(pt_to_emu(t["y"])), Emu(pt_to_emu(t["w"])), Emu(pt_to_emu(t["h"])))
             tb.name = t.get("name", "footer")
             tf = tb.text_frame
@@ -418,11 +433,47 @@ class _Gen:
                 part._blob = re.sub(rb"<Application>[^<]*</Application>", b"<Application>Microsoft Office PowerPoint</Application>", part.blob)
 
     # --- 全体 ---
+    @staticmethod
+    def _blank_layout(prs: Any) -> Any:
+        """土台 PPTX の中で最も部品の少ないレイアウト（白紙）を選ぶ。フッター類以外のプレースホルダが無いものを優先。"""
+        from pptx.enum.shapes import PP_PLACEHOLDER as _PH
+
+        trivial = {_PH.FOOTER, _PH.DATE, _PH.SLIDE_NUMBER}
+        best, best_n = None, 10**6
+        for lay in prs.slide_layouts:
+            n = sum(1 for ph in lay.placeholders if ph.placeholder_format.type not in trivial)
+            name = str(lay.name or "").lower()
+            score = n * 10 + (0 if ("blank" in name or "白紙" in name) else 1)
+            if score < best_n:
+                best, best_n = lay, score
+        return best if best is not None else prs.slide_layouts[len(prs.slide_layouts) - 1]
+
+    def _open_base(self) -> Any:
+        """土台 PPTX を開き、既存スライドを全て外す（マスター・レイアウト・テーマだけを残す）。"""
+        prs = Presentation(str(self.base_path))
+        sld_id_lst = prs.slides._sldIdLst
+        for sld_id in list(sld_id_lst):
+            prs.part.drop_rel(sld_id.rId)
+            sld_id_lst.remove(sld_id)
+        bw, bh = float(prs.slide_width) / 12700.0, float(prs.slide_height) / 12700.0
+        cw, ch = float(self.p["canvas"]["width_pt"]), float(self.p["canvas"]["height_pt"])
+        if abs(bw - cw) > 1 or abs(bh - ch) > 1:
+            self.warn("BASE_PPTX_SIZE_MISMATCH", f"土台 PPTX の寸法（{bw:.0f}×{bh:.0f}pt）が資料（{cw:.0f}×{ch:.0f}pt）と違うため、マスターの部品がずれることがあります。", fallback="資料の寸法で出力")
+        return prs
+
     def build(self) -> bytes:
-        prs = Presentation()
+        if self.base_path is not None:
+            try:
+                prs = self._open_base()
+            except Exception as e:  # noqa: BLE001
+                self.warn("BASE_PPTX_UNAVAILABLE", f"土台 PPTX を開けないため通常の方法で出力します: {e}", fallback="新規 PPTX")
+                self.skip_inherited_chrome = False
+                prs = Presentation()
+        else:
+            prs = Presentation()
         prs.slide_width = Emu(pt_to_emu(float(self.p["canvas"]["width_pt"])))
         prs.slide_height = Emu(pt_to_emu(float(self.p["canvas"]["height_pt"])))
-        blank = prs.slide_layouts[6]
+        blank = self._blank_layout(prs) if self.base_path is not None and self.skip_inherited_chrome else prs.slide_layouts[6]
         prs.core_properties.title = self.p.get("meta", {}).get("title", "")
         self._set_office_metadata(prs, self.p.get("meta", {}).get("author", "") or "")
 
@@ -513,14 +564,17 @@ class _Gen:
                     pass
 
 
-def generate_pptx(presentation: dict, mode: str | None = None) -> tuple[bytes, list[dict]]:
-    """PPTX バイト列と、生成中に出た警告を返す。presentation には警告が追記される。"""
+def generate_pptx(presentation: dict, mode: str | None = None, use_base_pptx: bool = False) -> tuple[bytes, list[dict]]:
+    """PPTX バイト列と、生成中に出た警告を返す。presentation には警告が追記される。
+
+    use_base_pptx: テンプレートが `base_pptx`（PPTX から作ったテンプレートの元ファイル）を持つとき、それを土台にして出力する。
+    """
     cfg = get_config()
     mode = mode or str(cfg.get("pptx_export.default_mode", "editable"))
     unknown = mode not in cfg.get("pptx_export.modes", ["editable", "visual", "hybrid"])
     if unknown:
         requested, mode = mode, "editable"
-    gen = _Gen(presentation, mode)
+    gen = _Gen(presentation, mode, use_base_pptx=use_base_pptx)
     if unknown:
         gen.warn("MODE_UNKNOWN", f"出力モード '{requested}' は不明のため編集性優先で出力します。", fallback="editable")
     data = gen.build()

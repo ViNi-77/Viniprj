@@ -19,20 +19,29 @@ from pydantic import BaseModel, Field
 
 import logging
 
-from . import pipeline, storage, template_kit
+from . import pipeline, storage, template_from_pptx, template_kit, template_store
+from .layout import element_height, layout_slide
 from .report import build_report
 from .config import get_config, resource_path
 from .logging_setup import get_logger
 from .model import new_presentation
 from .rasterize import is_available as raster_available
+from .typography import normalize_presentation
 from .validate import validate_and_repair
-from .web_renderer import render_html
+from .web_renderer import _VIEWER_DIR, render_html, slide_html, theme_css
 
 log = get_logger("api")
-cfg = get_config()
+
+
+def _cfg():
+    """設定は呼び出し時に引く（試験で差し替えた設定や、再読込した設定を API がそのまま使えるように）。"""
+    return get_config()
+
+
+cfg = _cfg()
 app = FastAPI(title="PPTX ⇄ Web図解 変換アプリ", version="0.1.0")
 FRONTEND_DIR = resource_path("frontend")
-_MAX_UPLOAD = int(cfg.get("limits.max_upload_mb", 50)) * 1024 * 1024
+_MAX_UPLOAD = int(_cfg().get("limits.max_upload_mb", 50)) * 1024 * 1024
 
 
 class PresentationBody(BaseModel):
@@ -41,6 +50,7 @@ class PresentationBody(BaseModel):
     template_id: str | None = None
     name: str | None = None
     write_to_output: bool = False
+    use_base_pptx: bool = False  # PPTX から作ったテンプレートの元ファイルを土台にして出力する
 
 
 class SaveBody(BaseModel):
@@ -63,7 +73,7 @@ def _check_size(data: bytes, filename: str) -> None:
 
 def _apply_template(pres: dict, template_id: str | None) -> dict:
     if template_id:
-        t = cfg.template(template_id)
+        t = _cfg().template(template_id)
         pres.setdefault("theme", {})
         pres["theme"]["template_id"] = t.get("id")
         pres["theme"]["fonts"] = dict(t.get("fonts", {}))
@@ -79,16 +89,83 @@ def index() -> Any:
 @app.get("/api/config")
 def api_config() -> dict:
     return {
-        "templates": [{"id": t["id"], "name": t.get("name", t["id"]), "description": t.get("description", "")} for t in cfg.templates()],
-        "pptx_modes": cfg.get("pptx_export.modes"),
-        "default_mode": cfg.get("pptx_export.default_mode"),
+        "templates": [{"id": t["id"], "name": t.get("name", t["id"]), "description": t.get("description", ""), "source": t.get("source", "builtin"), "has_base_pptx": bool(t.get("base_pptx"))} for t in _cfg().templates()],
+        "pptx_modes": _cfg().get("pptx_export.modes"),
+        "default_mode": _cfg().get("pptx_export.default_mode"),
         "raster_available": raster_available(),
-        "max_upload_mb": cfg.get("limits.max_upload_mb"),
-        "output_dir": str(cfg.path("output_dir")),
-        "projects_dir": str(cfg.path("projects_dir")),
+        "max_upload_mb": _cfg().get("limits.max_upload_mb"),
+        "output_dir": str(_cfg().path("output_dir")),
+        "projects_dir": str(_cfg().path("projects_dir")),
         "version": app.version,
         "log_level": logging.getLevelName(logging.getLogger("pptx_web_bridge").level),
+        "layout": {"margin_pt": _cfg().get("layout.margin_pt"), "gutter_pt": _cfg().get("layout.gutter_pt"), "size_bands": _cfg().get("layout.size_bands"), "body_font_pt": _cfg().get("layout.body_font_pt"), "title_font_pt": _cfg().get("layout.title_font_pt")},
+        "canvas": {"width_pt": _cfg().get("canvas.default_width_pt"), "height_pt": _cfg().get("canvas.default_height_pt")},
     }
+
+
+class RenderBody(PresentationBody):
+    indices: list[int] | None = None
+
+
+@app.post("/api/render/slides")
+def api_render_slides(body: RenderBody) -> dict:
+    """編集キャンバス・サムネイル用に、指定スライドの HTML 断片を返す（描画器はサーバ側の 1 つだけ）。
+
+    prepare（修復 → 正規化 → レイアウト → テンプレート）後の資料も返すので、クライアントはこれを状態として採用する。
+    """
+    pres, errors, fixes = pipeline.prepare(_apply_template(body.presentation, body.template_id))
+    template = _cfg().template(pres.get("theme", {}).get("template_id"))
+    slides = pres.get("slides", [])
+    indices = body.indices if body.indices is not None else list(range(len(slides)))
+    html = {str(i): slide_html(slides[i], pres, inline_assets=True, template=template, with_notes=False) for i in indices if 0 <= i < len(slides)}
+    return {"presentation": pres, "canvas": pres["canvas"], "theme_css": theme_css(pres), "slides": html, "warnings": fixes, "schema_errors": errors}
+
+
+class LayoutSlideBody(PresentationBody):
+    index: int
+    scope: str = "unplaced"  # unplaced: 座標の無い要素だけ / all: 全要素を配置し直す
+
+
+@app.post("/api/layout/slide")
+def api_layout_slide(body: LayoutSlideBody) -> dict:
+    """1 枚だけ自動配置する（分割されて複数枚になることがある）。"""
+    pres, errors, fixes = validate_and_repair(_apply_template(body.presentation, body.template_id))
+    slides = pres.get("slides", [])
+    if not 0 <= body.index < len(slides):
+        raise HTTPException(400, "スライド番号が範囲外です。")
+    normalize_presentation(pres)
+    target = slides[body.index]
+    if body.scope == "all":
+        for el in target.get("elements", []):
+            el["bbox"] = None
+            el.pop("font_scale", None)
+            el.pop("user_bbox", None)
+    template = template_kit.template_for(pres)
+    new_slides = layout_slide(target, pres["canvas"], pres.get("assets", {}), None, template if template_kit.has_parts(template) else None)
+    slides[body.index : body.index + 1] = new_slides
+    for i, s in enumerate(slides):
+        s["index"] = i
+    pres = template_kit.apply_template(pres)
+    return {"presentation": pres, "count": len(new_slides), "schema_errors": errors, "warnings": fixes}
+
+
+class FitBody(PresentationBody):
+    index: int
+    element_id: str
+
+
+@app.post("/api/layout/fit")
+def api_layout_fit(body: FitBody) -> dict:
+    """「内容に合わせる」: 要素の現在幅での推定高さを返す。"""
+    pres, _e, _f = validate_and_repair(body.presentation)
+    normalize_presentation(pres)
+    try:
+        slide = pres["slides"][body.index]
+        el = next(e for e in slide.get("elements", []) if e.get("id") == body.element_id)
+    except (IndexError, StopIteration) as e:
+        raise HTTPException(404, "要素が見つかりません。") from e
+    width = float((el.get("bbox") or {}).get("w") or (float(pres["canvas"]["width_pt"]) - 2 * float(_cfg().get("layout.margin_pt", 36))))
+    return {"h": round(element_height(el, width, pres), 2), "font_pt": el.get("font_pt")}
 
 
 @app.post("/api/import/pptx")
@@ -176,7 +253,7 @@ def api_export_html(body: PresentationBody) -> Response:
 @app.post("/api/export/pptx")
 def api_export_pptx(body: PresentationBody) -> Response:
     try:
-        data, pres, warns = pipeline.export_pptx(_apply_template(body.presentation, body.template_id), body.mode)
+        data, pres, warns = pipeline.export_pptx(_apply_template(body.presentation, body.template_id), body.mode, body.use_base_pptx)
     except Exception as e:  # noqa: BLE001
         log.exception("PPTX 生成に失敗")
         raise HTTPException(500, f"PPTX を生成できませんでした（工程: pptx_generator）: {e}") from e
@@ -251,6 +328,101 @@ def api_closing_slide(body: PresentationBody) -> dict:
     return {"presentation": pres, "added": True}
 
 
+# ---------------------------------------------------------------- テンプレート（PPTX から作成）
+class TemplateBody(BaseModel):
+    template: dict[str, Any]
+    previous_id: str | None = None  # 画面で ID を変えたとき、画像フォルダを移す元の ID
+
+
+def _template_previews(template: dict) -> dict:
+    """提案テンプレートで 3 枚のサンプル（表紙 / 中身 / 最終）を描く。未保存でも描けるよう use_template で差し込む。"""
+    with template_kit.use_template(template):
+        pres, _e, _f = pipeline.prepare(template_from_pptx.sample_presentation(template))
+        html = {}
+        for s in pres["slides"]:
+            kind = template_kit.slide_kind(s, pres)
+            html[kind] = slide_html(s, pres, inline_assets=True, template=template, with_notes=False)
+        return {"previews": html, "canvas": pres["canvas"], "theme_css": theme_css(pres), "sample": pres}
+
+
+def _slide_thumbs(data: bytes, filename: str, limit: int = 12) -> list[str]:
+    """投入した PPTX の各スライドを（テンプレート部品を描かずに）縮小表示用の断片にする。"""
+    try:
+        from .pptx_parser import parse_pptx
+
+        pres = parse_pptx(data, filename)
+        pres, _e, _f = pipeline.prepare(pres)
+        with template_kit.use_template({}):
+            return [slide_html(s, pres, inline_assets=True, template={}, with_notes=False) for s in pres["slides"][:limit]]
+    except Exception as e:  # noqa: BLE001
+        log.warning("テンプレート元 PPTX のサムネイル描画に失敗: %s", e)
+        return []
+
+
+@app.get("/api/templates")
+def api_templates() -> dict:
+    return {"templates": _cfg().templates()}
+
+
+@app.post("/api/templates/from-pptx")
+async def api_template_from_pptx(file: UploadFile = File(...), roles: str | None = Form(None), template_id: str | None = Form(None), name: str | None = Form(None), thumbs: bool = Form(True)) -> dict:
+    """PPTX（表紙・中身・最終ページ）を解析し、テンプレート定義の提案とプレビューを返す。roles は {"0": "cover", ...} の JSON。"""
+    data = await file.read()
+    _check_size(data, file.filename or "")
+    if data[:2] != b"PK":
+        raise HTTPException(422, "PPTX（ZIP 形式）として読めません。")
+    overrides: dict[int, str] = {}
+    if roles:
+        try:
+            overrides = {int(k): str(v) for k, v in json.loads(roles).items()}
+        except (ValueError, AttributeError) as e:
+            raise HTTPException(400, f"roles の形式が不正です: {e}") from e
+    try:
+        result = await run_in_threadpool(template_from_pptx.analyze, data, file.filename or "template.pptx", template_id, overrides, name)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        log.exception("テンプレート推定に失敗: %s", file.filename)
+        raise HTTPException(422, f"テンプレートを推定できませんでした（工程: template_from_pptx）: {e}") from e
+    result.update(await run_in_threadpool(_template_previews, result["proposal"]))
+    result.pop("sample", None)
+    if thumbs:
+        result["thumbs"] = await run_in_threadpool(_slide_thumbs, data, file.filename or "template.pptx")
+    return result
+
+
+@app.post("/api/templates/preview")
+def api_template_preview(body: TemplateBody) -> dict:
+    """画面で座標を直した提案を描き直す。parts も返す（番号付き枠の一覧）。"""
+    out = _template_previews(body.template)
+    out.pop("sample", None)
+    out["parts"] = template_from_pptx.parts_of(body.template)
+    return out
+
+
+@app.put("/api/templates/{template_id}")
+def api_template_save(template_id: str, body: TemplateBody) -> dict:
+    t = dict(body.template)
+    t["id"] = template_store.safe_id(template_id)
+    if body.previous_id and body.previous_id != t["id"]:
+        t = template_store.rename_assets(body.previous_id, t["id"], t)
+        template_store.delete_template(body.previous_id)
+    try:
+        saved = template_store.save_template(t)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    log.info("ユーザーテンプレートを保存: %s", saved["id"])
+    return {"template": saved, "templates": api_config()["templates"]}
+
+
+@app.delete("/api/templates/{template_id}")
+def api_template_delete(template_id: str) -> dict:
+    if template_store.is_builtin(template_id):
+        raise HTTPException(400, "組込テンプレートは削除できません。")
+    deleted = template_store.delete_template(template_id)
+    return {"deleted": deleted, "templates": api_config()["templates"]}
+
+
 class LogLevelBody(BaseModel):
     level: str
 
@@ -277,3 +449,4 @@ def api_health() -> dict:
 
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+app.mount("/viewer", StaticFiles(directory=str(_VIEWER_DIR)), name="viewer")

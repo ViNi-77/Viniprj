@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PPTX ⇄ Web図解 変換アプリ</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%273%27 fill=%27%231f3a5f%27/%3E%3Cpath d=%27M3 8h10M8 3l5 5-5 5%27 stroke=%27%23e07a1f%27 stroke-width=%272%27 fill=%27none%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/viewer/slide.css">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -30,8 +31,14 @@
         <input type="file" id="file-input" accept=".pptx,.html,.htm,.zip,.json" hidden>
       </div>
       <label>テンプレート
-        <select id="template-select"></select>
+        <span class="row">
+          <select id="template-select" style="flex:1"></select>
+          <button id="btn-template-delete" class="secondary small" data-action="template-delete" title="この（PPTX から作った）テンプレートを削除" hidden>削除</button>
+        </span>
       </label>
+      <div class="row wrap">
+        <button id="btn-template-from-pptx" class="secondary" data-action="template-from-pptx" title="表紙・中身・最終ページの PowerPoint を読み込み、ロゴ・帯・題名位置などの部品を推定してテンプレートにする">PPTX からテンプレート作成</button>
+      </div>
       <div class="row wrap">
         <button id="btn-new" class="secondary" data-action="new">空の資料を作る</button>
         <button id="btn-closing" class="secondary" data-action="closing" title="テンプレートの最終ページ（ロゴ中央）を末尾に追加">最終ページを追加</button>
@@ -54,6 +61,7 @@
         <select id="mode-select"></select>
       </label>
       <label class="check"><input type="checkbox" id="write-output"> output フォルダにも書き出す</label>
+      <label class="check" id="use-base-pptx-label" hidden title="テンプレートの元になった PowerPoint（マスター・テーマ・フォント）を土台にして出力する"><input type="checkbox" id="use-base-pptx"> 元の PowerPoint を土台にする</label>
       <div class="row wrap">
         <button id="btn-export-html" data-action="export-html">Web 一式 (ZIP)</button>
         <button id="btn-export-pptx" data-action="export-pptx">PPTX</button>
@@ -63,45 +71,63 @@
     </section>
   </aside>
 
-  <!-- 中央: スライド編集 -->
+  <div class="splitter" data-splitter="left" title="ドラッグで幅を変更（ダブルクリックで戻す）"></div>
+
+  <!-- 中央: スライド一覧 -->
   <section class="pane pane-center">
     <div class="card grow">
       <div class="row between">
         <h2>スライド一覧 <span class="muted" id="slide-count"></span></h2>
         <div class="row">
-          <button id="btn-relayout" class="secondary" data-action="relayout" title="座標未確定の要素を自動配置">再レイアウト</button>
-          <button id="btn-check" class="secondary" data-action="check">品質検査</button>
+          <button id="btn-relayout" class="secondary small" data-action="relayout" title="座標未確定の要素を全スライドで自動配置">全体を再レイアウト</button>
+          <button id="btn-check" class="secondary small" data-action="check">品質検査</button>
         </div>
       </div>
       <ol id="slide-list" class="slide-list"></ol>
     </div>
-    <div class="card" id="editor-card">
-      <h2>要素の編集 <span class="muted" id="editor-target"></span></h2>
-      <div id="editor-body" class="editor-body"><p class="muted">スライドを選ぶと文字を編集できます。</p></div>
-    </div>
   </section>
 
-  <!-- 右: プレビューと警告 -->
+  <div class="splitter" data-splitter="center" title="ドラッグで幅を変更（ダブルクリックで戻す）"></div>
+
+  <!-- 右: 編集キャンバスとインスペクタ -->
   <section class="pane pane-right">
-    <div class="card grow">
-      <div class="row between">
-        <h2>プレビュー</h2>
+    <div class="card grow canvas-card">
+      <div class="toolbar">
         <div class="row">
-          <button id="btn-refresh" class="secondary" data-action="refresh">更新</button>
-          <button id="btn-open-preview" class="secondary" data-action="open-preview">別タブで開く</button>
+          <button class="secondary small" data-action="undo" id="btn-undo" title="元に戻す (Ctrl+Z)" disabled>↶ 戻す</button>
+          <button class="secondary small" data-action="redo" id="btn-redo" title="やり直す (Ctrl+Y)" disabled>↷ やり直す</button>
+        </div>
+        <div class="row">
+          <span class="muted">追加:</span>
+          <button class="secondary small" data-action="add-text">文字</button>
+          <button class="secondary small" data-action="add-shape">図形</button>
+          <button class="secondary small" data-action="add-image">画像</button>
+          <button class="secondary small" data-action="add-line">線</button>
+          <input type="file" id="add-image-input" accept="image/*" hidden>
+        </div>
+        <div class="row">
+          <button class="secondary small" data-action="layout-slide-unplaced" title="このスライドの座標未確定の要素だけ配置">このスライドを自動配置</button>
+          <button class="secondary small" data-action="layout-slide-all" title="このスライドの全要素を配置し直す（手で動かした位置も戻る）">全要素を配置し直す</button>
+        </div>
+        <div class="row right">
+          <span class="muted" id="zoom-label"></span>
+          <button class="secondary small" data-action="refresh" title="サーバで描き直す">更新</button>
+          <button class="secondary small" data-action="open-preview" title="全スライドをビューアで開く">全体プレビュー</button>
         </div>
       </div>
-      <iframe id="preview" title="Web図解プレビュー" sandbox="allow-scripts allow-same-origin"></iframe>
+      <div id="canvas-area" class="canvas-area" tabindex="0" aria-label="編集キャンバス"></div>
     </div>
-    <div class="card">
+    <div class="card inspector-card">
       <div class="tabs">
-        <button class="tab active" data-tab="warnings">警告 <span id="warn-count" class="pill">0</span></button>
+        <button class="tab active" data-tab="inspector">編集</button>
+        <button class="tab" data-tab="warnings">警告 <span id="warn-count" class="pill">0</span></button>
         <button class="tab" data-tab="quality">品質検査 <span id="quality-count" class="pill">0</span></button>
         <button class="tab" data-tab="report">要素一覧</button>
         <button class="tab" data-tab="json">JSON</button>
         <button class="tab" data-tab="log">ログ</button>
       </div>
-      <div class="tab-body" id="tab-warnings"><ul id="warning-list" class="list small"></ul></div>
+      <div class="tab-body" id="tab-inspector"><div id="inspector" class="inspector"></div></div>
+      <div class="tab-body hidden" id="tab-warnings"><ul id="warning-list" class="list small"></ul></div>
       <div class="tab-body hidden" id="tab-quality"><ul id="quality-list" class="list small"></ul></div>
       <div class="tab-body hidden" id="tab-report">
         <p class="muted">文字は画像ではなくテキストシェイプとして、座標 (x, y, w, h: pt) とフォント pt を数値で保持します。</p>
@@ -116,6 +142,52 @@
     </div>
   </section>
 </main>
+
+<!-- PPTX からテンプレート作成 -->
+<div id="tpl-modal" class="modal" hidden role="dialog" aria-label="PPTX からテンプレート作成">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2>PPTX からテンプレート作成</h2>
+      <span class="tpl-status" id="tpl-status"></span>
+      <button class="secondary small" data-tpl-act="close">閉じる</button>
+    </div>
+    <div class="modal-body">
+      <aside class="tpl-side">
+        <label>PowerPoint ファイル（表紙・中身・最終ページの 1〜3 枚程度）
+          <input type="file" id="tpl-file" accept=".pptx">
+        </label>
+        <p class="muted">読み込んだスライドの役割を確認し、右の画面で「この解釈で入ります」の枠を直してから保存します。</p>
+        <div id="tpl-slides" class="tpl-slides"></div>
+        <label>テンプレート名 <input type="text" id="tpl-name" placeholder="例: 当社標準（青）"></label>
+        <label>ID（英小文字・数字・下線） <input type="text" id="tpl-id" placeholder="例: company_blue"></label>
+        <div class="col"><span class="muted">テーマ色（元ファイルのテーマから）</span><div id="tpl-swatches" class="swatches"></div></div>
+        <ul id="tpl-warnings" class="tpl-warnings"></ul>
+      </aside>
+      <section class="tpl-main">
+        <div class="row between">
+          <div class="tabs">
+            <button class="tab active" data-tpl-tab="cover">表紙</button>
+            <button class="tab" data-tpl-tab="content">中身</button>
+            <button class="tab" data-tpl-tab="closing">最終ページ</button>
+          </div>
+          <span class="muted">枠をドラッグして位置・大きさを直す。Delete で部品を外す。</span>
+        </div>
+        <div id="tpl-canvas" class="canvas-area" tabindex="0" aria-label="テンプレート部品の確認"></div>
+        <div id="tpl-parts" class="tpl-parts"></div>
+        <div class="row">
+          <button data-tpl-act="save" id="tpl-save">保存してこのテンプレートを使う</button>
+          <button class="secondary" data-tpl-act="close">キャンセル</button>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<script src="/static/history.js"></script>
+<script src="/static/splitter.js"></script>
+<script src="/static/canvas.js"></script>
+<script src="/static/inspector.js"></script>
+<script src="/static/slidelist.js"></script>
+<script src="/static/template_editor.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

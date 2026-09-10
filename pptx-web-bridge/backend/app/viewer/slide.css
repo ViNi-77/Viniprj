@@ -1,0 +1,33 @@
+/* スライド本体の描画規則。1スライド = canvas.width_pt × height_pt の座標系（1pt = 1px として描き、transform で拡縮する）。
+   ビューア（viewer.css）とアプリの編集キャンバスの両方から読み込む。html/body には触らない。 */
+.slide-wrap { position: relative; margin-bottom: 16px; flex: 0 0 auto; }
+.slide { position: relative; background: var(--slide-bg, #ffffff); color: var(--text, #222222); overflow: hidden; transform-origin: top left; box-shadow: 0 4px 24px rgba(0,0,0,.45); font-family: var(--font, "Meiryo", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif); }
+.el { position: absolute; overflow: hidden; z-index: 1; }
+.el-text, .el-shape { padding: 4px 6px; line-height: 1.35; }
+.el-shape { display: flex; flex-direction: column; justify-content: center; }
+.el-text.va-middle { display: flex; flex-direction: column; justify-content: center; }
+.el-text.va-bottom { display: flex; flex-direction: column; justify-content: flex-end; }
+.el-text p, .el-shape p { margin: 0 0 0.3em 0; white-space: pre-wrap; word-break: break-word; }
+.el-text ul, .el-text ol, .el-shape ul, .el-shape ol { margin: 0 0 0.3em 0; padding-left: 1.4em; }
+.el-text li, .el-shape li { white-space: pre-wrap; word-break: break-word; margin: 0 0 0.15em 0; }
+.el-text li.level-1, .el-shape li.level-1 { margin-left: 1.2em; }
+.el-text li.level-2, .el-shape li.level-2 { margin-left: 2.4em; }
+.el-text li.level-3, .el-shape li.level-3 { margin-left: 3.6em; }
+.el-text .align-center, .el-shape .align-center { text-align: center; }
+.el-text .align-right, .el-shape .align-right { text-align: right; }
+.el-text .align-justify, .el-shape .align-justify { text-align: justify; }
+.role-title { font-weight: bold; }
+.el-image img { width: 100%; height: 100%; display: block; }
+.el-image.placeholder { background: #e9edf2; color: #6b7684; border: 1px dashed #b7c0cc; display: flex; align-items: center; justify-content: center; font-size: 12px; text-align: center; padding: 4px; }
+.el-table table { border-collapse: collapse; width: 100%; height: 100%; table-layout: fixed; }
+.el-table th, .el-table td { border: 1px solid var(--line, #c9d1db); padding: 4px 6px; vertical-align: top; text-align: left; word-break: break-word; }
+.el-table th { background: var(--surface, #f4f6f9); font-weight: bold; }
+.el-line { overflow: visible; }
+.el-line svg { position: absolute; left: 0; top: 0; overflow: visible; }
+.el-unsupported { border: 2px dashed #c0392b; color: #c0392b; display: flex; align-items: center; justify-content: center; font-size: 12px; background: rgba(192,57,43,.06); text-align: center; padding: 4px; }
+.tpl { position: absolute; pointer-events: none; z-index: 0; }
+.tpl-text { white-space: nowrap; overflow: hidden; line-height: 1.2; }
+.tpl-logo { object-fit: contain; }
+.slide-footer { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; padding: 6px 24px; font-size: 10px; color: var(--muted, #666666); pointer-events: none; }
+.confidential { position: absolute; top: 8px; right: 16px; font-size: 10px; color: #c0392b; border: 1px solid #c0392b; padding: 1px 6px; pointer-events: none; }
+.notes { display: none; }

@@ -9,15 +9,30 @@ Web レンダラーと PPTX 生成器の両方が同じ判定・同じ座標を�
 from __future__ import annotations
 
 import base64
+import contextvars
 import mimetypes
+import re
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from .config import get_config, resource_path
 
 _BASE_W, _BASE_H = 960.0, 540.0
 _image_cache: dict[str, tuple[str, str]] = {}
+# 未保存のテンプレート（PPTX から作成中の提案）で描画するときの一時的な上書き
+_override: contextvars.ContextVar[dict | None] = contextvars.ContextVar("template_override", default=None)
+
+
+@contextmanager
+def use_template(template: dict | None) -> Iterator[None]:
+    """この with の中では、資料の template_id に関係なく与えたテンプレート定義を使う（プレビュー用）。"""
+    token = _override.set(template)
+    try:
+        yield
+    finally:
+        _override.reset(token)
 
 
 def slide_kind(slide: dict, presentation: dict) -> str:
@@ -31,6 +46,9 @@ def slide_kind(slide: dict, presentation: dict) -> str:
 
 
 def template_for(presentation: dict) -> dict:
+    forced = _override.get()
+    if forced is not None:
+        return forced
     return get_config().template(presentation.get("theme", {}).get("template_id"))
 
 
@@ -54,15 +72,16 @@ def image_data(rel_path: str | None) -> tuple[str, str] | None:
     """(mime, base64) を返す。存在しなければ None（呼び出し側はロゴ無しで続行）。"""
     if not rel_path:
         return None
-    if rel_path in _image_cache:
-        return _image_cache[rel_path]
     p = resource_path(rel_path)
     if not p.exists():
         return None
+    key = f"{rel_path}@{p.stat().st_mtime_ns}"  # 作り直したユーザーテンプレートの画像を古いキャッシュで描かない
+    if key in _image_cache:
+        return _image_cache[key]
     mime = mimetypes.guess_type(str(p))[0] or "image/png"
     data = base64.b64encode(p.read_bytes()).decode("ascii")
-    _image_cache[rel_path] = (mime, data)
-    return _image_cache[rel_path]
+    _image_cache[key] = (mime, data)
+    return _image_cache[key]
 
 
 def image_size(rel_path: str | None) -> tuple[int, int] | None:
@@ -119,6 +138,35 @@ def substitute(text: str, presentation: dict, template: dict, slide: dict | None
     return text
 
 
+def content_area(template: dict, canvas: dict) -> dict | None:
+    """中身スライドの本文領域（テンプレートの content.body）をキャンバス座標で返す。無ければ None（余白既定を使う）。"""
+    content = template.get("content") if isinstance(template, dict) else None
+    body = content.get("body") if isinstance(content, dict) else None
+    if not isinstance(body, dict) or not all(k in body for k in ("x", "y", "w", "h")):
+        return None
+    b = scale({k: float(body[k]) for k in ("x", "y", "w", "h")}, canvas)
+    if b["w"] < 100 or b["h"] < 60:
+        return None
+    return b
+
+
+def content_title_box(template: dict, canvas: dict) -> dict | None:
+    """中身スライドの題名枠（content.title の x/y/w/h）。座標が無い定義なら None。"""
+    content = template.get("content") if isinstance(template, dict) else None
+    t = content.get("title") if isinstance(content, dict) else None
+    if not isinstance(t, dict) or not all(k in t for k in ("x", "y", "w", "h")):
+        return None
+    return scale({k: float(t[k]) for k in ("x", "y", "w", "h")}, canvas)
+
+
+def closing_message_box(template: dict, canvas: dict) -> dict | None:
+    closing = template.get("closing") if isinstance(template, dict) else None
+    m = closing.get("message") if isinstance(closing, dict) else None
+    if not isinstance(m, dict) or not all(k in m for k in ("x", "y", "w", "h")):
+        return None
+    return scale({k: float(m[k]) for k in ("x", "y", "w", "h")}, canvas)
+
+
 def apply_cover_positions(slide: dict, presentation: dict, template: dict) -> None:
     """表紙スライドの title / subtitle を、テンプレートの表紙定義の位置・色・サイズへ揃える。"""
     cover = template.get("cover")
@@ -144,8 +192,9 @@ def apply_cover_positions(slide: dict, presentation: dict, template: dict) -> No
         box = scale({k: float(spec.get(k, d)) for k, d in zip(("x", "y", "w", "h"), defaults)}, canvas)
         for el in slide.get("elements", []):
             if el.get("type") == "text" and el.get("role") == role:
-                el["bbox"] = {"x": box["x"], "y": box["y"], "w": box["w"], "h": box["h"]}
-                el["vertical_align"] = "middle"
+                if not el.get("user_bbox"):  # 利用者が動かした枠はテンプレート位置で上書きしない
+                    el["bbox"] = {"x": box["x"], "y": box["y"], "w": box["w"], "h": box["h"]}
+                    el["vertical_align"] = el.get("vertical_align") or "middle"
                 for para in el.get("paragraphs", []):
                     para["align"] = spec.get("align") or para.get("align")
                     for r in para.get("runs", []):
@@ -157,7 +206,7 @@ def apply_cover_positions(slide: dict, presentation: dict, template: dict) -> No
                 bottom = box["y"] + box["h"]
                 break
     # 題名・副題以外の文字（説明文など）は、副題の下へ順に積み直して重なりを避ける
-    others = sorted([el for el in slide.get("elements", []) if el.get("type") == "text" and el not in placed and el.get("bbox")], key=lambda e: e["bbox"]["y"])
+    others = sorted([el for el in slide.get("elements", []) if el.get("type") == "text" and el not in placed and el.get("bbox") and not el.get("user_bbox")], key=lambda e: e["bbox"]["y"])
     if others and bottom is not None:
         ref = scale({"x": float((cover.get("title") or {}).get("x", 60)), "w": float((cover.get("title") or {}).get("w", 660))}, canvas)
         y = bottom + 10
@@ -242,14 +291,22 @@ def chrome_spec(slide: dict, presentation: dict) -> dict[str, Any]:
     spec["background_color"] = part.get("background_color")
     if part.get("background_image") and image_data(part["background_image"]):
         spec["background_image"] = part["background_image"]
+        spec["background_source"] = part.get("background_source") or "slide"
     lb = logo_box(part, canvas)
     if lb and image_data(lb["image"]):
-        spec["images"].append({**lb, "name": "logo"})
-    bar = part.get("bar")
-    if isinstance(bar, dict):
+        spec["images"].append({**lb, "name": "logo", "source": (part.get("logo") or {}).get("source", "slide")})
+    # 追加の装飾画像（PPTX から作ったテンプレートで複数の画像がある場合）
+    for i, img in enumerate(part.get("images") or []):
+        if not isinstance(img, dict) or not img.get("image") or not image_data(img["image"]):
+            continue
+        b = scale(img, canvas)
+        spec["images"].append({"image": img["image"], "x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"], "name": f"decor{i + 1}", "source": img.get("source", "slide")})
+    sx = float(canvas.get("width_pt", _BASE_W)) / _BASE_W
+    bars = [part["bar"]] if isinstance(part.get("bar"), dict) else []
+    bars += [b for b in (part.get("bars") or []) if isinstance(b, dict)]
+    for i, bar in enumerate(bars):
         b = scale(bar, canvas)
-        sx = float(canvas.get("width_pt", _BASE_W)) / _BASE_W
-        spec["bars"].append({"x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"], "color": bar.get("color", "#000000"), "slant_pt": round(float(bar.get("slant_pt", 0)) * sx, 2), "name": "bar"})
+        spec["bars"].append({"x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"], "color": bar.get("color", "#000000"), "slant_pt": round(float(bar.get("slant_pt", 0)) * sx, 2), "name": "bar" if i == 0 else f"bar{i + 1}", "source": bar.get("source", "slide")})
     for key in ("footer", "page_number"):
         t = part.get(key)
         if not isinstance(t, dict):
@@ -260,8 +317,14 @@ def chrome_spec(slide: dict, presentation: dict) -> dict[str, Any]:
         if not text:
             continue
         b = scale(t, canvas)
-        spec["texts"].append({"text": text, "x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"], "size_pt": float(t.get("size_pt", 9)), "color": t.get("color", "#666666"), "align": t.get("align", "left"), "name": key})
+        spec["texts"].append({"text": text, "x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"], "size_pt": float(t.get("size_pt", 9)), "color": t.get("color", "#666666"), "align": t.get("align", "left"), "name": key, "source": t.get("source", "slide")})
     return spec
 
 
 TEMPLATE_CHROME_NAMES = {"footer", "page_number", "confidential", "logo", "bar", "cover_background"}
+_CHROME_NAME_RE = re.compile(r"^(footer|page_number|confidential|logo|bar|cover_background|decor)\d*$")
+
+
+def is_chrome_name(name: str | None) -> bool:
+    """本アプリが出力したテンプレート部品の図形名か（再読込時に除外する）。bar2 / decor1 のような連番も含む。"""
+    return bool(name) and bool(_CHROME_NAME_RE.match(str(name)))
