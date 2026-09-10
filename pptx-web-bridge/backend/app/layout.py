@@ -542,6 +542,11 @@ def layout_presentation(presentation: dict) -> dict:
     return out
 
 
+def element_height(el: dict, width: float, presentation: dict) -> float:
+    """UI の「内容に合わせる」用: 要素の推定高さ（自動縮小率込み）。"""
+    return _element_height(el, width, _layout_params(), presentation.get("assets", {}), scale=font_scale(el), canvas_h=float(presentation["canvas"]["height_pt"]))
+
+
 def make_title_slide(slide_id: str, index: int, title: str, subtitle: str | None = None) -> dict:
     """表紙スライドの雛形（HTML 変換で h1 を表紙にする際に使う）。"""
     s = new_slide(slide_id, index, layout="title", title=title)

@@ -20,13 +20,15 @@ from pydantic import BaseModel, Field
 import logging
 
 from . import pipeline, storage, template_kit
+from .layout import element_height, layout_slide
 from .report import build_report
 from .config import get_config, resource_path
 from .logging_setup import get_logger
 from .model import new_presentation
 from .rasterize import is_available as raster_available
+from .typography import normalize_presentation
 from .validate import validate_and_repair
-from .web_renderer import render_html
+from .web_renderer import _VIEWER_DIR, render_html, slide_html, theme_css
 
 log = get_logger("api")
 cfg = get_config()
@@ -88,7 +90,73 @@ def api_config() -> dict:
         "projects_dir": str(cfg.path("projects_dir")),
         "version": app.version,
         "log_level": logging.getLevelName(logging.getLogger("pptx_web_bridge").level),
+        "layout": {"margin_pt": cfg.get("layout.margin_pt"), "gutter_pt": cfg.get("layout.gutter_pt"), "size_bands": cfg.get("layout.size_bands"), "body_font_pt": cfg.get("layout.body_font_pt"), "title_font_pt": cfg.get("layout.title_font_pt")},
+        "canvas": {"width_pt": cfg.get("canvas.default_width_pt"), "height_pt": cfg.get("canvas.default_height_pt")},
     }
+
+
+class RenderBody(PresentationBody):
+    indices: list[int] | None = None
+
+
+@app.post("/api/render/slides")
+def api_render_slides(body: RenderBody) -> dict:
+    """編集キャンバス・サムネイル用に、指定スライドの HTML 断片を返す（描画器はサーバ側の 1 つだけ）。
+
+    prepare（修復 → 正規化 → レイアウト → テンプレート）後の資料も返すので、クライアントはこれを状態として採用する。
+    """
+    pres, errors, fixes = pipeline.prepare(_apply_template(body.presentation, body.template_id))
+    template = cfg.template(pres.get("theme", {}).get("template_id"))
+    slides = pres.get("slides", [])
+    indices = body.indices if body.indices is not None else list(range(len(slides)))
+    html = {str(i): slide_html(slides[i], pres, inline_assets=True, template=template, with_notes=False) for i in indices if 0 <= i < len(slides)}
+    return {"presentation": pres, "canvas": pres["canvas"], "theme_css": theme_css(pres), "slides": html, "warnings": fixes, "schema_errors": errors}
+
+
+class LayoutSlideBody(PresentationBody):
+    index: int
+    scope: str = "unplaced"  # unplaced: 座標の無い要素だけ / all: 全要素を配置し直す
+
+
+@app.post("/api/layout/slide")
+def api_layout_slide(body: LayoutSlideBody) -> dict:
+    """1 枚だけ自動配置する（分割されて複数枚になることがある）。"""
+    pres, errors, fixes = validate_and_repair(_apply_template(body.presentation, body.template_id))
+    slides = pres.get("slides", [])
+    if not 0 <= body.index < len(slides):
+        raise HTTPException(400, "スライド番号が範囲外です。")
+    normalize_presentation(pres)
+    target = slides[body.index]
+    if body.scope == "all":
+        for el in target.get("elements", []):
+            el["bbox"] = None
+            el.pop("font_scale", None)
+            el.pop("user_bbox", None)
+    new_slides = layout_slide(target, pres["canvas"], pres.get("assets", {}))
+    slides[body.index : body.index + 1] = new_slides
+    for i, s in enumerate(slides):
+        s["index"] = i
+    pres = template_kit.apply_template(pres)
+    return {"presentation": pres, "count": len(new_slides), "schema_errors": errors, "warnings": fixes}
+
+
+class FitBody(PresentationBody):
+    index: int
+    element_id: str
+
+
+@app.post("/api/layout/fit")
+def api_layout_fit(body: FitBody) -> dict:
+    """「内容に合わせる」: 要素の現在幅での推定高さを返す。"""
+    pres, _e, _f = validate_and_repair(body.presentation)
+    normalize_presentation(pres)
+    try:
+        slide = pres["slides"][body.index]
+        el = next(e for e in slide.get("elements", []) if e.get("id") == body.element_id)
+    except (IndexError, StopIteration) as e:
+        raise HTTPException(404, "要素が見つかりません。") from e
+    width = float((el.get("bbox") or {}).get("w") or (float(pres["canvas"]["width_pt"]) - 2 * float(cfg.get("layout.margin_pt", 36))))
+    return {"h": round(element_height(el, width, pres), 2), "font_pt": el.get("font_pt")}
 
 
 @app.post("/api/import/pptx")
@@ -277,3 +345,4 @@ def api_health() -> dict:
 
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+app.mount("/viewer", StaticFiles(directory=str(_VIEWER_DIR)), name="viewer")

@@ -165,6 +165,7 @@
         "font_scale": {"type": ["number", "null"], "minimum": 0.5, "maximum": 1.0, "description": "自動縮小率（分割前に文字を縮めた倍率）"},
         "rotation_deg": {"type": ["number", "null"]},
         "placeholder": {"type": "boolean", "description": "取得できなかった画像の代替枠"},
+        "user_bbox": {"type": "boolean", "description": "利用者が UI で位置・大きさを決めた枠。テンプレート適用や再配置で上書きしない"},
         "crop": {"type": ["object", "null"], "properties": {"left": {"type": "number"}, "right": {"type": "number"}, "top": {"type": "number"}, "bottom": {"type": "number"}}},
         "paragraphs": {"type": "array", "items": {"$ref": "#/$defs/paragraph"}},
         "asset_id": {"type": ["string", "null"]},
