@@ -60,7 +60,11 @@ def main() -> int:
         "4. 終了するときは黒い窓を閉じてください。\n\n"
         "設定: config/app_config.json（ポート等）、テンプレート: config/templates.json と config/template_assets/\n"
         "保存: projects/  出力: output/  ログ: logs/app.log\n"
-        "見た目優先モードは Windows 標準の Microsoft Edge を使って画像化します（Edge が無い場合は編集性優先へ自動で代替）。\n",
+        "見た目優先モードは Windows 標準の Microsoft Edge を使って画像化します（Edge が無い場合は編集性優先へ自動で代替）。\n\n"
+        "うまく起動しないとき:\n"
+        "- ZIP は C:\\pptx-web-bridge のような短いパスに展開してください（深い階層だと Windows のパス長上限に達することがあります）。\n"
+        "- 起動直後にエラーが出た場合は logs/startup_error.log の内容を担当者に共有してください。\n"
+        "- 最新版の入手: https://github.com/ViNi-77/Viniprj （dist/windows ブランチに最新の ZIP があります）\n",
         encoding="utf-8",
     )
     print(f"ビルド完了: {DIST}", flush=True)
