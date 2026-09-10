@@ -122,6 +122,55 @@ def main() -> int:
     names0 = {sh.name for sh in prs_t.slides[0].shapes}
     record("コーポレートテンプレート適用（表紙背景・ロゴ・帯・最終ページ）", "cover_background" in names0 and "logo" in names0 and len(prs_t.slides) == 13 and not warns, f"slides={len(prs_t.slides)} cover={sorted(names0)[:4]}")
 
+    # --- PPTX からテンプレート作成（Phase C）: 部品の推定 → 保存 → 適用 → 土台 PPTX で出力 → 再読込 ---
+    brand = ROOT / "samples" / "brand_template.pptx"
+    if not brand.exists():
+        sys.path.insert(0, str(ROOT / "samples"))
+        from make_brand_template_pptx import build as build_brand  # type: ignore
+
+        build_brand(brand)
+    import tempfile
+
+    from app import config as app_config
+    from app import template_store
+    from app.template_from_pptx import analyze
+
+    tmp_store = Path(tempfile.mkdtemp(prefix="pwb_tpl_"))
+    base_cfg = json.loads((ROOT / "config" / "app_config.json").read_text(encoding="utf-8"))
+    base_cfg["paths"]["user_templates_file"] = str(tmp_store / "user_templates.json")
+    base_cfg["paths"]["user_template_assets_dir"] = str(tmp_store / "assets")
+    (tmp_store / "cfg.json").write_text(json.dumps(base_cfg, ensure_ascii=False), encoding="utf-8")
+    saved_cfg = app_config._config_singleton
+    app_config._config_singleton = app_config.AppConfig(tmp_store / "cfg.json")
+    try:
+        an = analyze(brand.read_bytes(), brand.name, template_id="e2e_brand")
+        prop = an["proposal"]
+        got = {k: sorted(prop.get(k, {}).keys()) for k in ("cover", "content", "closing")}
+        ok_parts = "background_image" in got["cover"] and "logo" in got["cover"] and "bar" in got["content"] and "body" in got["content"] and "page_number" in got["content"] and "message" in got["closing"]
+        record("PPTX からテンプレート推定（背景・ロゴ・帯・本文領域・ページ番号・一言）", ok_parts, f"cover={got['cover']} content={got['content']} closing={got['closing']} warnings={len(an['warnings'])}")
+        template_store.save_template(prop)
+        ids = [t["id"] for t in app_config.get_config().templates()]
+        record("ユーザーテンプレートの保存・一覧", "e2e_brand" in ids and any(t.get("source") == "user" for t in app_config.get_config().templates()), f"templates={ids}")
+        pres_u = pipeline.import_pptx(deck.read_bytes(), deck.name, "e2e_brand")["presentation"]
+        html_u = pipeline.import_html((ROOT / "samples" / "sample_html" / "long.html").read_bytes(), "long.html", "e2e_brand")["presentation"]
+        html_u, _e, _f = pipeline.prepare(html_u)
+        from app.template_kit import content_area
+
+        area = content_area(prop, html_u["canvas"])
+        bodies = [el for s in html_u["slides"] if s.get("layout") == "title_body" for el in s["elements"] if el.get("role") != "title"]
+        inside = all(el["bbox"]["x"] >= area["x"] - 0.5 and el["bbox"]["x"] + el["bbox"]["w"] <= area["x"] + area["w"] + 0.5 and el["bbox"]["y"] >= area["y"] - 0.5 for el in bodies)
+        record("本文がテンプレートの本文領域に収まる（HTML 取込）", bool(bodies) and inside, f"area={area} bodies={len(bodies)}")
+        data, _p, warns = pipeline.export_pptx(pres_u, "editable", use_base_pptx=True)
+        (OUT / "user_template_base.pptx").write_bytes(data)
+        prs_u = Presentation(io.BytesIO(data))
+        names1 = {sh.name for sh in prs_u.slides[1].shapes}
+        n_u, titles_u = _reread(data)
+        record("土台 PPTX で出力 → 再読込（マスター維持・部品名・題名一致）", n_u == len(pres_u["slides"]) and "bar" in names1 and "logo" in names1 and titles_u == [s["title"] for s in pres_u["slides"]] and not warns, f"slides={n_u} names={sorted(names1)[:5]} warnings={[w['code'] for w in warns]}")
+        write_bundle(pipeline.prepare(pres_u)[0], OUT / "user_template_web")
+        template_store.delete_template("e2e_brand")
+    finally:
+        app_config._config_singleton = saved_cfg
+
     # --- 例外系 ---
     try:
         pipeline.import_pptx(b"broken", "broken.pptx")

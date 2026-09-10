@@ -82,7 +82,7 @@ window.PWB = window.PWB || {};
     return api(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined).then(function (r) { return r.json(); });
   }
   function currentBody(extra) {
-    var b = { presentation: state.presentation, template_id: $("template-select").value, mode: $("mode-select").value, write_to_output: $("write-output").checked };
+    var b = { presentation: state.presentation, template_id: $("template-select").value, mode: $("mode-select").value, write_to_output: $("write-output").checked, use_base_pptx: !!($("use-base-pptx") && $("use-base-pptx").checked && !$("use-base-pptx-label").hidden) };
     for (var k in (extra || {})) b[k] = extra[k];
     return b;
   }
@@ -373,8 +373,27 @@ window.PWB = window.PWB || {};
   function undo() { var p = PWB.history.undo(state.presentation); if (p) { state.presentation = p; PWB.canvas.setSelection([]); renderAll(); } }
   function redo() { var p = PWB.history.redo(state.presentation); if (p) { state.presentation = p; PWB.canvas.setSelection([]); renderAll(); } }
 
+  /** テンプレート一覧（/api/config の templates）を select に反映する。selectId を指定するとそれを選ぶ。 */
+  function templateInfo(id) { var list = (state.config && state.config.templates) || []; for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
+  function setTemplates(list, selectId) {
+    state.config = state.config || {};
+    state.config.templates = list;
+    var ts = $("template-select");
+    var current = selectId || ts.value;
+    ts.innerHTML = "";
+    list.forEach(function (t) { var o = document.createElement("option"); o.value = t.id; o.textContent = (t.source === "user" ? "★ " : "") + t.name; o.title = t.description || ""; ts.appendChild(o); });
+    if (current && templateInfo(current)) ts.value = current;
+    onTemplateSelected();
+  }
+  function onTemplateSelected() {
+    var t = templateInfo($("template-select").value);
+    $("btn-template-delete").hidden = !(t && t.source === "user");
+    $("use-base-pptx-label").hidden = !(t && t.has_base_pptx);
+  }
+
   PWB.core = {
     state: state, api: api, apiJson: apiJson, currentBody: currentBody, log: log, setStatus: setStatus, escapeHtml: escapeHtml,
+    setTemplates: setTemplates, templateInfo: templateInfo, scheduleRender: scheduleRender,
     changed: changed, deleteElements: deleteElements, duplicateElements: duplicateElements, reorderZ: reorderZ, alignSelection: alignSelection, fitHeight: fitHeight, addElement: addElement, moveSlide: moveSlide,
     onSelectionChanged: function () { PWB.inspector.render(); },
     focusInspector: function (id) { PWB.canvas.setSelection([id]); activateTab("inspector"); PWB.inspector.focusText(); },
@@ -454,6 +473,14 @@ window.PWB = window.PWB || {};
         .then(function (html) { var w = window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank"); if (w) { try { w.location.hash = "#s" + (state.selectedSlide + 1); } catch (e) { /* 無視 */ } } })
         .catch(function (e) { setStatus("プレビュー失敗: " + e.message, true); });
     },
+    "template-from-pptx": function () { PWB.templateEditor.open(); },
+    "template-delete": function () {
+      var id = $("template-select").value;
+      var t = templateInfo(id);
+      if (!t || t.source !== "user") return;
+      if (!confirm("テンプレート「" + t.name + "」を削除します。画像フォルダも消えます。よろしいですか？")) return;
+      api("/api/templates/" + encodeURIComponent(id), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function (r) { setTemplates(r.templates, null); setStatus("テンプレートを削除しました: " + t.name); PWB.slidelist.clearThumbs(); scheduleRender(); }).catch(function (e) { setStatus(e.message, true); });
+    },
     "relayout": function () { if (!state.presentation) return; var before = snapshot(); apiJson("/api/layout", currentBody()).then(function (r) { PWB.history.push(before); applyImport(r, "再レイアウト", true); }).catch(function (e) { setStatus(e.message, true); }); },
     "layout-slide-unplaced": function () { layoutSlide("unplaced"); },
     "layout-slide-all": function () { if (confirm("このスライドの全要素を配置し直します。手で動かした位置も元に戻ります。よろしいですか？")) layoutSlide("all"); },
@@ -510,7 +537,7 @@ window.PWB = window.PWB || {};
     }
     if (t.id === "file-input") { if (t.files[0]) importFile(t.files[0]); t.value = ""; return; }
     if (t.id === "add-image-input") { if (t.files[0]) addElement("image", t.files[0]); t.value = ""; return; }
-    if (t.id === "template-select") { state.report = null; renderReport(); PWB.slidelist.clearThumbs(); scheduleRender(); return; }
+    if (t.id === "template-select") { onTemplateSelected(); state.report = null; renderReport(); PWB.slidelist.clearThumbs(); scheduleRender(); return; }
     if (t.id === "loglevel-select") { setLogLevel(t.value); return; }
   });
   document.addEventListener("keydown", function (e) {
@@ -572,10 +599,10 @@ window.PWB = window.PWB || {};
     PWB.canvas.init($("canvas-area"));
     PWB.inspector.init($("inspector"));
     PWB.slidelist.init($("slide-list"));
+    PWB.templateEditor.init($("tpl-modal"));
     apiJson("/api/config").then(function (c) {
       state.config = c;
-      var ts = $("template-select");
-      c.templates.forEach(function (t) { var o = document.createElement("option"); o.value = t.id; o.textContent = t.name; o.title = t.description; ts.appendChild(o); });
+      setTemplates(c.templates, null);
       var ms = $("mode-select");
       var labels = { editable: "編集性優先（文字はテキストシェイプ）", visual: "見た目優先（画像化）", hybrid: "ハイブリッド" };
       c.pptx_modes.forEach(function (m) { var o = document.createElement("option"); o.value = m; o.textContent = labels[m] || m; if (m === c.default_mode) o.selected = true; ms.appendChild(o); });

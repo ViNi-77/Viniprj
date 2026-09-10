@@ -62,9 +62,9 @@ def prepare(presentation: dict) -> tuple[dict, list[str], list[dict]]:
     return pres, errors, fixes
 
 
-def export_pptx(presentation: dict, mode: str | None = None) -> tuple[bytes, dict, list[dict]]:
+def export_pptx(presentation: dict, mode: str | None = None, use_base_pptx: bool = False) -> tuple[bytes, dict, list[dict]]:
     pres, _errors, fixes = prepare(presentation)
-    data, warns = generate_pptx(pres, mode)
+    data, warns = generate_pptx(pres, mode, use_base_pptx=use_base_pptx)
     return data, pres, fixes + warns
 
 

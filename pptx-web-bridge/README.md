@@ -56,6 +56,7 @@ python backend/run_server.py
 | exe 配布・不具合対応 | 別 PC で起動直後にクラッシュ（`jsonschema`/`referencing` の仕様データ関連）した件を調査。原因の切り分けとして Playwright ドライバ（Node.js 本体、約120MB）の同梱をやめ配布物を約 1/3 に縮小（展開先パス長・ウイルス対策ソフトの誤検知リスクを低減）、`jsonschema` 系パッケージのメタデータ同梱を追加、起動失敗時にエラー内容を画面とログに残す仕組みを追加 | Linux 上のビルドで取込 API 経由の検証まで確認。次回 Windows ビルドでの実機確認待ち |
 | レイアウト改善（Phase A） | 文字サイズの一本化（`typography.py`）、画像の実寸配置と本文との横並び、分割前の自動縮小と分割抑制、HTML の背景色・帯・区切り線・代替画像、PPTX のトリミング焼き込み・回転・固定要素との衝突回避。スキーマ 1.1 | pytest 88、E2E 33 |
 | 編集 UI（Phase B） | iframe プレビューをやめ、サーバ描画の断片を同一オリジンのキャンバスに差し込んで直接編集（選択・ドラッグ・リサイズ・スナップ・キーボード・undo/redo・数値入力・画像差し替え・要素追加）。サムネイル付きスライド一覧と D&D 並べ替え、ペイン幅の調整。API: `/api/render/slides` `/api/layout/slide` `/api/layout/fit` | pytest 96、E2E 33、UI スモーク 13 |
+| PPTX からテンプレート作成（Phase C） | 自分の PowerPoint（表紙・中身・最終ページ）を読み込み、背景・ロゴ・帯・題名/副題/本文領域・フッター・ページ番号・一言を推定して「この解釈で入ります」を番号付きの枠で表示。枠をドラッグして直し、ユーザーテンプレートとして保存（`config/user_templates.json`）。中身の本文はテンプレートの本文領域に流し込む。任意で元の PowerPoint を土台にした PPTX 出力。API: `/api/templates/from-pptx` `/api/templates/preview` `PUT/DELETE /api/templates/{id}` | pytest 106、E2E 37、UI スモーク 20 |
 | 配布 | `start_windows.bat`（Windows）、`start.sh`（Linux）、exe 版（PyInstaller、Actions の Windows ランナーでビルド、Edge で画像化） | Linux 版バイナリで凍結ロジックを検証、Windows は CI のスモークテスト |
 
 ## 1.2 第2版で追加したもの
@@ -65,10 +66,10 @@ python backend/run_server.py
 - **設計基準書の反映**: `window.qcDebug` デバッグコマンド、ログレベル切替、大ステップ + 累積％の進捗バー、ドキュメントレベルのイベント委譲。
 
 ## 2. 使い方
-1. **ファイル投入**: PPTX / HTML / ZIP（HTML + CSS + 画像）/ JSON をドロップ。テンプレートを選ぶ。
+1. **ファイル投入**: PPTX / HTML / ZIP（HTML + CSS + 画像）/ JSON をドロップ。テンプレートを選ぶ。自分の様式を使うなら「PPTX からテンプレート作成」で表紙・中身・最終ページの PowerPoint（1〜3 枚）を読み込む。左でスライドの役割を確認し、右の番号付きの枠（背景・ロゴ・帯・題名・本文領域・フッター・ページ番号・一言）をドラッグして直し、不要な部品は ✕ で外して保存すると一覧に ★ 付きで載る。保存したテンプレートは「削除」で消せる。
 2. **編集**: 右のキャンバスで要素をクリックして選択、ドラッグで移動、角のハンドルで大きさ変更（Shift: 縦横比固定、Alt: スナップ無効）。矢印キーで微調整、Delete で削除、Ctrl+D で複製、Ctrl+Z / Ctrl+Y で取り消し・やり直し。下の「編集」タブで x/y/幅/高さ・フォント pt・色・揃え・画像の差し替えを数値入力。ツールバーから文字/図形/画像/線を追加、「このスライドを自動配置」で座標未確定の要素だけ配置、「全要素を配置し直す」でそのスライドを作り直す。スライド一覧はサムネイル付きで、ドラッグまたは ↑↓ で並べ替え、⧉ で複製、✕ で削除。ペインの境界はドラッグで幅を変えられる。
 3. **プレビュー**: 「全体プレビュー」で Web図解ビューア（目次、ページ送り、全画面、縦読み、ノート、印刷）を別タブに開く。
-4. **出力**: Web 一式（ZIP）、PPTX（モード選択）、JSON。「output フォルダにも書き出す」で `output/` へ保存。「最終ページを追加」でテンプレートの最終ページを末尾に付ける。
+4. **出力**: Web 一式（ZIP）、PPTX（モード選択）、JSON。「output フォルダにも書き出す」で `output/` へ保存。「最終ページを追加」でテンプレートの最終ページを末尾に付ける。PPTX から作ったテンプレートでは「元の PowerPoint を土台にする」を付けると、マスター・テーマ・フォントを元ファイルのまま出力する。
 5. **保存・復元**: プロジェクト名で `projects/<名前>.json` に保存し、「開く」で復元。
 
 コマンドラインでも変換できます:
@@ -95,6 +96,8 @@ backend/app/
   quality_check.py   文字切れ・重なり・画像比率・順序の検査
   storage.py         プロジェクト保存、出力書き出し
   template_kit.py    テンプレート部品（表紙・中身・最終ページ）の共通処理
+  template_from_pptx.py  PowerPoint からテンプレート部品を推定（Phase C）
+  template_store.py  ユーザーテンプレートの保存・削除
   report.py          要素判別レポート（文字/画像、座標、フォント pt）
   config.py          設定読込（値はすべて config/*.json）
 frontend/            ブラウザ UI（素の HTML / CSS / JS）
@@ -113,6 +116,7 @@ docs/                企画書に対するレビュー、要件、仕様、試�
 | `config/app_config.json` | ポート、保存先、上限、レイアウト余白・フォントサイズ、品質しきい値、ログ、HTML 取込時の Computed Style 利用（`html_import.use_computed_style`） |
 | `config/templates.json` | テンプレート（色、フォント、表紙/中身/最終ページの部品座標、フッター、機密表示）。正式ブランド規則はここへ追加 |
 | `config/template_assets/` | テンプレートのロゴ・背景画像（暫定。正式素材へ同名で差し替え） |
+| `config/user_templates.json`, `config/template_assets/user/<id>/` | 「PPTX からテンプレート作成」で保存したテンプレートと画像・元ファイル（実行時生成。exe 版は exe の隣） |
 | `config/font_fallback.json` | フォント代替表（環境間のフォント差を吸収） |
 
 環境変数 `PPTX_WEB_BRIDGE_CONFIG` で設定ファイルを差し替え、`PLAYWRIGHT_CHROMIUM_PATH` で Chromium の場所を指定できます。

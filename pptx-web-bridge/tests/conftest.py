@@ -21,6 +21,8 @@ def isolated_config(tmp_path_factory: pytest.TempPathFactory):
     base["paths"]["projects_dir"] = str(tmp / "projects")
     base["paths"]["output_dir"] = str(tmp / "output")
     base["paths"]["logs_dir"] = str(tmp / "logs")
+    base["paths"]["user_templates_file"] = str(tmp / "user_templates.json")
+    base["paths"]["user_template_assets_dir"] = str(tmp / "template_assets_user")
     cfg_path = tmp / "app_config.json"
     cfg_path.write_text(json.dumps(base, ensure_ascii=False), encoding="utf-8")
     app_config._config_singleton = app_config.AppConfig(cfg_path)

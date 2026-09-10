@@ -2,13 +2,18 @@
 
 - Playwright / Chromium（または Edge/Chrome）が無い環境では skip（終了コード 0）。
 - 実行: python scripts/ui_smoke.py [--screenshots DIR]
-確認項目: キャンバス描画、サムネイル、ドラッグで bbox が変わる、Undo で戻る、インスペクタの数値入力、要素追加・削除、スライド並べ替え。
+確認項目: キャンバス描画、サムネイル、ドラッグで bbox が変わる、Undo で戻る、インスペクタの数値入力、要素追加・削除、スライド並べ替え、
+          PPTX からテンプレート作成（解析 → 枠のドラッグ → 部品の除外 → 保存 → 適用 → 削除）。
+ユーザーテンプレートの保存先は一時ディレクトリ（リポジトリの config/ を汚さない）。
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import shutil
 import socket
+import tempfile
 import subprocess
 import sys
 import time
@@ -49,7 +54,18 @@ def main() -> int:
     from playwright.sync_api import sync_playwright
 
     port = _free_port()
-    env = dict(os.environ, PWB_PORT=str(port))
+    tmp_store = Path(tempfile.mkdtemp(prefix="pwb_ui_"))
+    cfg = json.loads((ROOT / "config" / "app_config.json").read_text(encoding="utf-8"))
+    cfg["paths"]["user_templates_file"] = str(tmp_store / "user_templates.json")
+    cfg["paths"]["user_template_assets_dir"] = str(tmp_store / "assets")
+    (tmp_store / "app_config.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    env = dict(os.environ, PWB_PORT=str(port), PPTX_WEB_BRIDGE_CONFIG=str(tmp_store / "app_config.json"))
+    brand = ROOT / "samples" / "brand_template.pptx"
+    if not brand.exists():
+        sys.path.insert(0, str(ROOT / "samples"))
+        from make_brand_template_pptx import build as build_brand  # type: ignore
+
+        build_brand(brand)
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"], cwd=str(ROOT / "backend"), env=env)
     results: list[tuple[str, bool, str]] = []
 
@@ -167,6 +183,58 @@ def main() -> int:
             if shots:
                 page.screenshot(path=str(shots / "ui_03_inspector.png"))
 
+            # --- PPTX からテンプレート作成 ---
+            page.click("button[data-action='template-from-pptx']")
+            page.wait_for_selector("#tpl-modal:not([hidden])")
+            page.set_input_files("#tpl-file", str(brand))
+            page.wait_for_function("() => PWB.templateEditor.state().proposal && document.querySelectorAll('#tpl-parts .tpl-part').length > 0", timeout=60000)
+            page.wait_for_timeout(500)
+            n_parts = page.evaluate("() => PWB.templateEditor.state().parts.length")
+            n_all = page.evaluate("() => document.querySelectorAll('#tpl-canvas .sel-box.all').length")
+            record("テンプレート推定（部品の一覧と番号付き枠）", n_parts >= 8 and n_all >= 3, f"parts={n_parts} boxes(cover)={n_all}")
+            if shots:
+                page.screenshot(path=str(shots / "ui_04_template_cover.png"))
+            page.click("button[data-tpl-tab='content']")
+            page.wait_for_timeout(300)
+            page.click(".tpl-part[data-part='content:bar']")
+            page.wait_for_selector("#tpl-canvas .sel-box.primary")
+            bar_before = page.evaluate("() => JSON.parse(JSON.stringify(PWB.templateEditor.state().proposal.content.bar))")
+            bb = page.locator("#tpl-canvas .sel-box.primary").bounding_box()
+            assert bb
+            page.mouse.move(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2)
+            page.mouse.down()
+            page.mouse.move(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2 - 40, steps=8)
+            page.mouse.up()
+            page.wait_for_timeout(700)
+            bar_after = page.evaluate("() => PWB.templateEditor.state().proposal.content.bar")
+            record("テンプレートの枠をドラッグ（帯の y が変わり描き直される）", bar_after["y"] < bar_before["y"] - 10, f"y {bar_before['y']:.0f} → {bar_after['y']:.0f}")
+            page.fill("#tpl-parts input[data-tpl-box='x'][data-part='content:bar']", "150")
+            page.press("#tpl-parts input[data-tpl-box='x'][data-part='content:bar']", "Enter")
+            page.wait_for_timeout(600)
+            bar_x = page.evaluate("() => PWB.templateEditor.state().proposal.content.bar.x")
+            record("テンプレート部品の数値入力", abs(bar_x - 150) < 0.01, f"x={bar_x}")
+            page.click("button[data-tpl-remove='content:page_number']")
+            page.wait_for_function("() => !PWB.templateEditor.state().proposal.content.page_number", timeout=10000)
+            page.wait_for_timeout(500)
+            has_pn = page.evaluate("() => (PWB.templateEditor.state().previews.content || '').indexOf('data-tpl=\"page_number\"') >= 0")
+            record("部品を外す（ページ番号がプレビューから消える）", not has_pn)
+            if shots:
+                page.screenshot(path=str(shots / "ui_05_template_content.png"))
+            page.fill("#tpl-id", "ui_brand")
+            page.fill("#tpl-name", "UI 試験テンプレート")
+            page.click("#tpl-save")
+            page.wait_for_function("() => document.getElementById('tpl-modal').hidden && document.getElementById('template-select').value === 'ui_brand'", timeout=20000)
+            page.wait_for_timeout(800)
+            tpl_opt = page.evaluate("() => { var s = document.getElementById('template-select'); return s.options[s.selectedIndex].textContent; }")
+            del_visible = page.evaluate("() => !document.getElementById('btn-template-delete').hidden && !document.getElementById('use-base-pptx-label').hidden")
+            record("テンプレートの保存と選択（★付き、削除・土台の選択肢が出る）", "ui_brand" in page.evaluate("() => document.getElementById('template-select').value") and tpl_opt.startswith("★") and del_visible, tpl_opt)
+            page.wait_for_function("() => document.querySelector('.canvas-stage .tpl-bar') !== null", timeout=20000)
+            record("保存したテンプレートでキャンバスが描き直される（帯が出る）", True)
+            page.on("dialog", lambda d: d.accept())
+            page.click("#btn-template-delete")
+            page.wait_for_function("() => Array.prototype.every.call(document.getElementById('template-select').options, function (o) { return o.value !== 'ui_brand'; })", timeout=20000)
+            record("ユーザーテンプレートの削除", True)
+
             record("JavaScript エラーなし", not errors, "; ".join(errors)[:200])
             browser.close()
     finally:
@@ -175,6 +243,7 @@ def main() -> int:
             proc.wait(timeout=5)
         except Exception:  # noqa: BLE001
             proc.kill()
+        shutil.rmtree(tmp_store, ignore_errors=True)
     ok = all(r[1] for r in results)
     print(f"\n総合: {'合格' if ok else '不合格'}（{sum(1 for r in results if r[1])} / {len(results)}）")
     return 0 if ok else 1
