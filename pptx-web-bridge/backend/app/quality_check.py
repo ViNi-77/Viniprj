@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from .config import get_config
 from .text_metrics import estimate_paragraphs_height
+from .typography import element_font_pt, font_scale
 
 
 def _issue(code: str, message: str, severity: str = "warning", slide_id: str | None = None, element_id: str | None = None) -> dict:
@@ -17,15 +18,6 @@ def _overlap_area(a: dict, b: dict) -> float:
     x1, y1 = max(a["x"], b["x"]), max(a["y"], b["y"])
     x2, y2 = min(a["x"] + a["w"], b["x"] + b["w"]), min(a["y"] + a["h"], b["y"] + b["h"])
     return max(0.0, x2 - x1) * max(0.0, y2 - y1)
-
-
-def _default_size(role: str | None) -> float:
-    cfg = get_config()
-    if role == "title":
-        return float(cfg.get("layout.title_font_pt", 28))
-    if role == "caption":
-        return float(cfg.get("layout.caption_font_pt", 12))
-    return float(cfg.get("layout.body_font_pt", 16))
 
 
 def check_presentation(presentation: dict) -> list[dict]:
@@ -63,13 +55,15 @@ def check_presentation(presentation: dict) -> list[dict]:
             t = el.get("type")
             if t in ("text", "shape") and el.get("paragraphs"):
                 pad = 12 if t == "text" else 28
-                need = estimate_paragraphs_height(el["paragraphs"], max(1.0, b["w"] - pad), _default_size(el.get("role")))
+                need = estimate_paragraphs_height(el["paragraphs"], max(1.0, b["w"] - pad), element_font_pt(el), scale=font_scale(el))
                 if b["h"] > 0 and need / b["h"] > overflow_ratio * 1.15:
                     issues.append(_issue("TEXT_OVERFLOW", f"文字量が枠に対して多く、文字切れの可能性があります（推定 {need:.0f}pt / 枠 {b['h']:.0f}pt）。", "warning", sid, eid))
             if t == "image":
                 asset = assets.get(el.get("asset_id") or "", {})
                 nw, nh = asset.get("width_px"), asset.get("height_px")
-                if not asset:
+                if el.get("placeholder"):
+                    issues.append(_issue("IMAGE_PLACEHOLDER", "取得できなかった画像の代替枠です（後で画像を差し替えてください）。", "info", sid, eid))
+                elif not asset:
                     issues.append(_issue("IMAGE_ASSET_MISSING", "画像資産が見つかりません。", "error", sid, eid))
                 elif nw and nh and b["w"] > 0 and b["h"] > 0 and (el.get("fit") or "contain") == "stretch":
                     r_box, r_img = b["w"] / b["h"], float(nw) / float(nh)

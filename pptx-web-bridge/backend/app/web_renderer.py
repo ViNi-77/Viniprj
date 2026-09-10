@@ -15,6 +15,7 @@ from pathlib import Path
 from . import template_kit
 from .config import get_config
 from .model import slide_title
+from .typography import effective_size, element_font_pt, font_scale, role_default_pt
 
 _VIEWER_DIR = Path(__file__).resolve().parent / "viewer"
 _SAFE_HREF_PREFIXES = ("http://", "https://", "mailto:")
@@ -24,18 +25,7 @@ def _esc(s: str) -> str:
     return html.escape(str(s or ""), quote=True)
 
 
-def _role_font_size(role: str | None) -> float:
-    cfg = get_config()
-    if role == "title":
-        return float(cfg.get("layout.title_font_pt", 28))
-    if role == "subtitle":
-        return float(cfg.get("layout.body_font_pt", 16)) * 1.25
-    if role == "caption":
-        return float(cfg.get("layout.caption_font_pt", 12))
-    return float(cfg.get("layout.body_font_pt", 16))
-
-
-def _run_html(r: dict) -> str:
+def _run_html(r: dict, el: dict | None = None) -> str:
     styles = []
     if r.get("bold"):
         styles.append("font-weight:bold")
@@ -44,7 +34,7 @@ def _run_html(r: dict) -> str:
     if r.get("underline"):
         styles.append("text-decoration:underline")
     if r.get("size_pt"):
-        styles.append(f"font-size:{float(r['size_pt']):g}px")
+        styles.append(f"font-size:{effective_size(r, el or {}):g}px")
     if r.get("color"):
         styles.append(f"color:{_esc(r['color'])}")
     if r.get("font") and "font" not in (r.get("inherited") or []):
@@ -57,12 +47,12 @@ def _run_html(r: dict) -> str:
     return inner
 
 
-def paragraphs_html(paragraphs: list[dict]) -> str:
+def paragraphs_html(paragraphs: list[dict], el: dict | None = None) -> str:
     """段落列を HTML へ。連続する箇条書きは ul/ol にまとめる。"""
     out: list[str] = []
     open_list: str | None = None
     for p in paragraphs:
-        runs_html = "".join(_run_html(r) for r in p.get("runs", [])) or "&nbsp;"
+        runs_html = "".join(_run_html(r, el) for r in p.get("runs", [])) or "&nbsp;"
         align = p.get("align")
         cls = f' class="align-{_esc(align)}"' if align in ("center", "right", "justify") else ""
         bullet = p.get("bullet")
@@ -85,10 +75,11 @@ def paragraphs_html(paragraphs: list[dict]) -> str:
     return "".join(out)
 
 
-def _bbox_style(b: dict | None, z: int = 0) -> str:
+def _bbox_style(b: dict | None, z: int = 0, rotation: float | None = None) -> str:
     if not b:
         return ""
-    return f"left:{b['x']:g}px;top:{b['y']:g}px;width:{b['w']:g}px;height:{b['h']:g}px;z-index:{z}"
+    rot = f";transform:rotate({float(rotation):g}deg)" if rotation else ""
+    return f"left:{b['x']:g}px;top:{b['y']:g}px;width:{b['w']:g}px;height:{b['h']:g}px;z-index:{z}{rot}"
 
 
 def _asset_src(presentation: dict, asset_id: str | None, inline_assets: bool) -> str | None:
@@ -111,17 +102,17 @@ def asset_filename(asset_id: str, asset: dict) -> str:
 def element_html(el: dict, presentation: dict, inline_assets: bool) -> str:
     t = el.get("type")
     z = int(el.get("z", 0) or 0)
-    style = _bbox_style(el.get("bbox"), z)
+    style = _bbox_style(el.get("bbox"), z, el.get("rotation_deg"))
     role = el.get("role")
     eid = _esc(el.get("id", ""))
     if t == "text":
-        size = _role_font_size(role)
+        size = element_font_pt(el) * font_scale(el)
         va = el.get("vertical_align")
         cls = f"el el-text role-{role or 'body'}" + (f" va-{va}" if va in ("middle", "bottom") else "")
         fill = f"background:{_esc(el['fill'])};" if el.get("fill") else ""
-        return f'<div class="{cls}" id="{eid}" style="{style};font-size:{size:g}px;{fill}">{paragraphs_html(el.get("paragraphs", []))}</div>'
+        return f'<div class="{cls}" id="{eid}" style="{style};font-size:{size:g}px;{fill}">{paragraphs_html(el.get("paragraphs", []), el)}</div>'
     if t == "shape":
-        size = _role_font_size(role)
+        size = element_font_pt(el) * font_scale(el)
         shape = el.get("shape") or "rect"
         radius = {
             "rounded_rect": "border-radius:10px;",
@@ -135,12 +126,13 @@ def element_html(el: dict, presentation: dict, inline_assets: bool) -> str:
         stroke = f"border:{float(el.get('stroke_width_pt') or 1):g}px solid {_esc(el['stroke'])};" if el.get("stroke") else ""
         va = el.get("vertical_align") or "middle"
         jc = {"top": "flex-start", "bottom": "flex-end"}.get(va, "center")
-        return f'<div class="el el-shape shape-{_esc(shape)}" id="{eid}" style="{style};font-size:{size:g}px;{fill}{stroke}{radius}justify-content:{jc};">{paragraphs_html(el.get("paragraphs", []))}</div>'
+        return f'<div class="el el-shape shape-{_esc(shape)}" id="{eid}" style="{style};font-size:{size:g}px;{fill}{stroke}{radius}justify-content:{jc};">{paragraphs_html(el.get("paragraphs", []), el)}</div>'
     if t == "image":
         src = _asset_src(presentation, el.get("asset_id"), inline_assets)
         fit = {"cover": "cover", "stretch": "fill"}.get(el.get("fit") or "contain", "contain")
         if not src:
-            return f'<div class="el el-unsupported" id="{eid}" style="{style}">画像が見つかりません</div>'
+            label = _esc(el.get("alt") or "画像")
+            return f'<div class="el el-image placeholder" id="{eid}" style="{style}"><span>{label}</span></div>'
         return f'<div class="el el-image" id="{eid}" style="{style}"><img src="{src}" alt="{_esc(el.get("alt") or "")}" style="object-fit:{fit}"></div>'
     if t == "line":
         pts = el.get("points") or []
@@ -186,7 +178,7 @@ def element_html(el: dict, presentation: dict, inline_assets: bool) -> str:
                 content = paragraphs_html(c["paragraphs"]) if c.get("paragraphs") else _esc(c.get("text", "")).replace("\n", "<br>")
                 tds.append(f"<{tag}{attrs}>{content}</{tag}>")
             trs.append("<tr>" + "".join(tds) + "</tr>")
-        size = _role_font_size("caption") + 2
+        size = (element_font_pt(el) if el.get("font_pt") else role_default_pt("caption") + 2) * font_scale(el)
         return f'<div class="el el-table" id="{eid}" style="{style};font-size:{size:g}px"><table>{colgroup}{"".join(trs)}</table></div>'
     label = _esc(el.get("alt") or el.get("original_type") or "未対応要素")
     return f'<div class="el el-unsupported" id="{eid}" style="{style}">{label}</div>'
@@ -221,6 +213,9 @@ def slide_html(slide: dict, presentation: dict, inline_assets: bool, template: d
     chrome = template_kit.chrome_spec(slide, presentation)
     bg = (slide.get("background") or {}).get("color") or chrome.get("background_color") or presentation["theme"].get("colors", {}).get("background", "#FFFFFF")
     style = f"width:{w:g}px;height:{h:g}px;background:{_esc(bg)}"
+    text_color = (slide.get("background") or {}).get("text_color")
+    if text_color:
+        style += f";color:{_esc(text_color)}"
     if chrome.get("background_image"):
         src = _template_image_src(chrome["background_image"], inline_assets)
         if src:

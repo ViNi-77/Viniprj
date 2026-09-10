@@ -24,6 +24,7 @@ from . import template_kit
 from .config import get_config
 from .logging_setup import get_logger
 from .model import add_warning, warning
+from .typography import effective_size, element_font_pt, font_scale, role_default_pt
 from .units import pt_to_emu
 
 log = get_logger("pptx_generator")
@@ -79,25 +80,22 @@ class _Gen:
         self.colors = presentation.get("theme", {}).get("colors", {})
         self.warnings: list[dict] = []
         self.images: list[bytes | None] = []
+        self.slide_text_color: str | None = None  # 暗い背景のスライドで色未指定の文字に使う
 
     # --- 共通 ---
     def role_size(self, role: str | None) -> float:
-        if role == "title":
-            return float(self.cfg.get("layout.title_font_pt", 28))
-        if role == "subtitle":
-            return float(self.cfg.get("layout.body_font_pt", 16)) * 1.25
-        if role == "caption":
-            return float(self.cfg.get("layout.caption_font_pt", 12))
-        return float(self.cfg.get("layout.body_font_pt", 16))
+        return role_default_pt(role)
 
     def font_for(self, role: str | None, run_font: str | None) -> str:
         default = self.theme_fonts.get("heading" if role == "title" else "body") or self.fonts.get("default_body", "Meiryo")
         return _resolve_font(run_font, self.fonts, default)
 
-    def fill_paragraphs(self, text_frame: Any, paragraphs: list[dict], role: str | None, default_color: str | None = None) -> None:
+    def fill_paragraphs(self, text_frame: Any, paragraphs: list[dict], role: str | None, default_color: str | None = None, el: dict | None = None) -> None:
+        """段落を書き込む。サイズは typography の実効サイズ（自動縮小込み）を実値で書き、normAutofit は使わない。"""
         text_frame.word_wrap = True
         first = True
-        base_size = self.role_size(role)
+        base_size = element_font_pt(el) * font_scale(el) if el is not None else self.role_size(role)
+        default_color = default_color or self.slide_text_color
         for para in paragraphs:
             p = text_frame.paragraphs[0] if first else text_frame.add_paragraph()
             first = False
@@ -111,7 +109,7 @@ class _Gen:
                 run = p.add_run()
                 run.text = r.get("text", "")
                 f = run.font
-                f.size = Pt(float(r.get("size_pt") or base_size))
+                f.size = Pt(effective_size(r, el) if el is not None else float(r.get("size_pt") or base_size))
                 f.bold = bool(r.get("bold")) or (role == "title" and r.get("bold") is None)
                 f.italic = bool(r.get("italic"))
                 if r.get("underline"):
@@ -162,7 +160,17 @@ class _Gen:
             tb.fill.fore_color.rgb = _rgb(el["fill"])
         tf = tb.text_frame
         tf.vertical_anchor = _ANCHOR.get(el.get("vertical_align") or "top", MSO_ANCHOR.TOP)
-        self.fill_paragraphs(tf, el.get("paragraphs", []), el.get("role"))
+        self.fill_paragraphs(tf, el.get("paragraphs", []), el.get("role"), el=el)
+        self._apply_rotation(tb, el)
+
+    @staticmethod
+    def _apply_rotation(shape: Any, el: dict) -> None:
+        rot = el.get("rotation_deg")
+        if rot:
+            try:
+                shape.rotation = float(rot)
+            except (TypeError, ValueError):
+                pass
 
     def add_shape(self, slide: Any, el: dict) -> None:
         b = el["bbox"]
@@ -185,17 +193,21 @@ class _Gen:
         tf.vertical_anchor = _ANCHOR.get(el.get("vertical_align") or "middle", MSO_ANCHOR.MIDDLE)
         tf.margin_left = tf.margin_right = Pt(8)
         tf.margin_top = tf.margin_bottom = Pt(6)
-        default_color = "#FFFFFF" if _is_dark(el.get("fill")) else None
+        default_color = "#FFFFFF" if _is_dark(el.get("fill")) else ("#222222" if el.get("fill") else None)
         paras = el.get("paragraphs", [])
         if paras:
-            self.fill_paragraphs(tf, paras, el.get("role") if el.get("role") in ("title", "subtitle", "caption") else "body", default_color)
+            self.fill_paragraphs(tf, paras, el.get("role") if el.get("role") in ("title", "subtitle", "caption") else "body", default_color, el=el)
+        self._apply_rotation(shp, el)
 
     def add_image(self, slide: Any, el: dict, slide_dict: dict) -> None:
         b = el["bbox"]
         asset = self.p.get("assets", {}).get(el.get("asset_id") or "")
         if not asset:
-            self.warn("ASSET_MISSING", "画像資産が見つからないため枠のみ出力します。", slide_dict, el)
-            self.add_placeholder_box(slide, b, "画像なし")
+            if el.get("placeholder"):
+                self.add_placeholder_box(slide, b, str(el.get("alt") or "画像"))
+            else:
+                self.warn("ASSET_MISSING", "画像資産が見つからないため枠のみ出力します。", slide_dict, el)
+                self.add_placeholder_box(slide, b, "画像なし")
             return
         try:
             blob = base64.b64decode(asset.get("data_base64", ""))
@@ -216,6 +228,7 @@ class _Gen:
                     h = new_h
             pic = slide.shapes.add_picture(stream, Emu(pt_to_emu(x)), Emu(pt_to_emu(y)), Emu(pt_to_emu(w)), Emu(pt_to_emu(h)))
             pic.name = el.get("id", "image")
+            self._apply_rotation(pic, el)
             if fit == "cover" and nat_w and nat_h and w > 0 and h > 0:
                 ratio_box, ratio_img = w / h, float(nat_w) / float(nat_h)
                 if ratio_img > ratio_box:
@@ -429,6 +442,7 @@ class _Gen:
 
         for si, sd in enumerate(self.p.get("slides", [])):
             slide = prs.slides.add_slide(blank)
+            self.slide_text_color = (sd.get("background") or {}).get("text_color")
             # スライド種別（表紙 / 最終ページ）を cSld の name 属性へ残す。図形ではないので本文要素に混ざらない（Issue #8）
             kind = template_kit.slide_kind(sd, self.p)
             if kind in ("cover", "closing"):

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/presentation.schema.json",
-  "title": "Presentation JSON v1.0",
+  "title": "Presentation JSON v1.1",
   "description": "PPTX と Web図解の共通中間形式。座標は pt（1pt = 1/72 inch）、原点はスライド左上。",
   "type": "object",
   "required": ["schema_version", "meta", "canvas", "theme", "slides"],
@@ -133,7 +133,9 @@
         "layout": {"type": "string", "enum": ["title", "section", "title_body", "two_column", "three_column", "image", "table", "blank", "closing"]},
         "title": {"type": ["string", "null"]},
         "notes": {"type": ["string", "null"]},
-        "background": {"type": ["object", "null"], "properties": {"color": {"type": "string"}, "asset_id": {"type": "string"}}},
+        "background": {"type": ["object", "null"], "properties": {"color": {"type": "string"}, "asset_id": {"type": "string"}, "text_color": {"type": ["string", "null"], "description": "背景が暗い場合に色未指定の文字へ使う色"}}},
+        "continuation_of": {"type": ["string", "null"], "description": "自動分割で生じた続きページの元スライド ID"},
+        "continuation_index": {"type": ["integer", "null"], "minimum": 1},
         "elements": {"type": "array", "items": {"$ref": "#/$defs/element"}},
         "warnings": {"type": "array", "items": {"$ref": "#/$defs/warning"}}
       }
@@ -151,9 +153,19 @@
           "type": ["object", "null"],
           "properties": {
             "column": {"type": "integer", "minimum": 0},
-            "columns": {"type": "integer", "minimum": 1}
+            "columns": {"type": "integer", "minimum": 1},
+            "row": {"type": ["integer", "null"], "description": "文字＋画像の横並び。同じ値の連続要素を 1 行に置く"},
+            "side": {"type": ["string", "null"], "enum": ["left", "right", null]},
+            "weight": {"type": ["number", "null"], "minimum": 0.1, "maximum": 0.9, "description": "画像側の幅の割合"},
+            "band": {"type": "boolean", "description": "短文の帯（最小高さを抑える）"},
+            "keep_with_next": {"type": "boolean", "description": "次の要素とページを分けない"}
           }
         },
+        "font_pt": {"type": ["number", "null"], "description": "要素の基準サイズ（typography で確定。run に明示が無い場合の既定）"},
+        "font_scale": {"type": ["number", "null"], "minimum": 0.5, "maximum": 1.0, "description": "自動縮小率（分割前に文字を縮めた倍率）"},
+        "rotation_deg": {"type": ["number", "null"]},
+        "placeholder": {"type": "boolean", "description": "取得できなかった画像の代替枠"},
+        "crop": {"type": ["object", "null"], "properties": {"left": {"type": "number"}, "right": {"type": "number"}, "top": {"type": "number"}, "bottom": {"type": "number"}}},
         "paragraphs": {"type": "array", "items": {"$ref": "#/$defs/paragraph"}},
         "asset_id": {"type": ["string", "null"]},
         "alt": {"type": ["string", "null"]},

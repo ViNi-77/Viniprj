@@ -37,7 +37,7 @@ def test_import_pptx_and_exports(sample_pptx_bytes):
     assert r.headers["x-warning-count"] == "0"
 
     r = client.post("/api/export/json", json={"presentation": pres})
-    assert r.status_code == 200 and json.loads(r.content)["schema_version"] == "1.0"
+    assert r.status_code == 200 and json.loads(r.content)["schema_version"] == "1.1"
 
 
 def test_import_html_zip(sample_html_files):

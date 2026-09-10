@@ -20,6 +20,7 @@ from urllib.parse import unquote, urlparse
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
+from .config import get_config
 from .ids import IdFactory
 from .layout import make_title_slide
 from .logging_setup import get_logger
@@ -60,6 +61,39 @@ def css_px_to_pt(value: str | None) -> float | None:
         return None
     m = re.match(r"([\d.]+)px", value.strip())
     return round(float(m.group(1)) / _PX_PER_PT, 1) if m else None
+
+
+def _is_dark_hex(color: str) -> bool:
+    try:
+        r, g, b = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
+    except (ValueError, TypeError):
+        return False
+    return (0.299 * r + 0.587 * g + 0.114 * b) < 128
+
+
+_INLINE_PROPS = ("color", "background-color", "background", "font-size", "font-weight", "text-align", "float")
+
+
+def _inline_style(node: Tag) -> dict[str, str]:
+    """style 属性を Computed Style と同じ形の辞書へ（ブラウザが無い環境の代替。色は 16 進または rgb() のみ）。"""
+    out: dict[str, str] = {}
+    for part in str(node.get("style", "")).split(";"):
+        if ":" not in part:
+            continue
+        k, v = part.split(":", 1)
+        k, v = k.strip().lower(), v.strip()
+        if k not in _INLINE_PROPS or not v:
+            continue
+        if k == "background":
+            k = "background-color"
+            m = re.search(r"(#[0-9A-Fa-f]{3,6}|rgba?\([^)]*\))", v)
+            if not m:
+                continue
+            v = m.group(1)
+        if k in ("color", "background-color") and not css_color_to_hex(v):
+            continue
+        out[k] = v
+    return out
 
 
 def tag_elements(soup: BeautifulSoup) -> None:
@@ -137,7 +171,8 @@ def _para_from(node: Tag, **kw: Any) -> dict | None:
 def _apply_computed(para: dict | None, style: dict[str, str], default: dict[str, str] | None = None) -> dict | None:
     """Computed Style（色・サイズ・太字・寄せ）を、明示指定の無いランへ補う。
 
-    body の Computed Style（default）と同じ色・サイズは「既定」とみなして書かない（ハードコードの除外リストは持たない）。
+    body の Computed Style（default）と同じ色は「既定」とみなして書かない（ハードコードの除外リストは持たない）。
+    サイズは常に継承値として書き、typography の帯域で役割ごとに整える。
     """
     if not para or not style:
         return para
@@ -145,7 +180,6 @@ def _apply_computed(para: dict | None, style: dict[str, str], default: dict[str,
     color = css_color_to_hex(style.get("color"))
     size = css_px_to_pt(style.get("font-size"))
     base_color = css_color_to_hex(default.get("color")) or "#000000"
-    base_size = css_px_to_pt(default.get("font-size")) or 12.0
     weight = style.get("font-weight", "")
     bold = weight.isdigit() and int(weight) >= 600 or weight == "bold"
     for r in para["runs"]:
@@ -153,7 +187,7 @@ def _apply_computed(para: dict | None, style: dict[str, str], default: dict[str,
         # CSS 由来の値は「継承値」として印を付け、テンプレート適用時に上書きできるようにする（明示 style 属性は _inline_runs で先に入る）
         if color and color != base_color and not r.get("color"):
             r["color"], inh = color, inh + ["color"]
-        if size and abs(size - base_size) >= 0.5 and not r.get("size_pt"):
+        if size and not r.get("size_pt"):
             r["size_pt"], inh = size, inh + ["size_pt"]
         if bold and not r.get("bold"):
             r["bold"], inh = True, inh + ["bold"]
@@ -199,9 +233,12 @@ class _Ctx:
         self.default_style: dict[str, str] = {}  # body の Computed Style（既定値の判定に使う）
 
     def style_of(self, node: Tag | None) -> dict[str, str]:
-        if node is None or not self.styles:
+        """node の Computed Style。ブラウザで取得できていない環境では style 属性の直書きだけを読む。"""
+        if node is None:
             return {}
-        return self.styles.get(str(node.get("data-pwb-id", "")), {})
+        if self.styles:
+            return self.styles.get(str(node.get("data-pwb-id", "")), {})
+        return _inline_style(node)
 
     def styled(self, para: dict | None, node: Tag | None) -> dict | None:
         """段落に node の Computed Style を適用する（取得していなければそのまま）。"""
@@ -317,9 +354,80 @@ def _card_element(ctx: _Ctx, card: Tag, column: int, columns: int, slide: dict) 
         cs = ctx.style_of(card)
         fill = css_color_to_hex(cs.get("background-color")) or colors.get("surface", "#F4F6F9")
         stroke = css_color_to_hex(cs.get("border-top-color")) if css_px_to_pt(cs.get("border-top-width")) else None
-        out.append(shape_element(ctx.ids.next("el"), "rounded_rect", None, fill=fill, stroke=stroke or colors.get("line", "#C9D1DB"), stroke_width_pt=1.0, paragraphs=paras, role="card", layout_hint={"column": column, "columns": columns}, vertical_align="top"))
+        hint: dict[str, Any] = {"column": column, "columns": columns}
+        chars = sum(len(r.get("text", "")) for p in paras for r in p.get("runs", []))
+        if columns == 1 and chars < int(get_config().get("layout.band_max_chars", 80)):
+            hint["band"] = True  # 短文の帯（見出し帯など）: 最小高さを抑える
+        out.append(shape_element(ctx.ids.next("el"), "rounded_rect", None, fill=fill, stroke=stroke or colors.get("line", "#C9D1DB"), stroke_width_pt=1.0, paragraphs=paras, role="card", layout_hint=hint, vertical_align="top"))
     out.extend(extra)
     return out
+
+
+_SIDE_RIGHT = re.compile(r"(^|[\s_-])(right|img-right|float-right|pull-right|end)([\s_-]|$)", re.I)
+_SIDE_LEFT = re.compile(r"(^|[\s_-])(left|img-left|float-left|pull-left|start)([\s_-]|$)", re.I)
+
+
+def _image_side(node: Tag, ctx: _Ctx) -> str | None:
+    """画像の左右指定（class / float）を読む。無ければ None（DOM 順で決める）。"""
+    for n in (node, node.parent if isinstance(node.parent, Tag) else None):
+        if n is None:
+            continue
+        classes = " ".join(n.get("class", []))
+        fl = ctx.style_of(n).get("float", "")
+        if fl == "right" or _SIDE_RIGHT.search(classes):
+            return "right"
+        if fl == "left" or _SIDE_LEFT.search(classes):
+            return "left"
+    return None
+
+
+def _image_or_placeholder(ctx: _Ctx, img: Tag, slide: dict) -> dict:
+    asset_id = ctx.resolve_image(str(img.get("src", "")), slide)
+    side = _image_side(img, ctx)
+    hint = {"side": side} if side else None
+    if asset_id:
+        return image_element(ctx.ids.next("el"), asset_id, None, alt=str(img.get("alt", "")), layout_hint=hint)
+    return image_element(ctx.ids.next("el"), None, None, alt=f"画像（未取得）{img.get('alt', '')}", placeholder=True, layout_hint=hint)
+
+
+def _pairable_text(el: dict) -> bool:
+    return el.get("type") == "text" and el.get("role") in (None, "body", "caption") and not _hint(el).get("columns") and _hint(el).get("row") is None
+
+
+def _hint(el: dict) -> dict:
+    return el.get("layout_hint") or {}
+
+
+def _wide_image(el: dict, assets: dict, content_w: float) -> bool:
+    asset = assets.get(el.get("asset_id") or "", {})
+    w_px = asset.get("width_px")
+    return bool(w_px) and float(w_px) * 0.75 > content_w * 0.6
+
+
+def _pair_text_and_images(elements: list[dict], assets: dict, content_w: float) -> list[dict]:
+    """隣接する本文と画像を「横並びの行」にまとめる（layout_hint.row / side）。直後のキャプションは画像側へ付ける。"""
+    row = 0
+    i = 0
+    while i < len(elements):
+        el = elements[i]
+        if el.get("type") != "image" or _hint(el).get("columns") or _hint(el).get("row") is not None or _wide_image(el, assets, content_w):
+            i += 1
+            continue
+        cap = elements[i + 1] if i + 1 < len(elements) and elements[i + 1].get("type") == "text" and elements[i + 1].get("role") == "caption" and _hint(elements[i + 1]).get("row") is None else None
+        after_idx = i + (2 if cap is not None else 1)
+        after = elements[after_idx] if after_idx < len(elements) and _pairable_text(elements[after_idx]) else None
+        before = elements[i - 1] if i > 0 and _pairable_text(elements[i - 1]) else None
+        txt = before if before is not None else after
+        if txt is None:
+            i = after_idx
+            continue
+        row += 1
+        side = _hint(el).get("side") or ("right" if before is not None else "left")
+        for m in [el] + ([cap] if cap is not None else []):
+            m["layout_hint"] = {**_hint(m), "row": row, "side": side}
+        txt["layout_hint"] = {**_hint(txt), "row": row, "side": "left" if side == "right" else "right"}
+        i = after_idx + (1 if txt is after else 0)
+    return elements
 
 
 def _is_grid(node: Tag) -> bool:
@@ -356,7 +464,8 @@ def _walk_block(node: Tag, ctx: _Ctx, slide: dict, max_columns: int) -> list[dic
             if p:
                 for r in p["runs"]:
                     r["bold"] = True
-                out.append(text_element(ctx.ids.next("el"), [p], role="body"))
+                short = sum(len(r.get("text", "")) for r in p["runs"]) <= int(get_config().get("layout.keep_with_next_max_chars", 40))
+                out.append(text_element(ctx.ids.next("el"), [p], role="body", layout_hint={"keep_with_next": True} if short else None))
         elif name == "p":
             p = ctx.styled(_para_from(child), child)
             if p:
@@ -371,17 +480,11 @@ def _walk_block(node: Tag, ctx: _Ctx, slide: dict, max_columns: int) -> list[dic
             if el:
                 out.append(el)
         elif name == "img":
-            asset_id = ctx.resolve_image(str(child.get("src", "")), slide)
-            if asset_id:
-                out.append(image_element(ctx.ids.next("el"), asset_id, None, alt=str(child.get("alt", ""))))
-            else:
-                out.append({"id": ctx.ids.next("el"), "type": "unsupported", "role": None, "bbox": None, "original_type": "image", "alt": f"画像（未取得）{child.get('alt', '')}", "editable": False})
+            out.append(_image_or_placeholder(ctx, child, slide))
         elif name in ("figure", "picture"):
             img = child.find("img")
             if img is not None:
-                asset_id = ctx.resolve_image(str(img.get("src", "")), slide)
-                if asset_id:
-                    out.append(image_element(ctx.ids.next("el"), asset_id, None, alt=str(img.get("alt", ""))))
+                out.append(_image_or_placeholder(ctx, img, slide))
             cap = child.find("figcaption")
             if cap is not None:
                 p = ctx.styled(_para_from(cap), cap)
@@ -408,7 +511,8 @@ def _walk_block(node: Tag, ctx: _Ctx, slide: dict, max_columns: int) -> list[dic
         elif name in ("div", "section", "article", "main", "body", "aside", "details", "summary", "span", "li", "dl", "dd", "dt", "small"):
             out.extend(_walk_block(child, ctx, slide, max_columns))
         elif name in ("hr",):
-            continue
+            colors = ctx.presentation["theme"].get("colors", {})
+            out.append({"id": ctx.ids.next("el"), "type": "line", "role": None, "bbox": None, "points": None, "stroke": colors.get("line", "#C9D1DB"), "stroke_width_pt": 1.0, "editable": True})
         else:
             # 未知タグは中身をたどる（テキストを失わない）
             out.extend(_walk_block(child, ctx, slide, max_columns))
@@ -443,8 +547,6 @@ def parse_html(data: bytes | str, filename: str = "input.html", files: dict[str,
     computed_style: True なら Playwright で Computed Style（色・サイズ・太字）を取得して補う（Issue #6）。
     None なら設定 html_import.use_computed_style に従う。取得できない環境では静的解析のみで続行する。
     """
-    from .config import get_config
-
     cfg = get_config()
     max_columns = int(max_columns or cfg.get("layout.max_columns", 3))
     html_text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
@@ -466,8 +568,10 @@ def parse_html(data: bytes | str, filename: str = "input.html", files: dict[str,
 
     containers = _find_slide_containers(soup)
     groups: list[list[Tag | NavigableString]]
+    container_tags: list[Tag | None] = []
     if containers:
         groups = [list(c.children) for c in containers]
+        container_tags = list(containers)
         # section の外にある h1（ページ見出し）は表紙にする
         stray_h1 = next((h for h in body.find_all("h1") if h.find_parent(["section", "article"]) is None), None)
         if stray_h1 is not None:
@@ -481,14 +585,22 @@ def parse_html(data: bytes | str, filename: str = "input.html", files: dict[str,
         if not groups:
             add_warning(presentation, warning("html_parser", "NO_CONTENT", "本文を見つけられませんでした。", None, None, "空の資料"))
 
-    for group in groups:
+    content_w = float(presentation["canvas"]["width_pt"]) - 2 * float(cfg.get("layout.margin_pt", 36))
+    body_bg = css_color_to_hex(ctx.default_style.get("background-color")) if ctx.default_style else None
+    for gi, group in enumerate(groups):
         slide = new_slide(ctx.ids.next("s"), len(presentation["slides"]))
         holder = Tag(name="div")
         for node in group:
             holder.append(node.__copy__() if hasattr(node, "__copy__") else node)
-        elements = _walk_block(holder, ctx, slide, max_columns)
+        elements = _pair_text_and_images(_walk_block(holder, ctx, slide, max_columns), presentation["assets"], content_w)
         if not elements:
             continue
+        container = container_tags[gi] if gi < len(container_tags) else None
+        bg = css_color_to_hex(ctx.style_of(container).get("background-color")) if container is not None else None
+        if bg and bg != (body_bg or "#FFFFFF"):
+            slide["background"] = {"color": bg}
+            if _is_dark_hex(bg):
+                slide["background"]["text_color"] = "#FFFFFF"
         # 先頭が h1 で本文が短い場合は表紙扱い
         first = elements[0]
         if first.get("role") == "title":

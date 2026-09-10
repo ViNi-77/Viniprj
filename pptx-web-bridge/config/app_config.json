@@ -33,7 +33,17 @@
     "line_height_ratio": 1.35,
     "cjk_char_width_ratio": 1.0,
     "latin_char_width_ratio": 0.55,
-    "max_columns": 3
+    "max_columns": 3,
+    "_comment_sizes": "size_bands: 役割ごとの許容サイズ帯（pt）。継承値だけをこの帯へ丸める。autofit_steps: 分割前に試す縮小率。",
+    "size_bands": {"title": [24, 36], "subtitle": [16, 24], "body": [12, 20], "caption": [9, 14], "card": [11, 18]},
+    "image_max_height_ratio": 0.45,
+    "image_min_height_pt": 120,
+    "image_side_weight": 0.4,
+    "autofit_steps": [1.0, 0.95, 0.9, 0.85],
+    "autofit_min_scale": 0.85,
+    "split_min_remaining_ratio": 0.25,
+    "band_max_chars": 80,
+    "keep_with_next_max_chars": 40
   },
   "rasterize": {
     "_comment": "同梱 Chromium が無い場合に使う OS 標準ブラウザ（Playwright の channel 名）。exe 配布版は msedge を使う。",

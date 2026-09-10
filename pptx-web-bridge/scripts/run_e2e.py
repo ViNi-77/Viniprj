@@ -75,7 +75,7 @@ def main() -> int:
     # --- HTML → JSON → PPTX ---
     base = ROOT / "samples" / "sample_html"
     files = {str(p.relative_to(base)): p.read_bytes() for p in base.rglob("*") if p.is_file()}
-    for name in ("long.html", "slides.html", "cards.html"):
+    for name in ("long.html", "slides.html", "cards.html", "mixed.html"):
         res = pipeline.import_html(files[name], name, extra_files=files)
         pres_h = res["presentation"]
         record(f"HTML→JSON（{name}）", not res["schema_errors"] and len(pres_h["slides"]) >= 3, f"slides={len(pres_h['slides'])} warnings={[w['code'] for w in res['warnings']]}")

@@ -66,6 +66,10 @@ def repair(presentation: Any) -> tuple[dict, list[dict]]:
     if not isinstance(p.get("schema_version"), str):
         p["schema_version"] = SCHEMA_VERSION
         fixes.append(warning("repair", "SCHEMA_VERSION_ADDED", "schema_version を補いました。"))
+    elif p["schema_version"] != SCHEMA_VERSION and p["schema_version"].startswith("1."):
+        # 1.0 → 1.1: 追加フィールドはすべて任意のため、版数を上げるだけで読める
+        fixes.append(warning("repair", "SCHEMA_MIGRATED", f"schema_version {p['schema_version']} → {SCHEMA_VERSION} へ更新しました。"))
+        p["schema_version"] = SCHEMA_VERSION
     for key in ("meta", "canvas", "theme"):
         if not isinstance(p.get(key), dict):
             p[key] = base[key]
@@ -164,9 +168,21 @@ def repair(presentation: Any) -> tuple[dict, list[dict]]:
             for ck in ("fill", "stroke"):
                 if el.get(ck) is not None:
                     el[ck] = _normalize_color(el[ck])
+            if el.get("font_scale") is not None:
+                try:
+                    el["font_scale"] = min(1.0, max(0.5, float(el["font_scale"])))
+                except (TypeError, ValueError):
+                    el.pop("font_scale", None)
+                    fixes.append(warning("repair", "FONT_SCALE_FIXED", "font_scale が不正なため除去しました。", slide_id=s["id"], element_id=el["id"]))
             valid_elements.append(el)
         s["elements"] = valid_elements
         valid_slides.append(s)
+    ids = {s["id"] for s in valid_slides}
+    for s in valid_slides:
+        if s.get("continuation_of") and s["continuation_of"] not in ids:
+            s.pop("continuation_of", None)
+            s.pop("continuation_index", None)
+            fixes.append(warning("repair", "CONTINUATION_FIXED", "元スライドが無い続きページの印を外しました。", slide_id=s["id"]))
     p["slides"] = valid_slides
     return p, fixes
 

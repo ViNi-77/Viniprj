@@ -54,6 +54,7 @@ python backend/run_server.py
 | デバッグ | 境界入力 50 種の探索で 10 件修正（グリッド折返し、巨大座標の丸め、型強制、表・長文の分割、空要素除外、案内メッセージ）。`docs/10_デバッグ所見.md` | クラッシュ 0 件、決定性・往復・安全性を確認 |
 | exe 配布 | PyInstaller での exe 化（onedir）。Windows 用起動バッチ、CI（build-windows）でのビルド・起動試験・配布ブランチへの反映 | Windows CI での起動・取込試験に合格 |
 | exe 配布・不具合対応 | 別 PC で起動直後にクラッシュ（`jsonschema`/`referencing` の仕様データ関連）した件を調査。原因の切り分けとして Playwright ドライバ（Node.js 本体、約120MB）の同梱をやめ配布物を約 1/3 に縮小（展開先パス長・ウイルス対策ソフトの誤検知リスクを低減）、`jsonschema` 系パッケージのメタデータ同梱を追加、起動失敗時にエラー内容を画面とログに残す仕組みを追加 | Linux 上のビルドで取込 API 経由の検証まで確認。次回 Windows ビルドでの実機確認待ち |
+| レイアウト改善（Phase A） | 文字サイズの一本化（`typography.py`）、画像の実寸配置と本文との横並び、分割前の自動縮小と分割抑制、HTML の背景色・帯・区切り線・代替画像、PPTX のトリミング焼き込み・回転・固定要素との衝突回避。スキーマ 1.1 | pytest 88、E2E 33 |
 | 配布 | `start_windows.bat`（Windows）、`start.sh`（Linux）、exe 版（PyInstaller、Actions の Windows ランナーでビルド、Edge で画像化） | Linux 版バイナリで凍結ロジックを検証、Windows は CI のスモークテスト |
 
 ## 1.2 第2版で追加したもの
