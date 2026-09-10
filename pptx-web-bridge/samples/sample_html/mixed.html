@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>取込試験: 背景・文字＋画像・帯・区切り線</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section style="background:#0B3D91;color:#FFFFFF">
+    <h1>暗い背景の表紙</h1>
+    <p class="lead">セクションの背景色はスライド背景へ、文字は白のまま取り込まれる</p>
+  </section>
+
+  <section>
+    <h2>文字と画像の横並び</h2>
+    <p>本文と画像が隣り合う場合は、画像を全幅に引き伸ばさず、本文の横に実寸ベースで並べる。画像の縦横比は保たれ、読める大きさを下回るなら次のページへ送る。この段落は横並びの列幅で折り返される想定の長さにしてある。</p>
+    <figure>
+      <img src="assets/chart_sample.png" alt="処理の流れ">
+      <figcaption>図1 処理の流れ</figcaption>
+    </figure>
+    <hr>
+    <h4>区切り線の下の見出し</h4>
+    <ul>
+      <li>見出しは次の箇条書きと同じページに置く</li>
+      <li>区切り線は細い線要素になる</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>短文の帯と未取得画像</h2>
+    <div class="card" style="background:#E60A3C;color:#FFFFFF"><p>重要なお知らせ</p></div>
+    <p>帯は文字量に応じた高さになり、48pt の最小高さで太らない。</p>
+    <img src="https://example.invalid/not-fetched.png" alt="外部画像">
+    <p>外部 URL の画像は取得せず、灰色の代替枠として置く。</p>
+  </section>
+
+  <section>
+    <h2>少しだけ溢れる本文は分割せず縮める</h2>
+    <p>自動縮小の対象になる段落。文字量が 1 枚に少しだけ収まらないとき、分割の前に 95%・90%・85% の順で文字を縮めて収める。</p>
+    <p>二つ目の段落。同じ率で縮むので、段落ごとに大きさが違って見えることはない。</p>
+    <p>三つ目の段落。表・画像は縮めない。縮めても収まらないときだけ、残り高さが十分ある場合に限って分割する。</p>
+    <p>四つ目の段落。残り高さが少ないときは分割せず、要素ごと次のページへ送る。</p>
+    <p>五つ目の段落。続きページには「（続き）」を付け、元スライドの ID を continuation_of に残す。</p>
+    <p>六つ目の段落。ここまでで 1 枚分をわずかに超える量にしてある。</p>
+    <p>七つ目の段落。自動縮小で収まれば SLIDE_SPLIT の警告は出ない。</p>
+  </section>
+</body>
+</html>

@@ -236,14 +236,53 @@ def _transform(x: float, y: float, w: float, h: float, tf: dict | None) -> tuple
     return tf["ox"] + (x - tf["cox"]) * sx, tf["oy"] + (y - tf["coy"]) * sy, w * sx, h * sy
 
 
-def _shape_bbox(shape: Any, tf: dict | None) -> dict:
+def _shape_bbox(shape: Any, tf: dict | None) -> dict | None:
+    """図形の bbox。位置情報（xfrm）が無い図形は None を返し、自動レイアウトへ回す。"""
+    if shape.left is None or shape.top is None or shape.width is None or shape.height is None:
+        return None
     x, y, w, h = emu_to_pt(shape.left), emu_to_pt(shape.top), emu_to_pt(shape.width), emu_to_pt(shape.height)
     x, y, w, h = _transform(x, y, w, h, tf)
     return bbox(x, y, w, h)
 
 
+def _crop_blob(blob: bytes, crop: dict[str, float]) -> bytes | None:
+    """PowerPoint のトリミング（各辺の比率）を画像に焼き込む。拡張トリミング（負値）は対象外。"""
+    if any(v < 0 for v in crop.values()) or crop["left"] + crop["right"] >= 1 or crop["top"] + crop["bottom"] >= 1:
+        return None
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(blob)) as im:
+            w, h = im.size
+            box = (int(round(w * crop["left"])), int(round(h * crop["top"])), int(round(w * (1 - crop["right"]))), int(round(h * (1 - crop["bottom"]))))
+            if box[2] - box[0] < 1 or box[3] - box[1] < 1:
+                return None
+            out = io.BytesIO()
+            im.crop(box).save(out, format="PNG")
+            return out.getvalue()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _rotation_of(shape: Any) -> float | None:
+    try:
+        rot = float(getattr(shape, "rotation", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    return round(rot, 2) if abs(rot) > 0.01 else None
+
+
 def _convert_shape(shape: Any, ctx: _Ctx, slide: dict, tf: dict | None, z: int) -> list[dict]:
-    """1 図形を 0 個以上の要素へ変換する。"""
+    """1 図形を 0 個以上の要素へ変換する。回転は rotation_deg として要素に残す。"""
+    els = _convert_shape_inner(shape, ctx, slide, tf, z)
+    rot = _rotation_of(shape) if getattr(shape, "shape_type", None) != MSO_SHAPE_TYPE.GROUP else None
+    if rot:
+        for el in els:
+            el["rotation_deg"] = rot
+    return els
+
+
+def _convert_shape_inner(shape: Any, ctx: _Ctx, slide: dict, tf: dict | None, z: int) -> list[dict]:
     pres = ctx.presentation
     st = shape.shape_type
     pt = _placeholder_type(shape)
@@ -277,10 +316,18 @@ def _convert_shape(shape: Any, ctx: _Ctx, slide: dict, tf: dict | None, z: int) 
     if st == MSO_SHAPE_TYPE.PICTURE or (pt == PP_PLACEHOLDER.PICTURE and hasattr(shape, "image")):
         try:
             img = shape.image
-            asset_id = ctx.add_asset(img.blob, img.content_type, img.ext)
+            blob, content_type, ext = img.blob, img.content_type, img.ext
+            crop = {side: float(getattr(shape, f"crop_{side}", 0) or 0) for side in ("left", "right", "top", "bottom")}
+            cropped = any(abs(c) > 0.001 for c in crop.values())
+            baked = _crop_blob(blob, crop) if cropped else None
+            if baked:
+                blob, content_type, ext = baked, "image/png", "png"
+            asset_id = ctx.add_asset(blob, content_type, ext)
             el = image_element(ctx.ids.next("el"), asset_id, box, alt=shape.name, fit="stretch", z=z)
-            crop = [getattr(shape, f"crop_{side}", 0) or 0 for side in ("left", "right", "top", "bottom")]
-            if any(abs(c) > 0.001 for c in crop):
+            if baked:
+                el["crop"] = crop
+                add_warning(pres, warning("pptx_parser", "IMAGE_CROP_BAKED", "画像のトリミングを画像そのものに反映しました。", slide["id"], el["id"], "トリミング済み画像を配置"), slide)
+            elif cropped:
                 add_warning(pres, warning("pptx_parser", "IMAGE_CROP_IGNORED", "画像のトリミングは再現されません（元画像を枠に合わせます）。", slide["id"], el["id"], "元画像をそのまま配置"), slide)
             return [el]
         except Exception as e:  # noqa: BLE001

@@ -116,7 +116,7 @@ def render_slide_images(presentation: dict, scale: float | None = None) -> list[
 
 
 # ---------------------------------------------------------------- Computed Style（Issue #6）
-_STYLE_PROPS = ["color", "background-color", "font-size", "font-weight", "font-family", "text-align", "border-top-color", "border-top-width"]
+_STYLE_PROPS = ["color", "background-color", "font-size", "font-weight", "font-family", "text-align", "border-top-color", "border-top-width", "float"]
 
 
 def collect_computed_styles(html_text: str, files: dict[str, bytes] | None = None, base_path: str = "") -> tuple[dict[str, dict[str, str]], str | None]:

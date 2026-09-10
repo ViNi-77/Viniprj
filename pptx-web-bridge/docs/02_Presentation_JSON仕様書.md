@@ -44,7 +44,12 @@
 | role | enum/null | `title, subtitle, body, caption, card, footer, header`。既定フォントサイズ・色の選択に使う |
 | bbox | bbox/null | 座標。null は未確定 |
 | z | int | 重ね順 |
-| layout_hint | {column, columns} | 自動レイアウトの列指定（カード等） |
+| layout_hint | {column, columns, row, side, weight, band, keep_with_next} | 自動レイアウトの指示。columns=列、row/side=文字＋画像の横並び（同じ row の連続要素を 1 行に置き、side で左右）、weight=画像側の幅比、band=短文の帯（最小高さを抑える）、keep_with_next=次要素と同じページに置く |
+| font_pt | number | 要素の基準サイズ（typography.py が確定。run に明示が無い場合の既定） |
+| font_scale | 0.5〜1.0 | 自動縮小率。分割前に文字を縮めた倍率。描画・出力は実効サイズ（size×font_scale）を使う |
+| rotation_deg | number | 回転角（PPTX 由来）。Web は transform、PPTX は shape.rotation |
+| placeholder | bool | 取得できなかった画像の代替枠（asset_id は null） |
+| crop | {left,right,top,bottom} | PPTX のトリミング比率。画像そのものに焼き込み済みの記録 |
 | editable | bool | 出力先で編集可能か |
 | vertical_align | enum/null | `top, middle, bottom` |
 
@@ -64,6 +69,7 @@ paragraph: { "runs": [run], "level": 0-8, "bullet": "bullet"|"number"|null, "ali
 run:       { "text", "bold", "italic", "underline", "size_pt", "color": "#RRGGBB", "font", "href", "inherited": ["size_pt","color","font","bold"] }
 ```
 - `inherited` は、run に明示が無くマスター等の継承で補った属性名。テンプレート適用や出力時は「明示値は保持、継承値は上書き可」の判断に使う（PPTX 出力・Web 表示では継承フォント名を書かずテーマ既定に任せる）。
+- 文字サイズは `typography.py` が一本化する: 明示 `size_pt` はそのまま、`inherited` の `size_pt` は役割の帯域（`layout.size_bands`: title 24〜36 / subtitle 16〜24 / body 12〜20 / caption 9〜14 / card 11〜18）へ丸め、要素の `font_pt` を確定する。描画・PPTX 出力・レポート・品質検査はすべて同じ実効サイズを使う。
 - `size_pt` / `color` / `font` が無い場合は `role` とテーマから既定値を決める（title 28pt、body 16pt、caption 12pt。`config/app_config.json` の `layout.*`）。
 
 ### cell

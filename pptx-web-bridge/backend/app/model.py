@@ -10,8 +10,8 @@ from typing import Any
 
 from .config import get_config
 
-SCHEMA_VERSION = "1.0"
-GENERATOR_NAME = "pptx-web-bridge/0.1.0"
+SCHEMA_VERSION = "1.1"
+GENERATOR_NAME = "pptx-web-bridge/0.3.0"
 
 
 def new_presentation(title: str = "", source_type: str = "manual", filename: str = "", template_id: str | None = None) -> dict:

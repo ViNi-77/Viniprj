@@ -37,12 +37,13 @@ def paragraph_size_pt(para: dict, default_size: float) -> float:
     return float(max(sizes)) if sizes else default_size
 
 
-def estimate_paragraphs_height(paragraphs: list[dict], width_pt: float, default_size: float, line_height_ratio: float | None = None, indent_pt: float = 18.0) -> float:
+def estimate_paragraphs_height(paragraphs: list[dict], width_pt: float, default_size: float, line_height_ratio: float | None = None, indent_pt: float = 18.0, scale: float = 1.0) -> float:
+    """段落列の推定高さ（pt）。scale は自動縮小率（全 run のサイズに掛ける）。"""
     cfg = get_config()
     ratio = float(line_height_ratio or cfg.get("layout.line_height_ratio", 1.35))
     height = 0.0
     for para in paragraphs:
-        size = paragraph_size_pt(para, default_size)
+        size = paragraph_size_pt(para, default_size) * scale
         text = "".join(r.get("text", "") for r in para.get("runs", []))
         avail = width_pt - (indent_pt * (int(para.get("level", 0)) + (1 if para.get("bullet") else 0)))
         lines = wrapped_lines(text, size, max(1.0, avail))

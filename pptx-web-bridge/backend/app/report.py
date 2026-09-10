@@ -6,15 +6,10 @@ JSON と Markdown の両方を返し、Web 一式にも conversion_report.md と
 """
 from __future__ import annotations
 
-from .config import get_config
 from .model import element_plain_text, slide_title
+from .typography import effective_size
 
 _TYPE_LABEL = {"text": "文字", "shape": "図形(文字付き)", "image": "画像", "line": "線", "table": "表", "unsupported": "未対応"}
-
-
-def _role_size(role: str | None) -> float:
-    cfg = get_config()
-    return {"title": float(cfg.get("layout.title_font_pt", 28)), "subtitle": float(cfg.get("layout.body_font_pt", 16)) * 1.25, "caption": float(cfg.get("layout.caption_font_pt", 12))}.get(role or "", float(cfg.get("layout.body_font_pt", 16)))
 
 
 def element_rows(presentation: dict) -> list[dict]:
@@ -23,9 +18,7 @@ def element_rows(presentation: dict) -> list[dict]:
     for s in presentation.get("slides", []):
         for el in s.get("elements", []):
             b = el.get("bbox") or {}
-            sizes = [float(r["size_pt"]) for p in el.get("paragraphs", []) for r in p.get("runs", []) if r.get("size_pt")]
-            if el.get("type") in ("text", "shape") and not sizes and el.get("paragraphs"):
-                sizes = [_role_size(el.get("role"))]
+            sizes = [round(effective_size(r, el), 1) for p in el.get("paragraphs", []) for r in p.get("runs", [])] if el.get("type") in ("text", "shape") else []
             text = element_plain_text(el).replace("\n", " / ")
             asset = assets.get(el.get("asset_id") or "", {})
             rows.append(

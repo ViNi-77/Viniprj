@@ -113,7 +113,8 @@ def test_remote_image_is_not_fetched():
     html = b"<html><body><section><h2>t</h2><img src='https://example.invalid/x.png' alt='ext'></section></body></html>"
     p = parse_html(html, "x.html", {})
     assert any(w["code"] == "REMOTE_IMAGE_SKIPPED" for w in p["warnings"])
-    assert p["slides"][0]["elements"][-1]["type"] == "unsupported"
+    last = p["slides"][0]["elements"][-1]
+    assert last["type"] == "image" and last.get("placeholder") is True and last.get("asset_id") is None  # 赤枠ではなく代替画像枠
 
 
 def test_computed_style_from_css(sample_html_files):
@@ -178,7 +179,9 @@ def test_computed_style_ignores_scripts_and_body_defaults(sample_html_files):
     title = next(el for el in els if el.get("role") == "title")
     body = next(el for el in els if el.get("role") == "body")
     assert title["paragraphs"][0]["runs"][0]["color"] == "#0B3D91"  # スクリプトによる赤化は起きない
-    assert "color" not in body["paragraphs"][0]["runs"][0] and "size_pt" not in body["paragraphs"][0]["runs"][0]  # body 既定は書かない
+    body_run = body["paragraphs"][0]["runs"][0]
+    assert "color" not in body_run  # body と同じ色は既定として書かない
+    assert body_run["size_pt"] == 13.5 and "size_pt" in body_run["inherited"]  # サイズは常に継承値として持ち、帯域で整える
 
 
 def test_computed_style_no_network_requests(sample_html_files):
