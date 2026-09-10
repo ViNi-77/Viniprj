@@ -6,5 +6,8 @@ output/*
 projects/*
 !projects/.gitkeep
 !projects/README.md
+# 利用者が PPTX から作ったテンプレート（実行時生成物。組込テンプレートは config/templates.json）
+config/user_templates.json
+config/template_assets/user/
 # 試験用一時ファイル
 tests/_tmp/

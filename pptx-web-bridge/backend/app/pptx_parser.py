@@ -77,7 +77,7 @@ def _placeholder_type(shape: Any) -> Any:
 
 
 _NAME_ROLE_PREFIXES = ("title", "subtitle", "body", "caption", "card", "footer", "header")
-from .template_kit import TEMPLATE_CHROME_NAMES as _TEMPLATE_CHROME_NAMES
+from .template_kit import is_chrome_name as _is_chrome_name
 
 
 def _role_from_name(shape: Any) -> str | None:
@@ -286,7 +286,7 @@ def _convert_shape_inner(shape: Any, ctx: _Ctx, slide: dict, tf: dict | None, z:
     pres = ctx.presentation
     st = shape.shape_type
     pt = _placeholder_type(shape)
-    if pt in _SKIP_PLACEHOLDERS or str(getattr(shape, "name", "")) in _TEMPLATE_CHROME_NAMES:
+    if pt in _SKIP_PLACEHOLDERS or _is_chrome_name(str(getattr(shape, "name", ""))):
         return []  # フッター・日付・ページ番号・機密表示はテンプレート側で再生成する
 
     # グループ: 子図形を親座標へ写像して平坦化

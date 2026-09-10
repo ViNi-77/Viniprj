@@ -52,6 +52,8 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "templates_file": "config/templates.json",
         "font_fallback_file": "config/font_fallback.json",
         "schema_file": "schema/presentation.schema.json",
+        "user_templates_file": "config/user_templates.json",
+        "user_template_assets_dir": "config/template_assets/user",
     },
     "limits": {"max_upload_mb": 50, "max_slides": 300, "max_elements_per_slide": 200},
     "canvas": {"default_width_pt": 960, "default_height_pt": 540, "aspect": "16:9"},
@@ -124,7 +126,7 @@ class AppConfig:
         return node
 
     # 書き込み先（exe の隣に作る）と、同梱リソース（exe の隣 → 同梱 の順で探す）を区別する
-    _WRITABLE_KEYS = {"projects_dir", "output_dir", "logs_dir"}
+    _WRITABLE_KEYS = {"projects_dir", "output_dir", "logs_dir", "user_templates_file", "user_template_assets_dir"}
 
     def path(self, key: str) -> Path:
         """paths.* の値を絶対パスへ変換する。書き込み先は ROOT_DIR 基準、リソースは resource_path で解決。"""
@@ -137,6 +139,20 @@ class AppConfig:
         return ROOT_DIR / p if key in self._WRITABLE_KEYS else resource_path(p)
 
     def templates(self) -> list[dict]:
+        """組込テンプレート（config/templates.json）とユーザーテンプレート（PPTX から作成、config/user_templates.json）を結合して返す。
+
+        各要素に `source`（builtin / user）を付ける。ID が重なる場合は組込を優先する。
+        """
+        builtin = [dict(t, source="builtin") for t in self._builtin_templates()]
+        seen = {t.get("id") for t in builtin}
+        user = _read_json(self.path("user_templates_file")).get("templates") or []
+        for t in user:
+            if isinstance(t, dict) and t.get("id") and t["id"] not in seen:
+                builtin.append(dict(t, source="user"))
+                seen.add(t["id"])
+        return builtin
+
+    def _builtin_templates(self) -> list[dict]:
         data = _read_json(self.path("templates_file"))
         templates = data.get("templates") if isinstance(data, dict) else None
         if not templates:

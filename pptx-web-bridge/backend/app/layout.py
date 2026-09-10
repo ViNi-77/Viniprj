@@ -15,6 +15,7 @@ import re
 
 from .config import get_config
 from .model import bbox, new_slide, paragraph, run, text_element, warning
+from . import template_kit
 from .text_metrics import estimate_paragraphs_height
 from .typography import element_font_pt, font_scale, normalize_presentation
 
@@ -292,12 +293,21 @@ def _place_row(group: list[dict], x0: float, y: float, max_y: float, content_w: 
     return placed, leftover, bottom
 
 
-def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = None) -> list[dict]:
-    """1枚のスライドをレイアウトし、分割が必要なら複数枚を返す。"""
+def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = None, template: dict | None = None) -> list[dict]:
+    """1枚のスライドをレイアウトし、分割が必要なら複数枚を返す。
+
+    template（部品付きテンプレート）があれば、中身の本文領域（content.body）と題名枠（content.title）を余白の代わりに使う。
+    """
     params = params or _layout_params()
     cw, ch = float(canvas["width_pt"]), float(canvas["height_pt"])
     margin, gutter = params["margin"], params["gutter"]
-    content_w = cw - margin * 2
+    area = template_kit.content_area(template, canvas) if template else None
+    title_box = template_kit.content_title_box(template, canvas) if template else None
+    # 流し込みの横位置と幅。テンプレートの本文領域があればそれに従う
+    x0 = area["x"] if area else margin
+    content_w = area["w"] if area else cw - margin * 2
+    area_top = area["y"] if area else margin
+    area_bottom = area["y"] + area["h"] if area else ch - margin
 
     result_slides: list[dict] = []
     pending = [el for el in slide.get("elements", [])]
@@ -308,8 +318,12 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
     if slide.get("layout") == "closing":
         s = copy.deepcopy(slide)
         s["elements"] = list(fixed)
-        for el in flow:
-            s["elements"].append(dict(el, bbox=bbox(margin * 3, ch * 0.62, cw - margin * 6, params["title_h"])))
+        msg_box = template_kit.closing_message_box(template, canvas) if template else None
+        for k, el in enumerate(flow):
+            if msg_box and k == 0:
+                s["elements"].append(dict(el, bbox=bbox(msg_box["x"], msg_box["y"], msg_box["w"], msg_box["h"]), vertical_align=el.get("vertical_align") or "middle"))
+            else:
+                s["elements"].append(dict(el, bbox=bbox(margin * 3, ch * 0.62 + k * (params["title_h"] + gutter), cw - margin * 6, params["title_h"])))
         return [s]
     if slide.get("layout") in ("title", "section") and flow:
         s = copy.deepcopy(slide)
@@ -330,8 +344,8 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
     title_el = title_els[0] if title_els else None
     body_els = title_els[1:] + body_els  # 2つ目以降のタイトルは本文扱い
     fixed_title = next((el for el in fixed if el.get("role") == "title"), None)
-    band_top, band_bottom = _free_band(fixed, margin, ch - margin, gutter) if fixed else (margin, ch - margin)
-    min_split = params["split_min_ratio"] * (ch - margin * 2)
+    band_top, band_bottom = _free_band(fixed, area_top, area_bottom, gutter) if fixed else (area_top, area_bottom)
+    min_split = params["split_min_ratio"] * (area_bottom - area_top)
 
     page_no = 0
     while True:
@@ -346,16 +360,23 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
             s["continuation_index"] = page_no
             if s.get("title"):
                 s["title"] = f"{s['title']}（続き）"
-            y, max_y = margin, ch - margin
+            y, max_y = area_top, area_bottom
             if fixed_title is not None:
                 ft = _continued_title(fixed_title, page_no)
                 s["elements"].append(ft)
                 y = max(y, float(fixed_title["bbox"]["y"]) + float(fixed_title["bbox"]["h"]) + gutter)
         if title_el is not None:
             t = copy.deepcopy(title_el) if page_no == 0 else _continued_title(title_el, page_no)
-            t["bbox"] = bbox(margin, y, content_w, params["title_h"])
-            s["elements"].append(t)
-            y += params["title_h"] + gutter
+            if title_box and area:
+                # テンプレートの題名枠へ置き、本文は本文領域の先頭から
+                t["bbox"] = bbox(title_box["x"], title_box["y"], title_box["w"], title_box["h"])
+                t["vertical_align"] = t.get("vertical_align") or "middle"
+                s["elements"].append(t)
+                y = max(y, title_box["y"] + title_box["h"] + gutter) if title_box["y"] + title_box["h"] > y - gutter and title_box["y"] < area_bottom and title_box["y"] + title_box["h"] > area_top else y
+            else:
+                t["bbox"] = bbox(x0, y, content_w, params["title_h"])
+                s["elements"].append(t)
+                y += params["title_h"] + gutter
         has_title = title_el is not None or fixed_title is not None
         if page_no == 0:
             fitted = _slide_autofit(body_els, content_w, max_y - y, params, assets, ch)
@@ -378,7 +399,7 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
                 while i < len(body_els) and _hint(body_els[i]).get("row") == row_id:
                     group.append(body_els[i])
                     i += 1
-                placed, leftover, new_y = _place_row(group, margin, y, max_y, content_w, params, assets, ch, placed_any)
+                placed, leftover, new_y = _place_row(group, x0, y, max_y, content_w, params, assets, ch, placed_any)
                 if not placed:
                     remaining.extend(_without_row(g) for g in group)
                     remaining.extend(body_els[i:])
@@ -412,7 +433,7 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
                             overflow = True
                             break
                         ih = min(ih, max_y - col_y[c]) if col_y[c] + ih > max_y else ih
-                        s["elements"].append(dict(g, bbox=bbox(margin + c * (col_w + gutter) + (col_w - iw) / 2, col_y[c], iw, max(1.0, ih))))
+                        s["elements"].append(dict(g, bbox=bbox(x0 + c * (col_w + gutter) + (col_w - iw) / 2, col_y[c], iw, max(1.0, ih))))
                         col_y[c] += ih + gutter
                         placed_any = True
                         continue
@@ -429,7 +450,7 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
                             break
                         else:
                             h = max_y - col_y[c]
-                    s["elements"].append(dict(g, bbox=bbox(margin + c * (col_w + gutter), col_y[c], col_w, h)))
+                    s["elements"].append(dict(g, bbox=bbox(x0 + c * (col_w + gutter), col_y[c], col_w, h)))
                     col_y[c] += h + gutter
                     placed_any = True
                 y = max(col_y)
@@ -437,7 +458,7 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
 
             # 単独（全幅）
             if el.get("type") == "line":
-                s["elements"].append(dict(el, bbox=bbox(margin, y, content_w, 1.0), points=[[round(margin, 2), round(y, 2)], [round(margin + content_w, 2), round(y, 2)]]))
+                s["elements"].append(dict(el, bbox=bbox(x0, y, content_w, 1.0), points=[[round(x0, 2), round(y, 2)], [round(x0 + content_w, 2), round(y, 2)]]))
                 y += 2.0 + gutter
                 i += 1
                 placed_any = True
@@ -454,7 +475,7 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
                         remaining.extend(body_els[i:])
                         overflow = True
                         break
-                s["elements"].append(dict(el, bbox=bbox(margin + (content_w - iw) / 2, y, iw, ih)))
+                s["elements"].append(dict(el, bbox=bbox(x0 + (content_w - iw) / 2, y, iw, ih)))
                 placed_any = True
                 y += ih + gutter
                 i += 1
@@ -480,7 +501,7 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
                     if can_split and el.get("type") == "text" and el.get("paragraphs") and avail > element_font_pt(el) * 3:
                         first, second = _split_text_element(el, content_w, avail, params)
                         if second is not None and first.get("paragraphs"):
-                            first["bbox"] = bbox(margin, y, content_w, avail)
+                            first["bbox"] = bbox(x0, y, content_w, avail)
                             s["elements"].append(first)
                             placed_any = True
                             remaining.append(second)
@@ -490,21 +511,21 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
                     if can_split and el.get("type") == "table" and len(el.get("rows") or []) > 2 and avail > params["body_font"] * 1.9 * 3:
                         first, second = _split_table_element(el, avail, params)
                         if second is not None:
-                            first["bbox"] = bbox(margin, y, content_w, min(avail, params["body_font"] * 1.9 * len(first["rows"])))
+                            first["bbox"] = bbox(x0, y, content_w, min(avail, params["body_font"] * 1.9 * len(first["rows"])))
                             s["elements"].append(first)
                             placed_any = True
                             remaining.append(second)
                             remaining.extend(body_els[i + 1 :])
                             overflow = True
                             break
-                    if placed_any or (has_title and y > margin + params["title_h"]):
+                    if placed_any or (has_title and y > area_top + params["title_h"]):
                         remaining.extend(body_els[i:])
                         overflow = True
                         break
                     # 1要素で1枚に収まらない場合は高さを切り詰め、警告を残す
                     h = max_y - y
                     s.setdefault("warnings", []).append(warning("layout", "ELEMENT_TRUNCATED", "要素がスライドに収まらないため高さを切り詰めました。", slide_id=s["id"], element_id=el.get("id"), fallback="高さを切り詰め"))
-            s["elements"].append(dict(el, bbox=bbox(margin, y, content_w, h)))
+            s["elements"].append(dict(el, bbox=bbox(x0, y, content_w, h)))
             placed_any = True
             y += h + gutter
             i += 1
@@ -526,12 +547,14 @@ def layout_presentation(presentation: dict) -> dict:
     """全スライドをレイアウトし、index を振り直した新しい資料を返す。文字サイズの正規化もここで行う。"""
     params = _layout_params()
     out = normalize_presentation(copy.deepcopy(presentation))
+    template = template_kit.template_for(out)
+    template = template if template_kit.has_parts(template) else None
     new_slides: list[dict] = []
     for s in out.get("slides", []):
         if all(el.get("bbox") for el in s.get("elements", [])):
             new_slides.append(s)
             continue
-        for ns in layout_slide(s, out["canvas"], out.get("assets", {}), params):
+        for ns in layout_slide(s, out["canvas"], out.get("assets", {}), params, template):
             new_slides.append(ns)
     for i, s in enumerate(new_slides):
         s["index"] = i
