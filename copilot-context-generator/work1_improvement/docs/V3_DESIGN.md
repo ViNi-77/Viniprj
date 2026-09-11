@@ -199,6 +199,7 @@ class ExtractResult:
 
 したがって v3 では実装しない。ただし、
 **Copilot Studio での共有運用へ移行する場合には再浮上する論点**として記録しておく。
+（特許のクレーム候補としては引き続き有効。`PATENT_CANDIDATES.md` 参照）
 
 ---
 
