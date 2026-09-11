@@ -4,6 +4,10 @@
 .slide { position: relative; background: var(--slide-bg, #ffffff); color: var(--text, #222222); overflow: hidden; transform-origin: top left; box-shadow: 0 4px 24px rgba(0,0,0,.45); font-family: var(--font, "Meiryo", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif); }
 .el { position: absolute; overflow: hidden; z-index: 1; }
 .el-text, .el-shape { padding: 4px 6px; line-height: 1.35; }
+.el-diagram { overflow: visible; }
+.el-diagram .el { position: absolute; }
+.el-diagram .el-shape { border-radius: 4px; }
+.el-diagram .shape-arrow_right { border-radius: 0; }
 .el-shape { display: flex; flex-direction: column; justify-content: center; }
 .el-text.va-middle { display: flex; flex-direction: column; justify-content: center; }
 .el-text.va-bottom { display: flex; flex-direction: column; justify-content: flex-end; }

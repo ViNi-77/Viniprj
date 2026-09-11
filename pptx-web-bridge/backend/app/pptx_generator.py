@@ -20,7 +20,7 @@ from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
-from . import template_kit
+from . import diagrams, template_kit
 from .config import get_config
 from .logging_setup import get_logger
 from .model import add_warning, warning
@@ -531,6 +531,26 @@ class _Gen:
         except Exception:  # noqa: BLE001
             pass
 
+    def add_diagram(self, slide: Any, el: dict) -> None:
+        """図解要素を子（図形・文字・線）に展開して出力する。図形名で往復時に元へ戻せるようにする。"""
+        children = diagrams.expand_diagram(el, self.template)
+        if not children:
+            return
+        dtype = diagrams.normalize_type((el.get("diagram") or {}).get("type"))
+        for i, child in enumerate(children):
+            before = len(slide.shapes._spTree)
+            t = child.get("type")
+            if t == "shape":
+                self.add_shape(slide, child)
+            elif t == "text":
+                self.add_text(slide, child)
+            elif t == "line":
+                self.add_line(slide, child)
+            else:
+                continue
+            if len(slide.shapes._spTree) > before:
+                slide.shapes[-1].name = f"diagram:{dtype}:{el.get('id', 'd')}:{i}"
+
     def _add_native_elements(self, slide: Any, sd: dict, si: int) -> None:
         elements = sorted(sd.get("elements", []), key=lambda e: int(e.get("z", 0) or 0))
         for el in elements:
@@ -549,6 +569,8 @@ class _Gen:
                     self.add_line(slide, el)
                 elif t == "table":
                     self.add_table(slide, el, sd)
+                elif t == "diagram":
+                    self.add_diagram(slide, el)
                 else:
                     if self.mode == "hybrid" and self.add_cropped_image(slide, el, si):
                         self.warn("UNSUPPORTED_AS_IMAGE", "未対応要素を画像として貼り付けました。", sd, el, "画像化")

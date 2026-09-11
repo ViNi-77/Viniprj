@@ -15,7 +15,7 @@ import re
 
 from .config import get_config
 from .model import bbox, new_slide, paragraph, run, text_element, warning
-from . import template_kit
+from . import diagrams, template_kit
 from .text_metrics import estimate_paragraphs_height
 from .typography import element_font_pt, font_scale, normalize_presentation
 
@@ -37,6 +37,7 @@ def _layout_params() -> dict:
         "autofit_steps": [float(x) for x in steps],
         "autofit_min": float(cfg.get("layout.autofit_min_scale", 0.85)),
         "split_min_ratio": float(cfg.get("layout.split_min_remaining_ratio", 0.25)),
+        "diagram_min_h": float(cfg.get("layout.diagram_min_height_pt", 140)),
     }
 
 
@@ -89,6 +90,8 @@ def _element_height(el: dict, width: float, params: dict, assets: dict, scale: f
         if _hint(el).get("band"):
             return max(font * scale * 1.6, inner + pad)
         return max(font * scale * 3, inner + pad * 2)
+    if t == "diagram":
+        return diagrams.default_height((el.get("diagram") or {}).get("type"), width, canvas_h)
     if t == "line":
         return 2.0
     return params["body_font"] * 2
@@ -481,6 +484,22 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
                 i += 1
                 continue
 
+            if el.get("type") == "diagram":
+                dh = _element_height(el, content_w, params, assets, canvas_h=ch)
+                room = max_y - y
+                if dh > room:
+                    if room >= params["diagram_min_h"] or not placed_any:
+                        dh = max(1.0, room)
+                    else:
+                        remaining.extend(body_els[i:])
+                        overflow = True
+                        break
+                s["elements"].append(dict(el, bbox=bbox(x0, y, content_w, dh)))
+                placed_any = True
+                y += dh + gutter
+                i += 1
+                continue
+
             h = _element_height(el, content_w, params, assets, canvas_h=ch)
             # 見出し的な短い段落を末尾に残さない
             if hint.get("keep_with_next") and i + 1 < len(body_els) and placed_any:
@@ -518,7 +537,7 @@ def layout_slide(slide: dict, canvas: dict, assets: dict, params: dict | None = 
                             remaining.extend(body_els[i + 1 :])
                             overflow = True
                             break
-                    if placed_any or (has_title and y > area_top + params["title_h"]):
+                    if placed_any or (page_no == 0 and has_title and y > area_top + params["title_h"]):
                         remaining.extend(body_els[i:])
                         overflow = True
                         break

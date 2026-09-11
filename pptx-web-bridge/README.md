@@ -57,8 +57,9 @@ python backend/run_server.py
 | レイアウト改善（Phase A） | 文字サイズの一本化（`typography.py`）、画像の実寸配置と本文との横並び、分割前の自動縮小と分割抑制、HTML の背景色・帯・区切り線・代替画像、PPTX のトリミング焼き込み・回転・固定要素との衝突回避。スキーマ 1.1 | pytest 88、E2E 33 |
 | 編集 UI（Phase B） | iframe プレビューをやめ、サーバ描画の断片を同一オリジンのキャンバスに差し込んで直接編集（選択・ドラッグ・リサイズ・スナップ・キーボード・undo/redo・数値入力・画像差し替え・要素追加）。サムネイル付きスライド一覧と D&D 並べ替え、ペイン幅の調整。API: `/api/render/slides` `/api/layout/slide` `/api/layout/fit` | pytest 96、E2E 33、UI スモーク 13 |
 | PPTX からテンプレート作成（Phase C） | 自分の PowerPoint（表紙・中身・最終ページ）を読み込み、背景・ロゴ・帯・題名/副題/本文領域・フッター・ページ番号・一言を推定して「この解釈で入ります」を番号付きの枠で表示。枠をドラッグして直し、ユーザーテンプレートとして保存（`config/user_templates.json`）。中身の本文はテンプレートの本文領域に流し込む。任意で元の PowerPoint を土台にした PPTX 出力。API: `/api/templates/from-pptx` `/api/templates/preview` `PUT/DELETE /api/templates/{id}` | pytest 106、E2E 37、UI スモーク 20 |
-| Copilot 連携（Phase D） | API を使わず M365 Copilot と受け渡す。「Copilot に頼む」で用途（ブランドスライド化 / 図解風 / 要約 / 発表者ノート / 翻訳 / JSON）を選び、指示と資料の内容（Markdown）をコピーして Copilot に貼る。Word 文書（Copilot in PowerPoint の「ファイルから作成」用）と一式 ZIP も保存できる。回答（Markdown / 簡易 JSON）を貼り付けると新しい資料になり、`型: カード / 比較` は図解風の列配置、`ノート:` は発表者ノートになる。プロンプトは `config/copilot_prompts.json` | pytest 121、E2E 41、UI スモーク 24 |
-| Copilot エージェント一式（Phase E） | 上の書式を Copilot 側にも覚えさせる。「Copilot に頼む」→「3. エージェント」で、宣言型エージェントの定義（`declarativeAgent.json`）・指示文（`instructions.md`）・ナレッジ用テキスト（1 ファイル 30,000 字・20 ファイル以内）・登録手順を ZIP で書き出す。Copilot Studio に手で登録すると、前置き無しでこのアプリの Markdown 形式のまま返ってくる。ここでも API は使わない | pytest 121、E2E 41、UI スモーク 24 |
+| Copilot 連携（Phase D） | API を使わず M365 Copilot と受け渡す。「Copilot に頼む」で用途（ブランドスライド化 / 図解風 / 要約 / 発表者ノート / 翻訳 / JSON）を選び、指示と資料の内容（Markdown）をコピーして Copilot に貼る。Word 文書（Copilot in PowerPoint の「ファイルから作成」用）と一式 ZIP も保存できる。回答（Markdown / 簡易 JSON）を貼り付けると新しい資料になり、`型: カード / 比較` は図解風の列配置、`ノート:` は発表者ノートになる。プロンプトは `config/copilot_prompts.json` | pytest 143、E2E 44、UI スモーク 25 |
+| Copilot エージェント一式（Phase E） | 上の書式を Copilot 側にも覚えさせる。「Copilot に頼む」→「3. エージェント」で、宣言型エージェントの定義（`declarativeAgent.json`）・指示文（`instructions.md`）・ナレッジ用テキスト（1 ファイル 30,000 字・20 ファイル以内）・登録手順を ZIP で書き出す。Copilot Studio に手で登録すると、前置き無しでこのアプリの Markdown 形式のまま返ってくる。ここでも API は使わない | pytest 143、E2E 44、UI スモーク 25 |
+| 図解部品（Phase F） | フロー・カード・比較・数値・年表の 5 型を「型 + 項目」で持つ図解要素。ツールバーの「図解」から追加し、インスペクタで項目を編集する。PowerPoint へは編集できる図形として出力し、取り込み直すと図解に戻る。Copilot とは `型: フロー` のような 1 語でやり取りし、回答の箇条書きがそのまま図解になる | pytest 143、E2E 44、UI スモーク 25 |
 | 配布 | `start_windows.bat`（Windows）、`start.sh`（Linux）、exe 版（PyInstaller、Actions の Windows ランナーでビルド、Edge で画像化） | Linux 版バイナリで凍結ロジックを検証、Windows は CI のスモークテスト |
 
 ## 1.2 第2版で追加したもの
@@ -104,6 +105,7 @@ backend/app/
   template_store.py  ユーザーテンプレートの保存・削除
   copilot_handoff.py Copilot 連携（Markdown / JSON / Word への変換、回答の取込。API 不使用）
   copilot_agent_kit.py Copilot エージェント一式（定義・指示文・ナレッジの書き出し。API 不使用）
+  diagrams.py       図解部品（フロー・カード・比較・数値・年表の展開と Markdown 記法）
   report.py          要素判別レポート（文字/画像、座標、フォント pt）
   config.py          設定読込（値はすべて config/*.json）
 frontend/            ブラウザ UI（素の HTML / CSS / JS）

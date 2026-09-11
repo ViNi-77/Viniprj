@@ -439,7 +439,9 @@ class CopilotReplyBody(BaseModel):
 @app.get("/api/copilot/prompts")
 def api_copilot_prompts() -> dict:
     data = _cfg().copilot_prompts()
-    return {"chat_url": data.get("chat_url"), "purposes": [{k: v for k, v in p.items() if k != "prompt"} for p in data.get("purposes", [])]}
+    from .diagrams import MARKDOWN_SPEC
+
+    return {"chat_url": data.get("chat_url"), "diagram_spec": MARKDOWN_SPEC, "purposes": [{k: v for k, v in p.items() if k != "prompt"} for p in data.get("purposes", [])]}
 
 
 @app.post("/api/copilot/handoff")

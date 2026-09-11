@@ -298,7 +298,15 @@ window.PWB = window.PWB || {};
       changed({ index: state.selectedSlide, before: before });
     }).catch(function (e) { setStatus(e.message, true); });
   }
-  function addElement(kind, file) {
+  var DIAGRAM_DEFAULTS = {
+    flow: { h: 180, items: [{ title: "受付", text: "説明" }, { title: "審査", text: "説明" }, { title: "完了", text: "説明" }] },
+    cards: { h: 200, items: [{ title: "見出し 1", text: "説明" }, { title: "見出し 2", text: "説明" }, { title: "見出し 3", text: "説明" }] },
+    compare: { h: 260, items: [{ title: "Before", text: "現状" }, { title: "After", text: "改善後" }] },
+    kpi: { h: 170, items: [{ title: "削減率", value: "40%", text: "削減率" }, { title: "浮いた時間", value: "12h", text: "浮いた時間" }] },
+    timeline: { h: 150, items: [{ title: "2024", text: "できごと" }, { title: "2025", text: "できごと" }] }
+  };
+
+  function addElement(kind, file) {  // file: 画像はファイル、図解は型（"flow" など）
     var s = currentSlide();
     if (!s) { setStatus("先にスライドを用意してください。", true); return; }
     var before = snapshot();
@@ -309,6 +317,10 @@ window.PWB = window.PWB || {};
     var el = null;
     if (kind === "text") el = { id: newId("e"), type: "text", role: "body", bbox: { x: m + 24, y: m + 100, w: 400, h: 60 }, paragraphs: [{ runs: [{ text: "テキスト" }], level: 0, bullet: null }], editable: true };
     if (kind === "shape") el = { id: newId("e"), type: "shape", role: null, bbox: { x: m + 24, y: m + 120, w: 240, h: 100 }, shape: "rounded_rect", fill: colors.surface || "#F4F6F9", stroke: colors.line || "#C9D1DB", stroke_width_pt: 1, paragraphs: [], editable: true };
+    if (kind === "diagram") {
+      var dt = (typeof file === "string" && file) || "flow";  // 図解は第 2 引数が型
+      el = { id: newId("e"), type: "diagram", role: null, bbox: { x: m, y: m + 110, w: cw - 2 * m, h: DIAGRAM_DEFAULTS[dt] ? DIAGRAM_DEFAULTS[dt].h : 180 }, diagram: { type: dt, items: (DIAGRAM_DEFAULTS[dt] || DIAGRAM_DEFAULTS.flow).items.map(function (it) { return { title: it.title, text: it.text || "", value: it.value || "" }; }) }, editable: true };
+    }
     if (kind === "line") el = { id: newId("e"), type: "line", role: null, bbox: { x: m, y: ch / 2, w: cw - 2 * m, h: 1 }, points: [[m, ch / 2], [cw - m, ch / 2]], stroke: colors.line || "#999999", stroke_width_pt: 1.5, editable: true };
     if (kind === "image" && file) {
       var reader = new FileReader();
@@ -394,7 +406,7 @@ window.PWB = window.PWB || {};
   PWB.core = {
     state: state, api: api, apiJson: apiJson, currentBody: currentBody, log: log, setStatus: setStatus, escapeHtml: escapeHtml,
     setTemplates: setTemplates, templateInfo: templateInfo, scheduleRender: scheduleRender, applyImport: applyImport, snapshot: snapshot,
-    changed: changed, deleteElements: deleteElements, duplicateElements: duplicateElements, reorderZ: reorderZ, alignSelection: alignSelection, fitHeight: fitHeight, addElement: addElement, moveSlide: moveSlide,
+    DIAGRAM_DEFAULTS: DIAGRAM_DEFAULTS, changed: changed, deleteElements: deleteElements, duplicateElements: duplicateElements, reorderZ: reorderZ, alignSelection: alignSelection, fitHeight: fitHeight, addElement: addElement, moveSlide: moveSlide,
     onSelectionChanged: function () { PWB.inspector.render(); },
     focusInspector: function (id) { PWB.canvas.setSelection([id]); activateTab("inspector"); PWB.inspector.focusText(); },
     select: function (ids) { PWB.canvas.setSelection(ids); }
@@ -493,6 +505,7 @@ window.PWB = window.PWB || {};
     "add-text": function () { addElement("text"); },
     "add-shape": function () { addElement("shape"); },
     "add-line": function () { addElement("line"); },
+    "add-diagram": function (btn) { addElement("diagram", btn.getAttribute("data-diagram") || "flow"); },
     "add-image": function () { if (!currentSlide()) { setStatus("先にスライドを用意してください。", true); return; } $("add-image-input").click(); },
     "json-apply": function () {
       var raw;
@@ -511,7 +524,7 @@ window.PWB = window.PWB || {};
   document.addEventListener("click", function (e) {
     var t = e.target.closest("[data-action], [data-slide-act], [data-project-act], .tab, .slide-item, #dropzone");
     if (!t) return;
-    if (t.hasAttribute("data-action")) { var fn = actions[t.getAttribute("data-action")]; if (fn) fn(); return; }
+    if (t.hasAttribute("data-action")) { var fn = actions[t.getAttribute("data-action")]; if (fn) fn(t); return; }
     if (t.hasAttribute("data-slide-act")) { e.stopPropagation(); slideAction(t.getAttribute("data-slide-act"), parseInt(t.getAttribute("data-slide"), 10)); return; }
     if (t.hasAttribute("data-project-act")) {
       var name = t.getAttribute("data-project");

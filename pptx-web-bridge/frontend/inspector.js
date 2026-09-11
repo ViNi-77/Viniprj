@@ -80,6 +80,19 @@ PWB.inspector = (function () {
     } else if (el.type === "table") {
       html += '<textarea data-prop="table" title="タブ区切りでセル、改行で行">' + esc(elementText(el)) + "</textarea>";
       html += '<div class="grid4">' + field("見出し行数", numberInput("header_rows", el.header_rows == null ? 1 : el.header_rows, 1)) + "</div>";
+    } else if (el.type === "diagram") {
+      var d = el.diagram || { type: "flow", items: [] };
+      html += '<div class="grid4">' + field("型", selectInput("diagram.type", d.type || "flow", DIAGRAM_TYPES)) + field("項目", '<span class="muted">' + (d.items || []).length + " 件</span>") + "</div>";
+      html += '<div class="diagram-items">';
+      (d.items || []).forEach(function (it, i) {
+        html += '<div class="diagram-item"><input type="text" data-prop="diagram.item.' + i + '.title" value="' + esc(it.title || "") + '" placeholder="見出し">'
+          + (d.type === "kpi" ? '<input type="text" data-prop="diagram.item.' + i + '.value" value="' + esc(it.value || "") + '" placeholder="値">' : "")
+          + '<input type="text" data-prop="diagram.item.' + i + '.text" value="' + esc(it.text || "") + '" placeholder="説明">'
+          + '<button class="small secondary" data-act="diagram-up" data-index="' + i + '" title="上へ">↑</button>'
+          + '<button class="small secondary" data-act="diagram-del" data-index="' + i + '" title="削除">✕</button></div>';
+      });
+      html += "</div>";
+      html += '<div class="row wrap"><button class="small secondary" data-act="diagram-add">項目を追加</button><span class="muted">Copilot には「型: ' + esc(DIAGRAM_WORDS[d.type] || d.type) + '」として渡ります。</span></div>';
     } else if (el.type === "line") {
       html += '<div class="grid4">' + field("線の色", colorInput("stroke", el.stroke, true)) + field("線の太さ", numberInput("stroke_width_pt", el.stroke_width_pt || 1, 0.5)) + "</div>";
     } else {
@@ -97,7 +110,10 @@ PWB.inspector = (function () {
     return html;
   }
 
-  function typeLabel(el) { return { text: "文字", shape: "図形", image: "画像", table: "表", line: "線", unsupported: "未対応" }[el.type] || el.type; }
+  var DIAGRAM_TYPES = [["flow", "フロー"], ["cards", "カード"], ["compare", "比較"], ["kpi", "数値"], ["timeline", "年表"]];
+  var DIAGRAM_WORDS = { flow: "フロー", cards: "カード", compare: "比較", kpi: "数値", timeline: "年表" };
+
+  function typeLabel(el) { return { text: "文字", shape: "図形", image: "画像", table: "表", line: "線", diagram: "図解", unsupported: "未対応" }[el.type] || el.type; }
   function explicitSize(el) {
     var sizes = [];
     (el.paragraphs || []).forEach(function (p) { (p.runs || []).forEach(function (r) { if (r.size_pt && (r.inherited || []).indexOf("size_pt") < 0) sizes.push(r.size_pt); }); });
@@ -145,6 +161,13 @@ PWB.inspector = (function () {
     if (prop === "fill" || prop === "stroke") { el[prop] = String(v).toUpperCase(); return; }
     if (prop === "stroke_width_pt" || prop === "rotation_deg" || prop === "header_rows") { var f = parseFloat(v); if (!isNaN(f)) el[prop] = prop === "header_rows" ? Math.max(0, Math.round(f)) : f; if (prop === "rotation_deg" && !f) delete el.rotation_deg; return; }
     if (prop === "shape" || prop === "fit" || prop === "alt") { el[prop] = v; return; }
+    if (prop === "diagram.type") { el.diagram = el.diagram || { items: [] }; el.diagram.type = v; return; }
+    if (prop.indexOf("diagram.item.") === 0) {
+      var parts = prop.split(".");
+      var it = (el.diagram && el.diagram.items && el.diagram.items[parseInt(parts[2], 10)]) || null;
+      if (it) it[parts[3]] = v;
+      return;
+    }
   }
   function setRuns(el, fn) { (el.paragraphs || []).forEach(function (p) { (p.runs || []).forEach(fn); }); }
   function setText(el, value) {
@@ -188,6 +211,18 @@ PWB.inspector = (function () {
     var ids = PWB.canvas.getSelection();
     var el = selectedElement();
     var s = slide();
+    if (el && el.type === "diagram" && act.indexOf("diagram-") === 0) {
+      var before0 = JSON.parse(JSON.stringify(core().state.presentation));
+      el.diagram = el.diagram || { type: "flow", items: [] };
+      var items = el.diagram.items = el.diagram.items || [];
+      var idx = parseInt(btn.getAttribute("data-index") || "0", 10);
+      if (act === "diagram-add") items.push({ title: "見出し", text: "" });
+      else if (act === "diagram-del") items.splice(idx, 1);
+      else if (act === "diagram-up" && idx > 0) items.splice(idx - 1, 0, items.splice(idx, 1)[0]);
+      core().changed({ index: core().state.selectedSlide, before: before0, elementIds: [el.id] });
+      render();
+      return;
+    }
     if (act === "delete") { core().deleteElements(ids); return; }
     if (act === "duplicate") { core().duplicateElements(ids); return; }
     if (act === "z-up" || act === "z-down") { core().reorderZ(ids, act === "z-up" ? 1 : -1); return; }

@@ -64,16 +64,20 @@ def test_markdown_reply_becomes_slides_with_kinds_and_notes():
     p = ch.import_markdown(reply)
     layouts = [(s["layout"], s["title"]) for s in p["slides"]]
     assert layouts[0] == ("title", "提案") and any(e.get("role") == "subtitle" for e in p["slides"][0]["elements"])
-    assert layouts[1][0] == "three_column" and p["slides"][1]["notes"] == "背景は 2 分で"
-    cards = [e for e in p["slides"][1]["elements"] if e.get("role") == "card"]
-    assert len(cards) == 3 and cards[0]["layout_hint"] == {"columns": 3, "column": 0}
-    assert cards[0]["paragraphs"][0]["runs"][0]["text"] == "課題: 二重作業" and cards[0]["paragraphs"][1]["level"] == 1
+    assert p["slides"][1]["notes"] == "背景は 2 分で"
+    cards = [e for e in p["slides"][1]["elements"] if e["type"] == "diagram"]  # 「型: カード」は図解要素になる（Phase F）
+    assert len(cards) == 1 and cards[0]["diagram"]["type"] == "cards"
+    items = cards[0]["diagram"]["items"]
+    assert [i["title"] for i in items] == ["課題", "原因", "対策"]
+    assert items[0]["text"].startswith("二重作業") and "詳細 A" in items[0]["text"]  # 下位項目は説明に足す
     assert layouts[2][0] == "table" and p["slides"][2]["notes"] == "数字は試算"
     tbl = next(e for e in p["slides"][2]["elements"] if e["type"] == "table")
     assert tbl["rows"][0][0]["text"] == "項目" and tbl["rows"][1][2]["text"] == "5h"
     s4 = p["slides"][3]
     assert any(e["type"] == "image" and e.get("placeholder") for e in s4["elements"])  # 画像は取れないので代替枠
-    assert any("読む" in "".join(r["text"] for q in e.get("paragraphs", []) for r in q["runs"]) for e in s4["elements"] if e["type"] == "text")
+    flow = [e for e in s4["elements"] if e["type"] == "diagram"]  # 「型: フロー」も図解要素
+    assert len(flow) == 1 and flow[0]["diagram"]["type"] == "flow"
+    assert [i["title"] for i in flow[0]["diagram"]["items"]] == ["読む", "直す", "出す"]
 
 
 def test_roundtrip_markdown_keeps_slide_count(deck: dict):
