@@ -62,3 +62,39 @@ def test_asset_tag_changes_when_a_screen_file_changes(tmp_path, monkeypatch):
 def test_label_is_readable():
     label = version_mod.label()
     assert label.startswith(f"v{version_mod.APP_VERSION}")
+
+
+def _run_server_module():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+    import run_server
+
+    return run_server
+
+
+def test_port_in_use_is_detected_and_a_free_one_is_picked():
+    """前に起動したサーバーが残っていると、新しい方は別のポートへ逃げる（黙って古い画面を見せない）。"""
+    import logging
+    import socket
+
+    run_server = _run_server_module()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        port = busy.getsockname()[1]
+        assert run_server.port_in_use("127.0.0.1", port) is True
+        picked = run_server.pick_port("127.0.0.1", port, logging.getLogger("test"))
+        assert picked != port and not run_server.port_in_use("127.0.0.1", picked)
+
+
+def test_a_free_port_is_used_as_is():
+    import logging
+    import socket
+
+    run_server = _run_server_module()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    assert run_server.pick_port("127.0.0.1", port, logging.getLogger("test")) == port
