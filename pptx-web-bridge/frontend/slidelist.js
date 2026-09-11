@@ -7,12 +7,21 @@ PWB.slidelist = (function () {
   "use strict";
   var list = null;
   var thumbs = {}; // slide id → html 断片
-  var THUMB_W = 132;
+  var THUMB_MAX = 132, THUMB_MIN = 64;
+  var lastThumbW = 0;
+  function thumbWidth() {
+    // 一覧の幅の 35% を目安に、64〜132px の間で決める（狭いペインでも題名の欄が残る）
+    var w = list ? list.clientWidth : 0;
+    return w ? Math.max(THUMB_MIN, Math.min(THUMB_MAX, Math.round(w * 0.35))) : THUMB_MAX;
+  }
   var core = function () { return PWB.core; };
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
 
   function init(el) {
     list = el;
+    if (typeof ResizeObserver === "function") {
+      new ResizeObserver(function () { if (list && core().state.presentation && Math.abs(thumbWidth() - lastThumbW) >= 8) render(); }).observe(list);
+    }
     list.addEventListener("dragstart", function (e) {
       var li = e.target.closest(".slide-item");
       if (!li || e.target.tagName === "INPUT") { e.preventDefault(); return; }
@@ -63,6 +72,8 @@ PWB.slidelist = (function () {
     if (!st.presentation) return;
     var pres = st.presentation;
     var cw = pres.canvas.width_pt, ch = pres.canvas.height_pt;
+    var THUMB_W = thumbWidth();
+    lastThumbW = THUMB_W;
     var scale = THUMB_W / cw;
     pres.slides.forEach(function (s, i) {
       var li = document.createElement("li");

@@ -18,7 +18,7 @@ PWB.copilot = (function () {
     modal.addEventListener("click", onClick);
     modal.addEventListener("change", onChange);
     modal.addEventListener("input", function (e) { if (e.target.id === "copilot-instruction" && st.built) st.built.instruction = e.target.value; });
-    document.addEventListener("keydown", function (e) { if (!modal.hidden && e.key === "Escape") close(); });
+    PWB.ui.bindModal(modal, {});
     core().apiJson("/api/copilot/prompts").then(function (r) {
       st.purposes = r.purposes || []; st.chatUrl = r.chat_url || "";
       var sel = $("copilot-purpose");
@@ -28,11 +28,11 @@ PWB.copilot = (function () {
   }
 
   function open(tab) {
-    modal.hidden = false;
+    PWB.ui.openModal(modal);
     setTab(tab || "ask");
     if (st.tab === "ask") build();
   }
-  function close() { modal.hidden = true; }
+  function close() { PWB.ui.closeModal(modal); }
   function setStatus(msg, isErr) { var s = $("copilot-status"); s.textContent = msg || ""; s.classList.toggle("err", !!isErr); if (isErr) core().log("Copilot 連携: " + msg, "ERROR"); }
   function setTab(tab) {
     st.tab = tab;

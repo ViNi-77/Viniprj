@@ -78,6 +78,8 @@ PWB.canvas = (function () {
       stage.addEventListener("pointerdown", onPointerDown);
       stage.addEventListener("dblclick", function (e) { var el = e.target.closest(".el"); if (el && el.id && itemById(el.id) && adapter.onDoubleClick) adapter.onDoubleClick(el.id); });
       window.addEventListener("resize", fit);
+      // 隣の部品一覧が伸びた・タブが変わった・進捗バーが出た、のどれでも自動で収め直す
+      if (typeof ResizeObserver === "function") { var ro = new ResizeObserver(function () { fit(); }); ro.observe(area); }
       document.addEventListener("keydown", onKey);
       if (adapter === slideAdapter) { stage.id = "canvas-stage"; overlay.id = "sel-overlay"; guides.id = "snap-guides"; styleEl.id = "theme-css"; }
     }
@@ -99,8 +101,9 @@ PWB.canvas = (function () {
 
     function fit() {
       if (!area) return;
-      var availW = Math.max(100, area.clientWidth - 32);
-      var availH = Math.max(100, area.clientHeight - 32);
+      var availW = Math.max(1, area.clientWidth - 24);
+      var availH = Math.max(1, area.clientHeight - 24);
+      if (area.clientWidth === 0 || area.clientHeight === 0) return;  // 非表示（閉じたモーダル等）のときは触らない
       scale = Math.min(availW / canvasW, availH / canvasH);
       if (!isFinite(scale) || scale <= 0) scale = 1;
       var wrap = stage.querySelector(".slide-wrap");

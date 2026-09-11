@@ -15,7 +15,7 @@ from pathlib import Path
 from .config import ROOT_DIR, resource_path
 from .model import SCHEMA_VERSION
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 # 画面に出す「この版に入っている機能」。増えた機能はここに足す（UI はこれをそのまま並べる）
 FEATURES: list[dict[str, str]] = [
@@ -26,6 +26,7 @@ FEATURES: list[dict[str, str]] = [
     {"id": "copilot_agent_kit", "phase": "E", "name": "Copilot エージェント一式", "hint": "定義・指示文・ナレッジを ZIP で書き出す"},
     {"id": "diagrams", "phase": "F", "name": "図解部品", "hint": "フロー / カード / 比較 / 数値 / 年表"},
     {"id": "merge_import", "phase": "G", "name": "差分マージ再取込", "hint": "編集を残して変わったところだけ反映"},
+    {"id": "ui_foundation", "phase": "H", "name": "画面基盤（ノート PC 対応）", "hint": "Pico.css / <dialog> / Split.js。125〜150% 表示でも切れない"},
 ]
 
 _BUILD_INFO_NAME = "build_info.json"

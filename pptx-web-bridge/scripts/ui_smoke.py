@@ -3,7 +3,8 @@
 - Playwright / Chromium（または Edge/Chrome）が無い環境では skip（終了コード 0）。
 - 実行: python scripts/ui_smoke.py [--screenshots DIR]
 確認項目: キャンバス描画、サムネイル、ドラッグで bbox が変わる、Undo で戻る、インスペクタの数値入力、要素追加・削除、スライド並べ替え、
-          PPTX からテンプレート作成（解析 → 枠のドラッグ → 部品の除外 → 保存 → 適用 → 削除）、Copilot に頼む（指示作成 → 回答の貼り付け → 反映）。
+          PPTX からテンプレート作成（解析 → 枠のドラッグ → 部品の除外 → 保存 → 適用 → 削除）、Copilot に頼む（指示作成 → 回答の貼り付け → 反映）、
+          ノート PC の実寸（1366×768@125% / 1920×1080@150%）で切れずに押せること。
 ユーザーテンプレートの保存先は一時ディレクトリ（リポジトリの config/ を汚さない）。
 """
 from __future__ import annotations
@@ -40,6 +41,101 @@ def _wait(url: str, timeout: float = 30.0) -> bool:
         except Exception:  # noqa: BLE001
             time.sleep(0.3)
     return False
+
+
+# ノート PC の実寸（CSS px と拡大率）。1366×768 @125% と 1920×1080 @150%
+LAPTOPS = [
+    ("1366x768@125%", {"width": 1093, "height": 614}, 1.25),
+    ("1920x1080@150%", {"width": 1280, "height": 720}, 1.5),
+]
+
+
+def _clickable(page, selector: str) -> tuple[bool, str]:
+    """要素が画面内にあり、その中心を押すとその要素（または子）に当たるか（＝スクロール無しで押せる）。"""
+    box = page.locator(selector).first.bounding_box()
+    if not box:
+        return False, f"{selector}: 位置なし"
+    vw, vh = page.viewport_size["width"], page.viewport_size["height"]
+    inside = box["x"] >= 0 and box["y"] >= 0 and box["x"] + box["width"] <= vw + 1 and box["y"] + box["height"] <= vh + 1
+    hit = page.evaluate(
+        "([x, y, sel]) => { var el = document.elementFromPoint(x, y); var t = document.querySelector(sel); return !!(el && t && (el === t || t.contains(el))); }",
+        [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, selector],
+    )
+    return inside and hit, f"{selector}: {'画面内' if inside else '画面外'} / {'押せる' if hit else '別の要素に隠れる'} ({box['x']:.0f},{box['y']:.0f} {box['width']:.0f}×{box['height']:.0f})"
+
+
+def laptop_checks(browser, base: str, brand: Path, record, shots) -> None:
+    """ノート PC の画面でも、切れずに押せることを確かめる（Phase H の受入）。"""
+    for label, viewport, dsf in LAPTOPS:
+        ctx = browser.new_context(viewport=viewport, device_scale_factor=dsf)
+        page = ctx.new_page()
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        try:
+            page.goto(base + "/")
+            page.evaluate("() => { try { localStorage.clear(); } catch (e) {} }")
+            page.reload()
+            page.wait_for_selector("#dropzone")
+            page.set_input_files("#file-input", str(ROOT / "samples" / "sample_deck.pptx"))
+            page.wait_for_selector(".canvas-stage .slide", timeout=30000)
+            page.wait_for_function("() => document.getElementById('progress').classList.contains('hidden')", timeout=20000)  # 進捗の帯が消えてから
+            page.wait_for_timeout(300)
+            no_hscroll = page.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth && document.body.scrollHeight <= window.innerHeight + 1")
+            record(f"[{label}] 画面全体がはみ出さない（横スクロール無し）", no_hscroll)
+            problems = []
+            for sel in ("#version-badge", ".pane-right .toolbar button[data-action='add-text']", ".inspector-card .tabs", "#canvas-area"):
+                ok, why = _clickable(page, sel)
+                if not ok:
+                    problems.append(why)
+            record(f"[{label}] ヘッダー・ツールバー・タブ・キャンバスが画面内", not problems, "; ".join(problems))
+            # 左ペインの一番下のボタンはペイン内スクロールで届く
+            page.locator("#btn-copilot").scroll_into_view_if_needed()
+            ok, why = _clickable(page, "#btn-copilot")
+            record(f"[{label}] 「Copilot に頼む」までスクロールして押せる", ok, why)
+            # ログを増やしても他のカードを押し出さない
+            page.evaluate("() => { for (var i = 0; i < 200; i++) PWB.core.log('ノート PC 試験の行 ' + i, 'INFO'); }")
+            page.click(".inspector-card .tab[data-tab='log']")
+            page.wait_for_timeout(200)
+            ok, why = _clickable(page, ".inspector-card .tabs")
+            canvas_h = page.evaluate("() => document.getElementById('canvas-area').clientHeight")
+            record(f"[{label}] ログが増えてもタブとキャンバスが残る", ok and canvas_h >= 100, f"canvas={canvas_h}px {why}")
+            page.click(".inspector-card .tab[data-tab='inspector']")
+            if shots:
+                page.screenshot(path=str(shots / f"laptop_{label.replace('%', '')}_main.png"))
+            # テンプレート作成モーダル: 部品が多くても保存ボタンが見えて押せる
+            page.click("button[data-action='template-from-pptx']")
+            page.wait_for_selector("#tpl-modal:not([hidden])")
+            page.set_input_files("#tpl-file", str(brand))
+            page.wait_for_function("() => PWB.templateEditor.state().proposal && document.querySelectorAll('#tpl-parts .tpl-part').length > 0", timeout=60000)
+            page.wait_for_timeout(500)
+            n_parts = page.evaluate("() => document.querySelectorAll('#tpl-parts .tpl-part').length")
+            ok, why = _clickable(page, "#tpl-save")
+            record(f"[{label}] テンプレート作成の「保存」が見えて押せる（部品 {n_parts} 個）", ok, why)
+            ok2, why2 = _clickable(page, "#tpl-canvas")
+            record(f"[{label}] テンプレートのプレビューが画面内", ok2, why2)
+            if shots:
+                page.screenshot(path=str(shots / f"laptop_{label.replace('%', '')}_template.png"))
+            page.click("button[data-tpl-act='close']")
+            page.wait_for_function("() => document.getElementById('tpl-modal').hidden", timeout=10000)
+            # Copilot モーダル
+            page.click("button[data-action='copilot']")
+            page.wait_for_selector("#copilot-modal:not([hidden])")
+            page.wait_for_function("() => document.getElementById('copilot-content').value.length > 0", timeout=20000)
+            ok, why = _clickable(page, "button[data-copilot-act='copy-all']")
+            record(f"[{label}] Copilot モーダルの「全部コピー」が押せる", ok, why)
+            if shots:
+                page.screenshot(path=str(shots / f"laptop_{label.replace('%', '')}_copilot.png"))
+            page.click("button[data-copilot-act='close']")
+            page.wait_for_function("() => document.getElementById('copilot-modal').hidden", timeout=10000)
+            # 版のモーダル（小さいダイアログ）
+            page.click("#version-badge")
+            page.wait_for_selector("#version-modal:not([hidden])", timeout=10000)
+            ok, why = _clickable(page, "button[data-action='version-close']")
+            record(f"[{label}] 小さいダイアログの「閉じる」が押せる", ok, why)
+            page.click("button[data-action='version-close']")
+            record(f"[{label}] JavaScript エラーなし", not errors, "; ".join(errors)[:200])
+        finally:
+            ctx.close()
 
 
 def main() -> int:
@@ -322,6 +418,7 @@ def main() -> int:
             record("版の表示と機能一覧（キャッシュ無効化の印つき）", badge.startswith("版 ") and feature_rows >= 7 and bool(build) and tagged, f"badge={badge} features={feature_rows} tagged={tagged}")
 
             record("JavaScript エラーなし", not errors, "; ".join(errors)[:200])
+            laptop_checks(browser, base, brand, record, shots)
             browser.close()
     finally:
         proc.terminate()
