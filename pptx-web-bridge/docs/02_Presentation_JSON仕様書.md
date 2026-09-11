@@ -15,7 +15,7 @@
 ```
 {
   "schema_version": "1.0",
-  "meta":   { "title", "author", "created_at", "generator", "source": {"type": "pptx|html|manual|json", "filename"} },
+  "meta":   { "title", "author", "created_at", "generator", "source": {"type": "pptx|html|manual|json", "filename"}, "import_snapshot": {...} },
   "canvas": { "width_pt": 960, "height_pt": 540, "aspect": "16:9" },
   "theme":  { "template_id", "fonts": {"heading", "body"}, "colors": {"primary","secondary","accent","background","surface","text","muted","line"} },
   "assets": { "<asset_id>": {"mime", "filename", "data_base64", "width_px", "height_px"} },
@@ -35,6 +35,9 @@
 | background | {color} / null | 単色背景のみ |
 | elements | element[] | 描画順は `z` 昇順 |
 | warnings | warning[] | このスライドに関する警告 |
+
+### meta.import_snapshot（差分マージ用）
+前回の取込直後の状態を照合するためだけの記録。`{source, slides: [{key, notes, layout, elements: [{key, hash}]}]}` で、本文・画像は持たない（`key` は種別・役割・文字の先頭 40 字、`hash` は文字の SHA-1 先頭 12 桁）。各スライド・要素には取り込んだときの鍵 `import_key` が付き、利用者が文字を直しても対応付けられる。
 
 ### element（共通）
 | フィールド | 型 | 説明 |

@@ -14,7 +14,7 @@ window.PWB = window.PWB || {};
   "use strict";
 
   /** @type {{presentation: object|null, selectedSlide: number, config: object|null, warnings: object[], quality: object|null, report: object|null}} グローバル状態 */
-  var state = { presentation: null, selectedSlide: 0, config: null, warnings: [], quality: null, report: null };
+  var state = { presentation: null, selectedSlide: 0, config: null, warnings: [], quality: null, report: null, mergeReport: null };
   var LS_KEY = "pptx_web_bridge.autosave";
   var LOG_LEVELS = { DEBUG: 10, INFO: 20, WARNING: 30, ERROR: 40 };
   var logLevel = "INFO";
@@ -106,8 +106,10 @@ window.PWB = window.PWB || {};
     log(sourceLabel + " 取込完了: slides=" + state.presentation.slides.length + " warnings=" + state.warnings.length);
   }
 
-  function importFile(file) {
+  function importFile(file, mode) {
     var name = file.name.toLowerCase();
+    if (!mode && canMerge(file)) { askMergeMode(file); return; }
+    if (mode === "merge") { mergeFile(file); return; }
     var fd = new FormData();
     fd.append("file", file);
     fd.append("template_id", $("template-select").value);
@@ -121,6 +123,89 @@ window.PWB = window.PWB || {};
     api(path, { method: "POST", body: fd }).then(function (r) { progressStep(1); return r.json(); })
       .then(function (result) { progressStep(2); applyImport(result, file.name); progressDone(true); })
       .catch(function (e) { progressDone(false); setStatus("取込失敗: " + e.message, true); });
+  }
+
+  // ---------------------------------------------------------------------
+  // 差分マージ再取込（Phase G）
+  // ---------------------------------------------------------------------
+  function canMerge(file) {
+    var pres = state.presentation;
+    if (!pres || !pres.meta || !pres.meta.import_snapshot) return false;
+    var src = pres.meta.import_snapshot.source || {};
+    var name = file.name.toLowerCase();
+    var kind = name.endsWith(".pptx") ? "pptx" : (name.endsWith(".json") ? "json" : "html");
+    var prev = String(src.type || "");
+    return prev === kind || (prev === "html" && kind === "html");
+  }
+
+  function askMergeMode(file) {
+    var box = $("merge-dialog");
+    box.hidden = false;
+    $("merge-file-name").textContent = file.name;
+    box.dataset.pending = "1";
+    pendingMergeFile = file;
+  }
+  var pendingMergeFile = null;
+
+  function mergeFile(file) {
+    var fd = new FormData();
+    fd.append("file", file);
+    fd.append("presentation", JSON.stringify(state.presentation));
+    fd.append("template_id", $("template-select").value);
+    fd.append("conflict", ($("merge-conflict") && $("merge-conflict").value) || "theirs");
+    var before = snapshot();
+    setStatus("差分を取り込み中: " + file.name + " …");
+    progressStart(["送信", "照合・マージ", "プレビュー描画"], 1500 + file.size / 1e6 * 1500);
+    api("/api/import/merge", { method: "POST", body: fd }).then(function (r) { progressStep(1); return r.json(); })
+      .then(function (result) {
+        progressStep(2);
+        PWB.history.push(before);
+        applyImport(result, file.name + "（差分）", true);
+        state.mergeReport = result.report || null;
+        showMergeReport(result);
+        progressDone(true);
+      })
+      .catch(function (e) { progressDone(false); setStatus("差分取込に失敗: " + e.message, true); });
+  }
+
+  function showMergeReport(result) {
+    var rep = result.report || {};
+    var box = $("merge-report");
+    if (!box) return;
+    var lines = ["<p>" + escapeHtml(result.summary || "") + "</p>"];
+    if (rep.slides_added || rep.slides_removed) lines.push("<p class=\"muted\">スライド: 追加 " + (rep.slides_added || 0) + " / 削除 " + (rep.slides_removed || 0) + "</p>");
+    if ((rep.conflicts || []).length) {
+      lines.push("<p class=\"muted\">両方で変わった箇所（取り込み側を採用しました。必要なら元に戻して選び直してください）:</p><ul class=\"merge-conflicts\">");
+      rep.conflicts.forEach(function (c) {
+        lines.push("<li><code>" + escapeHtml(c.element_id || "") + "</code><div>今の資料: " + escapeHtml(c.ours) + "</div><div>取り込み: " + escapeHtml(c.theirs) + "</div>"
+          + '<button class="small secondary" data-action="merge-keep-ours" data-element="' + escapeHtml(c.element_id || "") + '" data-slide="' + escapeHtml(c.slide_id || "") + '">今の資料の文言に戻す</button></li>');
+      });
+      lines.push("</ul>");
+    }
+    box.innerHTML = lines.join("");
+    $("merge-result").hidden = false;
+    setStatus("差分を取り込みました（" + (result.summary || "") + "）");
+  }
+
+  function keepOursText(slideId, elementId) {
+    var rep = state.mergeReport;
+    if (!rep) return;
+    var c = (rep.conflicts || []).filter(function (x) { return x.element_id === elementId && x.slide_id === slideId; })[0];
+    if (!c) return;
+    var si = state.presentation.slides.map(function (s) { return s.id; }).indexOf(slideId);
+    var s = state.presentation.slides[si < 0 ? state.selectedSlide : si];
+    var el = (s.elements || []).filter(function (e) { return e.id === elementId; })[0];
+    if (!el) return;
+    var before = snapshot();
+    if (el.type === "text" || el.type === "shape") {
+      var base = (el.paragraphs && el.paragraphs[0]) || { runs: [{ text: "" }], level: 0, bullet: null };
+      var r0 = (base.runs && base.runs[0]) || {};
+      var nr = {}; for (var k in r0) if (k !== "text") nr[k] = r0[k];
+      el.paragraphs = c.ours.split("\n").map(function (line) { var rr = {}; for (var kk in nr) rr[kk] = nr[kk]; rr.text = line; return { runs: [rr], level: base.level || 0, bullet: base.bullet || null }; });
+    }
+    c.applied = "ours";
+    changed({ index: si < 0 ? state.selectedSlide : si, before: before, elementIds: [el.id] });
+    setStatus("今の資料の文言に戻しました: " + elementId);
   }
 
   // ---------------------------------------------------------------------
@@ -404,7 +489,7 @@ window.PWB = window.PWB || {};
   }
 
   PWB.core = {
-    state: state, api: api, apiJson: apiJson, currentBody: currentBody, log: log, setStatus: setStatus, escapeHtml: escapeHtml,
+    state: state, api: api, apiJson: apiJson, importFile: importFile, currentBody: currentBody, log: log, setStatus: setStatus, escapeHtml: escapeHtml,
     setTemplates: setTemplates, templateInfo: templateInfo, scheduleRender: scheduleRender, applyImport: applyImport, snapshot: snapshot,
     DIAGRAM_DEFAULTS: DIAGRAM_DEFAULTS, changed: changed, deleteElements: deleteElements, duplicateElements: duplicateElements, reorderZ: reorderZ, alignSelection: alignSelection, fitHeight: fitHeight, addElement: addElement, moveSlide: moveSlide,
     onSelectionChanged: function () { PWB.inspector.render(); },
@@ -506,6 +591,11 @@ window.PWB = window.PWB || {};
     "add-shape": function () { addElement("shape"); },
     "add-line": function () { addElement("line"); },
     "add-diagram": function (btn) { addElement("diagram", btn.getAttribute("data-diagram") || "flow"); },
+    "merge-replace": function () { $("merge-dialog").hidden = true; if (pendingMergeFile) { var f = pendingMergeFile; pendingMergeFile = null; importFile(f, "replace"); } },
+    "merge-diff": function () { $("merge-dialog").hidden = true; if (pendingMergeFile) { var f2 = pendingMergeFile; pendingMergeFile = null; importFile(f2, "merge"); } },
+    "merge-cancel": function () { $("merge-dialog").hidden = true; pendingMergeFile = null; },
+    "merge-report-close": function () { $("merge-result").hidden = true; },
+    "merge-keep-ours": function (btn) { keepOursText(btn.getAttribute("data-slide"), btn.getAttribute("data-element")); },
     "add-image": function () { if (!currentSlide()) { setStatus("先にスライドを用意してください。", true); return; } $("add-image-input").click(); },
     "json-apply": function () {
       var raw;

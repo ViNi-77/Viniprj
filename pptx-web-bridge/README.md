@@ -57,9 +57,10 @@ python backend/run_server.py
 | レイアウト改善（Phase A） | 文字サイズの一本化（`typography.py`）、画像の実寸配置と本文との横並び、分割前の自動縮小と分割抑制、HTML の背景色・帯・区切り線・代替画像、PPTX のトリミング焼き込み・回転・固定要素との衝突回避。スキーマ 1.1 | pytest 88、E2E 33 |
 | 編集 UI（Phase B） | iframe プレビューをやめ、サーバ描画の断片を同一オリジンのキャンバスに差し込んで直接編集（選択・ドラッグ・リサイズ・スナップ・キーボード・undo/redo・数値入力・画像差し替え・要素追加）。サムネイル付きスライド一覧と D&D 並べ替え、ペイン幅の調整。API: `/api/render/slides` `/api/layout/slide` `/api/layout/fit` | pytest 96、E2E 33、UI スモーク 13 |
 | PPTX からテンプレート作成（Phase C） | 自分の PowerPoint（表紙・中身・最終ページ）を読み込み、背景・ロゴ・帯・題名/副題/本文領域・フッター・ページ番号・一言を推定して「この解釈で入ります」を番号付きの枠で表示。枠をドラッグして直し、ユーザーテンプレートとして保存（`config/user_templates.json`）。中身の本文はテンプレートの本文領域に流し込む。任意で元の PowerPoint を土台にした PPTX 出力。API: `/api/templates/from-pptx` `/api/templates/preview` `PUT/DELETE /api/templates/{id}` | pytest 106、E2E 37、UI スモーク 20 |
-| Copilot 連携（Phase D） | API を使わず M365 Copilot と受け渡す。「Copilot に頼む」で用途（ブランドスライド化 / 図解風 / 要約 / 発表者ノート / 翻訳 / JSON）を選び、指示と資料の内容（Markdown）をコピーして Copilot に貼る。Word 文書（Copilot in PowerPoint の「ファイルから作成」用）と一式 ZIP も保存できる。回答（Markdown / 簡易 JSON）を貼り付けると新しい資料になり、`型: カード / 比較` は図解風の列配置、`ノート:` は発表者ノートになる。プロンプトは `config/copilot_prompts.json` | pytest 143、E2E 44、UI スモーク 25 |
-| Copilot エージェント一式（Phase E） | 上の書式を Copilot 側にも覚えさせる。「Copilot に頼む」→「3. エージェント」で、宣言型エージェントの定義（`declarativeAgent.json`）・指示文（`instructions.md`）・ナレッジ用テキスト（1 ファイル 30,000 字・20 ファイル以内）・登録手順を ZIP で書き出す。Copilot Studio に手で登録すると、前置き無しでこのアプリの Markdown 形式のまま返ってくる。ここでも API は使わない | pytest 143、E2E 44、UI スモーク 25 |
-| 図解部品（Phase F） | フロー・カード・比較・数値・年表の 5 型を「型 + 項目」で持つ図解要素。ツールバーの「図解」から追加し、インスペクタで項目を編集する。PowerPoint へは編集できる図形として出力し、取り込み直すと図解に戻る。Copilot とは `型: フロー` のような 1 語でやり取りし、回答の箇条書きがそのまま図解になる | pytest 143、E2E 44、UI スモーク 25 |
+| Copilot 連携（Phase D） | API を使わず M365 Copilot と受け渡す。「Copilot に頼む」で用途（ブランドスライド化 / 図解風 / 要約 / 発表者ノート / 翻訳 / JSON）を選び、指示と資料の内容（Markdown）をコピーして Copilot に貼る。Word 文書（Copilot in PowerPoint の「ファイルから作成」用）と一式 ZIP も保存できる。回答（Markdown / 簡易 JSON）を貼り付けると新しい資料になり、`型: カード / 比較` は図解風の列配置、`ノート:` は発表者ノートになる。プロンプトは `config/copilot_prompts.json` | pytest 157、E2E 46、UI スモーク 26 |
+| Copilot エージェント一式（Phase E） | 上の書式を Copilot 側にも覚えさせる。「Copilot に頼む」→「3. エージェント」で、宣言型エージェントの定義（`declarativeAgent.json`）・指示文（`instructions.md`）・ナレッジ用テキスト（1 ファイル 30,000 字・20 ファイル以内）・登録手順を ZIP で書き出す。Copilot Studio に手で登録すると、前置き無しでこのアプリの Markdown 形式のまま返ってくる。ここでも API は使わない | pytest 157、E2E 46、UI スモーク 26 |
+| 図解部品（Phase F） | フロー・カード・比較・数値・年表の 5 型を「型 + 項目」で持つ図解要素。ツールバーの「図解」から追加し、インスペクタで項目を編集する。PowerPoint へは編集できる図形として出力し、取り込み直すと図解に戻る。Copilot とは `型: フロー` のような 1 語でやり取りし、回答の箇条書きがそのまま図解になる | pytest 157、E2E 46、UI スモーク 26 |
+| 差分マージ再取込（Phase G） | 同じ資料を直したファイルを投入すると「差分を取り込む / まるごと置き換える」を選べる。差分では手で動かした枠・直した文字・発表者ノートを残したまま、変わったところだけを反映する。両方で変わった箇所は競合として一覧に出し、1 件ずつ元の文言に戻せる。Copilot の回答も「差分として反映」できる | pytest 157、E2E 46、UI スモーク 26 |
 | 配布 | `start_windows.bat`（Windows）、`start.sh`（Linux）、exe 版（PyInstaller、Actions の Windows ランナーでビルド、Edge で画像化） | Linux 版バイナリで凍結ロジックを検証、Windows は CI のスモークテスト |
 
 ## 1.2 第2版で追加したもの
@@ -76,6 +77,7 @@ python backend/run_server.py
 5. **保存・復元**: プロジェクト名で `projects/<名前>.json` に保存し、「開く」で復元。
 6. **Copilot 連携（API 不使用）**: 「Copilot に頼む」で用途を選び「全部コピー」→ M365 Copilot チャットに貼る → 回答をコピー → 「回答を貼り付けて反映」。PowerPoint で作らせるときは「Word 文書を保存」して Copilot in PowerPoint の「ファイルから作成」に使い、ブランドキットを適用する。できた PowerPoint はそのまま「ファイル投入」で取り込んで Web 化できる。資料の文章をそのまま Copilot に貼るため、社外秘の資料は社内テナントの M365 Copilot でのみ使うこと（外部の AI サービスには貼らない）。
 7. **Copilot エージェント一式（任意）**: 「Copilot に頼む」→「3. エージェント」→「一式を ZIP で保存」。Copilot Studio で新しいエージェントを作り、`instructions.md` の本文を指示に貼り、`knowledge/` のテキストをナレッジとして添付する（M365 Copilot は 20 ファイルまで）。以後はそのエージェントに貼るだけで、前置き無しの Markdown が返る。ここでも社外秘の資料は社内テナントの Copilot でのみ扱うこと。
+8. **資料を直して取り込み直す**: 元の PowerPoint / HTML を直してもう一度投入すると、取り込み方を聞かれます。「差分を取り込む」を選ぶと、手で整えた位置・直した文字・ノートが残ったまま、変わったところだけが入ります。両方で変わった箇所は一覧に出るので、必要なら「今の資料の文言に戻す」を押します（Ctrl+Z でまとめて取り消すこともできます）。
 
 コマンドラインでも変換できます:
 ```bash
@@ -106,6 +108,7 @@ backend/app/
   copilot_handoff.py Copilot 連携（Markdown / JSON / Word への変換、回答の取込。API 不使用）
   copilot_agent_kit.py Copilot エージェント一式（定義・指示文・ナレッジの書き出し。API 不使用）
   diagrams.py       図解部品（フロー・カード・比較・数値・年表の展開と Markdown 記法）
+  merge.py          差分マージ再取込（前回の取込記録と照合し、編集を残して差分だけ反映）
   report.py          要素判別レポート（文字/画像、座標、フォント pt）
   config.py          設定読込（値はすべて config/*.json）
 frontend/            ブラウザ UI（素の HTML / CSS / JS）

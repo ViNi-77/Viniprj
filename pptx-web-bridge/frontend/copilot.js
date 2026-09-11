@@ -127,17 +127,23 @@ PWB.copilot = (function () {
     if (!text.trim()) { setStatus("回答を貼り付けてください。", true); return; }
     var mode = $("copilot-apply").value;
     var body = { text: text, apply: mode, template_id: document.getElementById("template-select").value };
-    if (mode === "notes") { if (!core().state.presentation) { setStatus("ノートを入れる資料がありません。", true); return; } body.presentation = core().state.presentation; }
+    if (mode === "notes" || mode === "merge") {
+      if (!core().state.presentation) { setStatus(mode === "notes" ? "ノートを入れる資料がありません。" : "差分を反映する資料がありません。", true); return; }
+      body.presentation = core().state.presentation;
+    }
     setStatus("反映中 …");
     core().apiJson("/api/copilot/import", body).then(function (r) {
       var before = core().state.presentation ? core().snapshot() : null;
       if (mode === "notes") {
         if (before) PWB.history.push(before);
         core().applyImport(r, "Copilot の回答（ノート " + r.applied + " 件）", true);
+      } else if (mode === "merge") {
+        if (before) PWB.history.push(before);
+        core().applyImport(r, "Copilot の回答（差分）", true);
       } else {
         core().applyImport(r, "Copilot の回答");
       }
-      setStatus(mode === "notes" ? "ノートを " + r.applied + " 件入れました。" : "新しい資料として取り込みました（" + r.presentation.slides.length + " 枚）。");
+      setStatus(mode === "notes" ? "ノートを " + r.applied + " 件入れました。" : (mode === "merge" ? "差分を反映しました（" + (r.summary || "") + "）。" : "新しい資料として取り込みました（" + r.presentation.slides.length + " 枚）。"));
       close();
     }).catch(function (e) { setStatus("反映失敗: " + e.message, true); });
   }

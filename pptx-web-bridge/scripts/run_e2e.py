@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import copy
 import io
 import json
 import sys
@@ -236,6 +237,32 @@ def main() -> int:
         and within
     )
     record("Copilot エージェント一式（定義・指示文・ナレッジ・目次）", ok_kit, f"files={len(names_k)} knowledge={len(bodies_k)} starters={len(manifest['conversation_starters'])}")
+
+    # --- 差分マージ再取込（Phase G） ---
+    from app import merge as mg
+
+    html_v1 = "<html><body><section><h2>背景</h2><p>課題は二重作業</p></section><section><h2>効果</h2><p>時間が半分</p></section></body></html>".encode("utf-8")
+    html_v2 = "<html><body><section><h2>背景</h2><p>課題は二重作業と転記</p></section><section><h2>効果</h2><p>時間が半分</p></section><section><h2>今後</h2><p>全社展開</p></section></body></html>".encode("utf-8")
+    imported_v1 = pipeline.import_html(html_v1, "plan.html")["presentation"]
+    edited = copy.deepcopy(imported_v1)
+    body_el = [e for e in edited["slides"][0]["elements"] if e.get("role") != "title"][-1]
+    body_el["bbox"] = {"x": 50.0, "y": 300.0, "w": 200.0, "h": 60.0}
+    body_el["user_bbox"] = True
+    edited["slides"][1]["notes"] = "自分のノート"
+    incoming = pipeline.import_html(html_v2, "plan.html")["presentation"]
+    merged = pipeline.merge_import(edited, incoming)
+    m_pres, m_rep = merged["presentation"], merged["report"]
+    kept = [e for e in m_pres["slides"][0]["elements"] if e.get("user_bbox")]
+    texts = [mg.element_text(e) for e in m_pres["slides"][0]["elements"]]
+    ok_merge = bool(kept) and kept[0]["bbox"]["x"] == 50.0 and any("転記" in t for t in texts) and m_pres["slides"][1]["notes"] == "自分のノート" and len(m_pres["slides"]) == 3
+    record("差分マージ再取込（座標・ノートを残して本文だけ更新、ページ追加）", ok_merge and m_rep["updated"] >= 1 and not m_rep["conflicts"], f"{merged['summary']} slides={len(m_pres['slides'])}")
+
+    conflicted = copy.deepcopy(imported_v1)
+    c_el = [e for e in conflicted["slides"][0]["elements"] if e.get("role") != "title"][-1]
+    c_el["paragraphs"][0]["runs"][0]["text"] = "課題は私が直した"
+    merged2 = pipeline.merge_import(conflicted, pipeline.import_html(html_v2, "plan.html")["presentation"])
+    conflicts = merged2["report"]["conflicts"]
+    record("両方で変わった箇所を競合として報告する", len(conflicts) == 1 and conflicts[0]["ours"] == "課題は私が直した" and "転記" in conflicts[0]["theirs"], f"conflicts={len(conflicts)} applied={conflicts[0]['applied'] if conflicts else '-'}")
 
     # --- 例外系 ---
     try:

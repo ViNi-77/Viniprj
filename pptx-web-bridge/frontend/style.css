@@ -165,3 +165,7 @@ table.report td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .diagram-items { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
 .diagram-item { display: flex; gap: 4px; align-items: center; }
 .diagram-item input[type=text] { flex: 1 1 auto; min-width: 0; }
+
+.modal.small .modal-box { width: min(560px, 100%); height: auto; max-height: 80vh; }
+.merge-conflicts { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.merge-conflicts li { border: 1px solid var(--line, #ddd); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
