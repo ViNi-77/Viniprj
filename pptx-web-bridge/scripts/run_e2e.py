@@ -188,8 +188,34 @@ def main() -> int:
     record("Copilot の回答（Markdown）を資料に戻す（往復で枚数一致）", len(back["slides"]) == len(pres["slides"]) and all(el.get("bbox") for s_ in back["slides"] for el in s_["elements"]), f"slides={len(back['slides'])}")
     reply = "# 図解版\n\n## 1. 背景\n型: カード\n- 課題: 二重作業\n- 原因: 形式が違う\n- 対策: 共通形式\nノート: 2 分で\n\n## 2. 効果\n| 項目 | 前 | 後 |\n| --- | --- | --- |\n| 時間 | 10h | 5h |\n"
     fig = layout_presentation(ch.import_markdown(reply))
-    cards = [e for e in fig["slides"][1]["elements"] if e.get("role") == "card"] if len(fig["slides"]) > 1 else []
-    record("「図解風に仕上げる」の回答をカード 3 分割・表として取り込む", len(cards) == 3 and fig["slides"][1]["notes"] == "2 分で" and fig["slides"][2]["layout"] == "table", f"slides={len(fig['slides'])} cards={len(cards)}")
+    cards = [e for e in fig["slides"][1]["elements"] if e["type"] == "diagram"] if len(fig["slides"]) > 1 else []
+    items = cards[0]["diagram"]["items"] if cards else []
+    record("「図解風に仕上げる」の回答をカード図解・表として取り込む", len(items) == 3 and cards[0]["diagram"]["type"] == "cards" and fig["slides"][1]["notes"] == "2 分で" and fig["slides"][2]["layout"] == "table", f"slides={len(fig['slides'])} items={len(items)}")
+
+    # --- 図解部品（Phase F）: Copilot の回答 → 図解 → PPTX → 再読込 ---
+    from app import diagrams as dg
+
+    fig_md = (
+        "# 図解の資料\n\n"
+        "## 1. 進め方\n型: フロー\n- 受付: 窓口で受け取る\n- 審査: 担当が確認\n- 完了: 通知する\nノート: 3 分で説明\n\n"
+        "## 2. 効果\n型: 数値\n- 40%｜作業時間の削減\n- 12h｜月に浮く時間\n\n"
+        "## 3. 現状と改善後\n型: 比較\n- Before: 二重作業\n- After: 一度で済む\n"
+    )
+    fig_pres = layout_presentation(ch.import_markdown(fig_md))
+    fig_els = [e for s_ in fig_pres["slides"] for e in s_["elements"] if e["type"] == "diagram"]
+    types_in = [e["diagram"]["type"] for e in fig_els]
+    record("Copilot の回答から図解（フロー・数値・比較）を作る", types_in == ["flow", "kpi", "compare"] and all(e.get("bbox") for e in fig_els), f"types={types_in} slides={len(fig_pres['slides'])}")
+
+    fig_bytes, _fp, fig_warns = pipeline.export_pptx(fig_pres)
+    (OUT / "diagrams.pptx").write_bytes(fig_bytes)
+    fig_back = parse_pptx(fig_bytes, "diagrams.pptx")
+    back_els = [e for s_ in fig_back["slides"] for e in s_["elements"] if e["type"] == "diagram"]
+    titles_in = [i["title"] for e in fig_els for i in e["diagram"]["items"]]
+    titles_back = [i["title"] for e in back_els for i in e["diagram"]["items"]]
+    record("図解を PPTX に出して読み戻す（型と項目が保たれる）", [e["diagram"]["type"] for e in back_els] == types_in and titles_back == titles_in and not fig_warns, f"back={[e['diagram']['type'] for e in back_els]} items={len(titles_back)}")
+    write_bundle(pipeline.prepare(fig_pres)[0], OUT / "diagrams_web")
+    md_again = ch.to_markdown(fig_pres)
+    record("図解を Markdown に戻して Copilot へ渡せる", f"型: {dg.word_of('flow')}" in md_again and "40%｜作業時間の削減" in md_again, f"chars={len(md_again)}")
 
     # --- Copilot エージェント一式（Phase E、API 不使用） ---
     from app import copilot_agent_kit as kit

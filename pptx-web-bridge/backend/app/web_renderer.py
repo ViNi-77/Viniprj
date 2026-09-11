@@ -12,7 +12,7 @@ import json
 import mimetypes
 from pathlib import Path
 
-from . import template_kit
+from . import diagrams, template_kit
 from .config import get_config
 from .model import slide_title
 from .typography import effective_size, element_font_pt, font_scale, role_default_pt
@@ -148,6 +148,18 @@ def element_html(el: dict, presentation: dict, inline_assets: bool) -> str:
             f'<div class="el el-line" id="{eid}" style="left:{b["x"]:g}px;top:{b["y"]:g}px;width:{w:g}px;height:{h:g}px;z-index:{z}">'
             f'<svg width="{w:g}" height="{h:g}" viewBox="0 0 {w:g} {h:g}"><line x1="{x1 - b["x"]:g}" y1="{y1 - b["y"]:g}" x2="{x2 - b["x"]:g}" y2="{y2 - b["y"]:g}" stroke="{stroke}" stroke-width="{sw:g}"/></svg></div>'
         )
+    if t == "diagram":
+        children = diagrams.expand_diagram(el, template_kit.template_for(presentation))
+        b = el.get("bbox") or {"x": 0, "y": 0, "w": 0, "h": 0}
+        inner = []
+        for child in children:
+            cb = dict(child.get("bbox") or {})
+            child = dict(child, bbox={**cb, "x": cb.get("x", 0) - b["x"], "y": cb.get("y", 0) - b["y"]})
+            if child.get("type") == "line" and child.get("points"):
+                child["points"] = [[pt[0] - b["x"], pt[1] - b["y"]] for pt in child["points"]]
+            inner.append(element_html(child, presentation, inline_assets))
+        dtype = _esc((el.get("diagram") or {}).get("type") or "flow")
+        return f'<div class="el el-diagram" id="{eid}" data-diagram="{dtype}" style="{style}">{"".join(inner)}</div>'
     if t == "table":
         rows = el.get("rows", [])
         header_rows = int(el.get("header_rows", 1) or 0)

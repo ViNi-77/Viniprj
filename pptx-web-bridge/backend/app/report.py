@@ -9,7 +9,7 @@ from __future__ import annotations
 from .model import element_plain_text, slide_title
 from .typography import effective_size
 
-_TYPE_LABEL = {"text": "文字", "shape": "図形(文字付き)", "image": "画像", "line": "線", "table": "表", "unsupported": "未対応"}
+_TYPE_LABEL = {"text": "文字", "shape": "図形(文字付き)", "image": "画像", "line": "線", "table": "表", "diagram": "図解", "unsupported": "未対応"}
 
 
 def element_rows(presentation: dict) -> list[dict]:

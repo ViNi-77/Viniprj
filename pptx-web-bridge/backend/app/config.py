@@ -75,7 +75,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
         "image_side_weight": 0.4,
         "autofit_steps": [1.0, 0.95, 0.9, 0.85],
         "autofit_min_scale": 0.85,
-        "split_min_remaining_ratio": 0.25,
+        "split_min_remaining_ratio": 0.25, "diagram_min_height_pt": 140, "diagram_max_height_ratio": 0.55,
         "band_max_chars": 80,
         "keep_with_next_max_chars": 40,
     },

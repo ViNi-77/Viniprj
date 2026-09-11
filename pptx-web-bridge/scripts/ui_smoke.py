@@ -255,9 +255,24 @@ def main() -> int:
             page.wait_for_timeout(600)
             kinds = page.evaluate("() => qcDebug.presentation().slides.map(function (s) { return s.layout; })")
             note = page.evaluate("() => qcDebug.presentation().slides[1].notes")
-            record("回答を貼り付けて新しい資料にする（カード 3 分割・ノート）", kinds[1] == "three_column" and note == "2 分で", f"layouts={kinds}")
+            dia = page.evaluate("() => (qcDebug.presentation().slides[1].elements.filter(function (e) { return e.type === 'diagram'; })[0] || {}).diagram || null")
+            record("回答を貼り付けて新しい資料にする（カード図解・ノート）", bool(dia) and dia["type"] == "cards" and len(dia["items"]) == 3 and note == "2 分で", f"layouts={kinds} diagram={dia and dia['type']}")
             if shots:
                 page.screenshot(path=str(shots / "ui_06_copilot_reply.png"))
+
+            # --- 図解部品（Phase F）: 図解を追加 → 項目を足す ---
+            if not page.is_hidden("#copilot-modal"):
+                page.click("button[data-copilot-act='close']")
+            page.click("button[data-action='add-diagram'][data-diagram='flow']")
+            page.wait_for_function("() => qcDebug.slide().elements.some(function (e) { return e.type === 'diagram'; })", timeout=20000)
+            page.wait_for_selector(".canvas-stage .el-diagram", timeout=20000)
+            page.evaluate("() => { var el = qcDebug.slide().elements.filter(function (e) { return e.type === 'diagram'; })[0]; PWB.core.focusInspector(el.id); }")
+            page.wait_for_selector("[data-act='diagram-add']", timeout=20000)
+            page.click("[data-act='diagram-add']")
+            page.wait_for_timeout(500)
+            dia = page.evaluate("() => qcDebug.slide().elements.filter(function (e) { return e.type === 'diagram'; })[0].diagram")
+            children = page.evaluate("() => document.querySelectorAll('.canvas-stage .el-diagram .el').length")
+            record("図解を追加して項目を編集できる（キャンバスに展開される）", dia["type"] == "flow" and len(dia["items"]) == 4 and children >= 4, f"items={len(dia['items'])} children={children}")
 
             # --- Copilot エージェント一式の書き出し ---
             page.click("button[data-action='copilot']")

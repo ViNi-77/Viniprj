@@ -40,7 +40,7 @@
 | フィールド | 型 | 説明 |
 |---|---|---|
 | id | string | スライド内で一意 |
-| type | enum | `text, image, shape, line, table, unsupported` |
+| type | enum | `text, image, shape, line, table, diagram, unsupported` |
 | role | enum/null | `title, subtitle, body, caption, card, footer, header`。既定フォントサイズ・色の選択に使う |
 | bbox | bbox/null | 座標。null は未確定 |
 | z | int | 重ね順 |
@@ -57,6 +57,7 @@
 | type | フィールド |
 |---|---|
 | text | `paragraphs[]`, `fill`（任意の背景色） |
+| diagram | `diagram: {type, items[]}`。`type` は `flow`（フロー）/ `cards`（カード）/ `compare`（比較）/ `kpi`（数値）/ `timeline`（年表）。`items[]` は `{title, text?, value?}`。座標を持つのは親の bbox だけで、子の図形・文字は描画・出力の直前に `diagrams.expand_diagram()` が作る（保存はしない） |
 | shape | `shape`（rect / rounded_rect / ellipse）, `fill`, `stroke`, `stroke_width_pt`, `paragraphs[]` |
 | image | `asset_id`, `alt`, `fit`（contain / cover / stretch） |
 | line | `points[[x1,y1],[x2,y2]]`, `stroke`, `stroke_width_pt` |
