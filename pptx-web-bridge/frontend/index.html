@@ -114,6 +114,14 @@
           <button class="secondary small" data-action="add-line">線</button>
           <input type="file" id="add-image-input" accept="image/*" hidden>
         </div>
+        <div class="row wrap">
+          <span class="muted">図解:</span>
+          <button class="secondary small" data-action="add-diagram" data-diagram="flow" title="手順・流れ">フロー</button>
+          <button class="secondary small" data-action="add-diagram" data-diagram="cards" title="要点をカードで並べる">カード</button>
+          <button class="secondary small" data-action="add-diagram" data-diagram="compare" title="Before / After">比較</button>
+          <button class="secondary small" data-action="add-diagram" data-diagram="kpi" title="数値を大きく見せる">数値</button>
+          <button class="secondary small" data-action="add-diagram" data-diagram="timeline" title="年表・タイムライン">年表</button>
+        </div>
         <div class="row">
           <button class="secondary small" data-action="layout-slide-unplaced" title="このスライドの座標未確定の要素だけ配置">このスライドを自動配置</button>
           <button class="secondary small" data-action="layout-slide-all" title="このスライドの全要素を配置し直す（手で動かした位置も戻る）">全要素を配置し直す</button>
@@ -192,6 +200,31 @@
   </div>
 </div>
 <!-- Copilot に頼む -->
+<div id="merge-dialog" class="modal small" hidden role="dialog" aria-label="取り込み方を選ぶ">
+  <div class="modal-box">
+    <div class="modal-head"><h2>取り込み方を選んでください</h2></div>
+    <div class="modal-body col">
+      <p><code id="merge-file-name"></code> は、いま開いている資料と同じ形式です。</p>
+      <label class="f"><span>両方で変わっていたとき</span>
+        <select id="merge-conflict">
+          <option value="theirs">取り込んだファイルの文言を使う</option>
+          <option value="ours">今の資料の文言を残す</option>
+        </select>
+      </label>
+      <div class="row wrap">
+        <button data-action="merge-diff" title="座標・文字の編集・ノートを残したまま、変わったところだけ取り込む">差分を取り込む（編集を残す）</button>
+        <button class="secondary" data-action="merge-replace">まるごと置き換える</button>
+        <button class="secondary" data-action="merge-cancel">やめる</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="merge-result" class="modal small" hidden role="dialog" aria-label="差分の結果">
+  <div class="modal-box">
+    <div class="modal-head"><h2>差分を取り込みました</h2><button class="secondary small" data-action="merge-report-close">閉じる</button></div>
+    <div class="modal-body col" id="merge-report"></div>
+  </div>
+</div>
 <div id="copilot-modal" class="modal" hidden role="dialog" aria-label="Copilot に頼む">
   <div class="modal-box copilot-box">
     <div class="modal-head">
@@ -227,6 +260,7 @@
           <label>反映の仕方
             <select id="copilot-apply">
               <option value="new">新しい資料として取り込む（構成・要約・翻訳・図解風）</option>
+              <option value="merge">差分として反映する（自分の編集を残す）</option>
               <option value="notes">今の資料の発表者ノートに入れる</option>
             </select>
           </label>

@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from . import diagrams
 from .config import get_config
 from .text_metrics import estimate_paragraphs_height
 from .typography import element_font_pt, font_scale
@@ -69,6 +70,17 @@ def check_presentation(presentation: dict) -> list[dict]:
                     r_box, r_img = b["w"] / b["h"], float(nw) / float(nh)
                     if abs(r_box - r_img) / r_img > aspect_tol:
                         issues.append(_issue("IMAGE_ASPECT_DISTORTED", f"画像の縦横比が枠と異なります（画像 {r_img:.3f} / 枠 {r_box:.3f}）。", "warning", sid, eid))
+            if t == "diagram":
+                spec = el.get("diagram") or {}
+                items = spec.get("items") or []
+                dtype = diagrams.normalize_type(spec.get("type"))
+                lo, hi = diagrams.item_limits(dtype)
+                if len(items) > hi:
+                    issues.append(_issue("DIAGRAM_TOO_MANY_ITEMS", f"図解「{diagrams.word_of(dtype)}」の項目が {len(items)} 件あります（{hi} 件までが読みやすさの目安）。", "warning", sid, eid))
+                elif len(items) < lo:
+                    issues.append(_issue("DIAGRAM_TOO_FEW_ITEMS", f"図解「{diagrams.word_of(dtype)}」の項目が {len(items)} 件しかありません（{lo} 件以上を推奨）。", "info", sid, eid))
+                if b["h"] < float(get_config().get("layout.diagram_min_height_pt", 140)) * 0.7:
+                    issues.append(_issue("DIAGRAM_TOO_SMALL", f"図解の高さが小さく、文字が読みにくい可能性があります（{b['h']:.0f}pt）。", "warning", sid, eid))
             if t == "unsupported":
                 issues.append(_issue("UNSUPPORTED_ELEMENT", f"未対応要素（{el.get('original_type') or '不明'}）が含まれます。", "info", sid, eid))
         # 重なり: 文字・画像・表同士のみ（図形は背景として重なるのが普通）

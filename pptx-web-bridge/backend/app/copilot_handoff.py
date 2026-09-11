@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Any
 from xml.sax.saxutils import escape as _xml_escape
 
+from . import diagrams
 from .config import get_config
 from .model import slide_title
 from .web_renderer import asset_filename
@@ -63,8 +64,14 @@ def slide_to_markdown(slide: dict, presentation: dict, index: int, image_note: b
     layout = slide.get("layout")
     if layout in ("title", "closing"):
         lines.append(f"型: {'表紙' if layout == 'title' else '最終ページ'}")
+    diagram_el = next((e for e in slide.get("elements", []) if e.get("type") == "diagram"), None)
+    if diagram_el is not None and layout not in ("title", "closing"):
+        lines.append(f"型: {diagrams.word_of((diagram_el.get('diagram') or {}).get('type'))}")
     for el in sorted(slide.get("elements", []), key=lambda e: ((e.get('bbox') or {}).get('y', 0), (e.get('bbox') or {}).get('x', 0))):
         t = el.get("type")
+        if t == "diagram":
+            lines.extend(f"- {b}" for b in diagrams.to_bullets(el))
+            continue
         if t in ("text", "shape"):
             if el.get("role") == "title":
                 continue  # 題名は見出しに出した
@@ -281,6 +288,7 @@ def build_prompt(presentation: dict, purpose_id: str | None, options: dict | Non
         "count": str(opts.get("count", 8)),
         "language": str(opts.get("language", "英語")),
         "brand": _brand_line(presentation),
+        "diagrams": diagrams.MARKDOWN_SPEC.strip(),
     }
     instruction = str(p.get("prompt", ""))
     for k, v in values.items():
@@ -495,6 +503,9 @@ def import_markdown(md: str, template_id: str | None = None, filename: str = "co
         for s, m in zip(body_slides, meta):
             if m["notes"]:
                 s["notes"] = m["notes"]
+            dtype = diagrams.type_from_word(m["kind"]) if m["kind"] else None
+            if dtype and _make_diagram(s, dtype):
+                continue
             lay = _layout_from_kind(m["kind"]) if m["kind"] else None
             if lay and not any(e.get("layout_hint") for e in s.get("elements", [])):
                 s["layout"] = lay
@@ -503,6 +514,30 @@ def import_markdown(md: str, template_id: str | None = None, filename: str = "co
                     texts = [e for e in s["elements"] if e.get("type") == "text" and e.get("role") != "title"]
                     _split_bullets_into_columns(s, texts, cols)
     return pres
+
+
+def _make_diagram(slide: dict, dtype: str) -> bool:
+    """`型:` が図解型のスライド: 題名以外の箇条書きを 1 つの図解要素にまとめる。"""
+    texts = [e for e in slide.get("elements", []) if e.get("type") == "text" and e.get("role") != "title"]
+    bullets: list[str] = []
+    for el in texts:
+        for para in el.get("paragraphs", []):
+            text = _para_text(para).strip()
+            if not text:
+                continue
+            if int(para.get("level", 0) or 0) > 0 and bullets:
+                bullets[-1] = bullets[-1] + ("" if bullets[-1].endswith("。") else "。") + text  # 下位項目は 1 つ上の説明に足す
+            else:
+                bullets.append(text)
+    lo, _hi = diagrams.item_limits(dtype)
+    if len(bullets) < lo:
+        return False
+    base_id = texts[0].get("id") if texts else f"{slide['id']}_d1"
+    for el in texts:
+        slide["elements"].remove(el)
+    slide["elements"].append(diagrams.from_bullets(str(base_id), dtype, bullets))
+    slide["layout"] = "title_body"
+    return True
 
 
 def _split_bullets_into_columns(slide: dict, texts: list[dict], cols: int) -> None:

@@ -19,6 +19,7 @@ from pptx.util import Emu
 from .ids import IdFactory
 from .logging_setup import get_logger
 from .pptx_styles import TextStyleResolver, ThemeInfo, color_to_hex, current_theme, reset_current_theme, set_current_theme
+from .diagrams import diagram_element
 from .model import (
     add_warning,
     bbox,
@@ -533,6 +534,109 @@ def _classify_layout(slide_dict: dict, has_title_placeholder: bool, has_subtitle
     return "title_body"
 
 
+def _restore_diagrams(sd: dict, ctx: "_Ctx") -> None:
+    """本アプリが出力した図解（図形名 `diagram:<型>:<id>:<連番>`）を 1 つの diagram 要素へ戻す。
+
+    復元できない図形はそのまま個別要素として残す（往復で内容が消えないことを優先する）。
+    """
+    keys: dict[int, tuple[str, str]] = {}
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for el in sd["elements"]:
+        name = el.pop("_diagram_name", None)
+        if not name:
+            continue
+        parts = name.split(":")
+        if len(parts) < 4:
+            continue
+        key = (parts[1], parts[2])
+        keys[id(el)] = key
+        groups.setdefault(key, []).append(el)
+    if not groups:
+        return
+    out: list[dict] = []
+    placed: set[tuple[str, str]] = set()
+    for el in sd["elements"]:
+        key = keys.get(id(el))
+        if key is None:
+            out.append(el)
+            continue
+        if key in placed:
+            continue
+        placed.add(key)
+        els = groups[key]
+        items = _items_from_shapes(key[0], els)
+        boxes = [e["bbox"] for e in els if e.get("bbox")]
+        if not items or not boxes:
+            out.extend(els)
+            continue
+        x = min(b["x"] for b in boxes)
+        y = min(b["y"] for b in boxes)
+        w = max(b["x"] + b["w"] for b in boxes) - x
+        h = max(b["y"] + b["h"] for b in boxes) - y
+        out.append(diagram_element(ctx.ids.next("el"), key[0], items, bbox(x, y, w, h), z=els[0].get("z", 0)))
+    sd["elements"] = out
+
+
+def _shape_lines(el: dict) -> list[str]:
+    return [t for t in ("".join(r.get("text", "") for r in p.get("runs", [])).strip() for p in el.get("paragraphs", [])) if t]
+
+
+def _items_from_shapes(dtype: str, els: list[dict]) -> list[dict]:
+    """展開後の図形群から項目を読み戻す（`diagrams.expand_diagram` の並びと対応）。"""
+    texts = [(el, _shape_lines(el)) for el in sorted(els, key=lambda e: ((e.get("bbox") or {}).get("y", 0) // 20, (e.get("bbox") or {}).get("x", 0)))]
+    texts = [(el, lines) for el, lines in texts if lines]
+    items: list[dict] = []
+    if dtype == "kpi":
+        # 値とラベルが別要素。x が近いものを 1 組にする
+        used: set[int] = set()
+        for i, (el, lines) in enumerate(texts):
+            if i in used:
+                continue
+            x = (el.get("bbox") or {}).get("x", 0)
+            partner = next((j for j, (e2, _l) in enumerate(texts) if j > i and j not in used and abs((e2.get("bbox") or {}).get("x", 0) - x) < 4), None)
+            if partner is None:
+                items.append({"title": lines[0], "value": lines[0]})
+            else:
+                used.add(partner)
+                items.append({"title": texts[partner][1][0], "value": lines[0], "text": texts[partner][1][0]})
+            used.add(i)
+        return items
+    if dtype == "timeline":
+        used: set[int] = set()
+        for i, (el, lines) in enumerate(texts):
+            if i in used:
+                continue
+            x = (el.get("bbox") or {}).get("x", 0)
+            partner = next((j for j, (e2, _l) in enumerate(texts) if j > i and j not in used and abs((e2.get("bbox") or {}).get("x", 0) - x) < 4), None)
+            item = {"title": lines[0]}
+            if partner is not None:
+                used.add(partner)
+                item["text"] = texts[partner][1][0]
+            used.add(i)
+            items.append(item)
+        return items
+    if dtype == "compare":
+        used: set[int] = set()
+        for i, (el, lines) in enumerate(texts):
+            if i in used:
+                continue
+            x = (el.get("bbox") or {}).get("x", 0)
+            partner = next((j for j, (e2, _l) in enumerate(texts) if j > i and j not in used and abs((e2.get("bbox") or {}).get("x", 0) - x) < 4), None)
+            item = {"title": lines[0]}
+            if partner is not None:
+                used.add(partner)
+                item["text"] = texts[partner][1][0]
+            used.add(i)
+            items.append(item)
+        return items[:2]
+    for _el, lines in texts:
+        item = {"title": lines[0]}
+        if len(lines) > 1:
+            item["text"] = " ".join(lines[1:])
+        items.append(item)
+    return items
+
+
 def _parse_slide_shapes(slide: Any, sd: dict, ctx: "_Ctx", presentation: dict, idx: int) -> None:
     """1 スライド分の図形・ノート・背景を sd へ詰める（テーマは呼び出し側が contextvar に設定済み）。"""
     has_title_ph = has_subtitle = False
@@ -552,10 +656,14 @@ def _parse_slide_shapes(slide: Any, sd: dict, ctx: "_Ctx", presentation: dict, i
                 els = [unsupported_element(ctx.ids.next("el"), "error", _shape_bbox(shape, None), "変換失敗")]
             except Exception:  # noqa: BLE001
                 els = []
+        name = str(getattr(shape, "name", "") or "")
         for el in els:
             el["z"] = z
             z += 1
+            if name.startswith("diagram:"):
+                el["_diagram_name"] = name
             sd["elements"].append(el)
+    _restore_diagrams(sd, ctx)
     _infer_title_role(sd, presentation["canvas"])
     # スライド題名
     for el in sd["elements"]:

@@ -255,9 +255,24 @@ def main() -> int:
             page.wait_for_timeout(600)
             kinds = page.evaluate("() => qcDebug.presentation().slides.map(function (s) { return s.layout; })")
             note = page.evaluate("() => qcDebug.presentation().slides[1].notes")
-            record("回答を貼り付けて新しい資料にする（カード 3 分割・ノート）", kinds[1] == "three_column" and note == "2 分で", f"layouts={kinds}")
+            dia = page.evaluate("() => (qcDebug.presentation().slides[1].elements.filter(function (e) { return e.type === 'diagram'; })[0] || {}).diagram || null")
+            record("回答を貼り付けて新しい資料にする（カード図解・ノート）", bool(dia) and dia["type"] == "cards" and len(dia["items"]) == 3 and note == "2 分で", f"layouts={kinds} diagram={dia and dia['type']}")
             if shots:
                 page.screenshot(path=str(shots / "ui_06_copilot_reply.png"))
+
+            # --- 図解部品（Phase F）: 図解を追加 → 項目を足す ---
+            if not page.is_hidden("#copilot-modal"):
+                page.click("button[data-copilot-act='close']")
+            page.click("button[data-action='add-diagram'][data-diagram='flow']")
+            page.wait_for_function("() => qcDebug.slide().elements.some(function (e) { return e.type === 'diagram'; })", timeout=20000)
+            page.wait_for_selector(".canvas-stage .el-diagram", timeout=20000)
+            page.evaluate("() => { var el = qcDebug.slide().elements.filter(function (e) { return e.type === 'diagram'; })[0]; PWB.core.focusInspector(el.id); }")
+            page.wait_for_selector("[data-act='diagram-add']", timeout=20000)
+            page.click("[data-act='diagram-add']")
+            page.wait_for_timeout(500)
+            dia = page.evaluate("() => qcDebug.slide().elements.filter(function (e) { return e.type === 'diagram'; })[0].diagram")
+            children = page.evaluate("() => document.querySelectorAll('.canvas-stage .el-diagram .el').length")
+            record("図解を追加して項目を編集できる（キャンバスに展開される）", dia["type"] == "flow" and len(dia["items"]) == 4 and children >= 4, f"items={len(dia['items'])} children={children}")
 
             # --- Copilot エージェント一式の書き出し ---
             page.click("button[data-action='copilot']")
@@ -271,6 +286,29 @@ def main() -> int:
             path = dl.value.path()
             size = os.path.getsize(path) if path else 0
             record("Copilot エージェント一式の書き出し（指示文・ナレッジ・ZIP）", files >= 3 and bool(name) and size > 1000, f"knowledge={files} name={name} bytes={size}")
+
+            # --- 差分マージ再取込（Phase G）: 同じ HTML を直して投入 → 差分を選ぶ ---
+            if not page.is_hidden("#copilot-modal"):
+                page.click("button[data-copilot-act='close']")
+                page.wait_for_function("() => document.getElementById('copilot-modal').hidden", timeout=10000)
+            v1 = tmp_store / "merge_v1.html"
+            v2 = tmp_store / "merge_v2.html"
+            v1.write_text("<html><body><section><h2>背景</h2><p>課題は二重作業</p></section></body></html>", encoding="utf-8")
+            v2.write_text("<html><body><section><h2>背景</h2><p>課題は二重作業と転記</p></section><section><h2>今後</h2><p>全社展開</p></section></body></html>", encoding="utf-8")
+            page.set_input_files("#file-input", str(v1))
+            page.wait_for_function("() => qcDebug.presentation() && qcDebug.presentation().meta.import_snapshot", timeout=30000)
+            page.wait_for_timeout(400)
+            moved = page.evaluate("() => { var el = qcDebug.slide(0).elements.filter(function (e) { return e.role !== 'title'; })[0]; return qcDebug.setBbox(el.id, { x: 50, y: 300, w: 200, h: 60 }) && el.id; }")
+            page.set_input_files("#file-input", str(v2))
+            page.wait_for_selector("#merge-dialog:not([hidden])", timeout=20000)
+            page.click("button[data-action='merge-diff']")
+            page.wait_for_selector("#merge-result:not([hidden])", timeout=30000)
+            page.wait_for_timeout(600)
+            kept = page.evaluate("(id) => { var el = qcDebug.slide(0).elements.filter(function (e) { return e.id === id; })[0]; return el ? { x: el.bbox.x, text: (el.paragraphs || []).map(function (p) { return p.runs.map(function (r) { return r.text; }).join(''); }).join('') } : null; }", moved)
+            n_after = page.evaluate("() => qcDebug.presentation().slides.length")
+            summary = page.inner_text("#merge-report")
+            record("差分マージ再取込（位置を残して本文を更新・ページ追加）", bool(kept) and kept["x"] == 50 and "転記" in kept["text"] and n_after == 2, f"slides={n_after} summary={summary.splitlines()[0] if summary else ''}")
+            page.click("button[data-action='merge-report-close']")
 
             record("JavaScript エラーなし", not errors, "; ".join(errors)[:200])
             browser.close()

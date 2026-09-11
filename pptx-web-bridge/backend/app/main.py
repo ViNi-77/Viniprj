@@ -214,6 +214,51 @@ async def api_import_json(file: UploadFile = File(...)) -> dict:
     return {"presentation": pres, "warnings": fixes, "schema_errors": errors, "quality": pipeline.quality(pres)}
 
 
+@app.post("/api/import/merge")
+async def api_import_merge(
+    file: UploadFile = File(...),
+    presentation: str = Form(...),
+    template_id: str | None = Form(None),
+    conflict: str = Form("theirs"),
+    assets: list[UploadFile] | None = File(None),
+    computed_style: bool | None = Form(None),
+) -> dict:
+    """同じ資料を直したファイルを、いまの資料へ差分として取り込む（編集を残す）。"""
+    data = await file.read()
+    _check_size(data, file.filename or "")
+    try:
+        current = json.loads(presentation)
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"いまの資料を読み取れません: {e}") from e
+    if not isinstance(current, dict) or not current.get("slides"):
+        raise HTTPException(400, "差分の取り込み先になる資料がありません。")
+    name = (file.filename or "input").lower()
+    try:
+        if name.endswith(".pptx"):
+            incoming = await run_in_threadpool(pipeline.import_pptx, data, file.filename or "input.pptx", template_id)
+        elif name.endswith(".json"):
+            incoming = {"presentation": validate_and_repair(json.loads(data.decode("utf-8")))[0]}
+        elif name.endswith((".md", ".markdown", ".txt")):
+            pres_in = copilot_handoff.import_markdown(data.decode("utf-8"), template_id, file.filename or "copilot.md")
+            incoming = {"presentation": pres_in}
+        else:
+            extra: dict[str, bytes] = {}
+            for a in assets or []:
+                blob = await a.read()
+                if blob:
+                    extra[a.filename or "asset"] = blob
+            incoming = await run_in_threadpool(pipeline.import_html, data, file.filename or "input.html", template_id, extra, computed_style)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.exception("差分取込の読み込みに失敗: %s", file.filename)
+        raise HTTPException(422, f"ファイルを読み込めませんでした: {e}") from e
+    policy = {"conflict": "ours" if conflict == "ours" else "theirs"}
+    result = await run_in_threadpool(pipeline.merge_import, current, incoming["presentation"], policy)
+    log.info("差分取込: %s %s", file.filename, result["summary"])
+    return result
+
+
 @app.post("/api/validate")
 def api_validate(body: PresentationBody) -> dict:
     pres, errors, fixes = validate_and_repair(body.presentation)
@@ -431,7 +476,7 @@ class HandoffBody(PresentationBody):
 
 class CopilotReplyBody(BaseModel):
     text: str = Field(min_length=1)
-    apply: str = "new"  # new: 新しい資料として取り込む / notes: 既存資料のノートへ反映
+    apply: str = "new"  # new: 新しい資料として取り込む / notes: 既存資料のノートへ反映 / merge: 差分として反映
     presentation: dict[str, Any] | None = None
     template_id: str | None = None
 
@@ -439,7 +484,9 @@ class CopilotReplyBody(BaseModel):
 @app.get("/api/copilot/prompts")
 def api_copilot_prompts() -> dict:
     data = _cfg().copilot_prompts()
-    return {"chat_url": data.get("chat_url"), "purposes": [{k: v for k, v in p.items() if k != "prompt"} for p in data.get("purposes", [])]}
+    from .diagrams import MARKDOWN_SPEC
+
+    return {"chat_url": data.get("chat_url"), "diagram_spec": MARKDOWN_SPEC, "purposes": [{k: v for k, v in p.items() if k != "prompt"} for p in data.get("purposes", [])]}
 
 
 @app.post("/api/copilot/handoff")
@@ -514,6 +561,8 @@ def api_copilot_import(body: CopilotReplyBody) -> dict:
         pres, count = copilot_handoff.apply_notes(pres, body.text)
         return {"presentation": pres, "applied": count, "mode": "notes", "warnings": [], "schema_errors": [], "quality": pipeline.quality(pres)}
     kind, data = copilot_handoff.parse_copilot_reply(body.text)
+    if body.apply == "merge" and not body.presentation:
+        raise HTTPException(400, "差分を反映する資料がありません。")
     try:
         pres = copilot_handoff.import_outline_json(data, body.template_id) if kind == "json" else copilot_handoff.import_markdown(body.text, body.template_id)
     except Exception as e:  # noqa: BLE001
@@ -524,6 +573,12 @@ def api_copilot_import(body: CopilotReplyBody) -> dict:
     from .layout import layout_presentation
 
     pres = layout_presentation(pres)
+    if body.apply == "merge":
+        current, _e, _f = validate_and_repair(body.presentation)
+        result = pipeline.merge_import(current, pres, {"conflict": "theirs"})
+        result["mode"] = "merge"
+        result["format"] = kind
+        return result
     pres, errors, fixes = validate_and_repair(pres)
     return {"presentation": pres, "mode": "new", "format": kind, "warnings": pres.get("warnings", []) + fixes, "schema_errors": errors, "quality": pipeline.quality(pres)}
 

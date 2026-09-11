@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import copy
 import io
 import json
 import sys
@@ -188,8 +189,34 @@ def main() -> int:
     record("Copilot の回答（Markdown）を資料に戻す（往復で枚数一致）", len(back["slides"]) == len(pres["slides"]) and all(el.get("bbox") for s_ in back["slides"] for el in s_["elements"]), f"slides={len(back['slides'])}")
     reply = "# 図解版\n\n## 1. 背景\n型: カード\n- 課題: 二重作業\n- 原因: 形式が違う\n- 対策: 共通形式\nノート: 2 分で\n\n## 2. 効果\n| 項目 | 前 | 後 |\n| --- | --- | --- |\n| 時間 | 10h | 5h |\n"
     fig = layout_presentation(ch.import_markdown(reply))
-    cards = [e for e in fig["slides"][1]["elements"] if e.get("role") == "card"] if len(fig["slides"]) > 1 else []
-    record("「図解風に仕上げる」の回答をカード 3 分割・表として取り込む", len(cards) == 3 and fig["slides"][1]["notes"] == "2 分で" and fig["slides"][2]["layout"] == "table", f"slides={len(fig['slides'])} cards={len(cards)}")
+    cards = [e for e in fig["slides"][1]["elements"] if e["type"] == "diagram"] if len(fig["slides"]) > 1 else []
+    items = cards[0]["diagram"]["items"] if cards else []
+    record("「図解風に仕上げる」の回答をカード図解・表として取り込む", len(items) == 3 and cards[0]["diagram"]["type"] == "cards" and fig["slides"][1]["notes"] == "2 分で" and fig["slides"][2]["layout"] == "table", f"slides={len(fig['slides'])} items={len(items)}")
+
+    # --- 図解部品（Phase F）: Copilot の回答 → 図解 → PPTX → 再読込 ---
+    from app import diagrams as dg
+
+    fig_md = (
+        "# 図解の資料\n\n"
+        "## 1. 進め方\n型: フロー\n- 受付: 窓口で受け取る\n- 審査: 担当が確認\n- 完了: 通知する\nノート: 3 分で説明\n\n"
+        "## 2. 効果\n型: 数値\n- 40%｜作業時間の削減\n- 12h｜月に浮く時間\n\n"
+        "## 3. 現状と改善後\n型: 比較\n- Before: 二重作業\n- After: 一度で済む\n"
+    )
+    fig_pres = layout_presentation(ch.import_markdown(fig_md))
+    fig_els = [e for s_ in fig_pres["slides"] for e in s_["elements"] if e["type"] == "diagram"]
+    types_in = [e["diagram"]["type"] for e in fig_els]
+    record("Copilot の回答から図解（フロー・数値・比較）を作る", types_in == ["flow", "kpi", "compare"] and all(e.get("bbox") for e in fig_els), f"types={types_in} slides={len(fig_pres['slides'])}")
+
+    fig_bytes, _fp, fig_warns = pipeline.export_pptx(fig_pres)
+    (OUT / "diagrams.pptx").write_bytes(fig_bytes)
+    fig_back = parse_pptx(fig_bytes, "diagrams.pptx")
+    back_els = [e for s_ in fig_back["slides"] for e in s_["elements"] if e["type"] == "diagram"]
+    titles_in = [i["title"] for e in fig_els for i in e["diagram"]["items"]]
+    titles_back = [i["title"] for e in back_els for i in e["diagram"]["items"]]
+    record("図解を PPTX に出して読み戻す（型と項目が保たれる）", [e["diagram"]["type"] for e in back_els] == types_in and titles_back == titles_in and not fig_warns, f"back={[e['diagram']['type'] for e in back_els]} items={len(titles_back)}")
+    write_bundle(pipeline.prepare(fig_pres)[0], OUT / "diagrams_web")
+    md_again = ch.to_markdown(fig_pres)
+    record("図解を Markdown に戻して Copilot へ渡せる", f"型: {dg.word_of('flow')}" in md_again and "40%｜作業時間の削減" in md_again, f"chars={len(md_again)}")
 
     # --- Copilot エージェント一式（Phase E、API 不使用） ---
     from app import copilot_agent_kit as kit
@@ -210,6 +237,32 @@ def main() -> int:
         and within
     )
     record("Copilot エージェント一式（定義・指示文・ナレッジ・目次）", ok_kit, f"files={len(names_k)} knowledge={len(bodies_k)} starters={len(manifest['conversation_starters'])}")
+
+    # --- 差分マージ再取込（Phase G） ---
+    from app import merge as mg
+
+    html_v1 = "<html><body><section><h2>背景</h2><p>課題は二重作業</p></section><section><h2>効果</h2><p>時間が半分</p></section></body></html>".encode("utf-8")
+    html_v2 = "<html><body><section><h2>背景</h2><p>課題は二重作業と転記</p></section><section><h2>効果</h2><p>時間が半分</p></section><section><h2>今後</h2><p>全社展開</p></section></body></html>".encode("utf-8")
+    imported_v1 = pipeline.import_html(html_v1, "plan.html")["presentation"]
+    edited = copy.deepcopy(imported_v1)
+    body_el = [e for e in edited["slides"][0]["elements"] if e.get("role") != "title"][-1]
+    body_el["bbox"] = {"x": 50.0, "y": 300.0, "w": 200.0, "h": 60.0}
+    body_el["user_bbox"] = True
+    edited["slides"][1]["notes"] = "自分のノート"
+    incoming = pipeline.import_html(html_v2, "plan.html")["presentation"]
+    merged = pipeline.merge_import(edited, incoming)
+    m_pres, m_rep = merged["presentation"], merged["report"]
+    kept = [e for e in m_pres["slides"][0]["elements"] if e.get("user_bbox")]
+    texts = [mg.element_text(e) for e in m_pres["slides"][0]["elements"]]
+    ok_merge = bool(kept) and kept[0]["bbox"]["x"] == 50.0 and any("転記" in t for t in texts) and m_pres["slides"][1]["notes"] == "自分のノート" and len(m_pres["slides"]) == 3
+    record("差分マージ再取込（座標・ノートを残して本文だけ更新、ページ追加）", ok_merge and m_rep["updated"] >= 1 and not m_rep["conflicts"], f"{merged['summary']} slides={len(m_pres['slides'])}")
+
+    conflicted = copy.deepcopy(imported_v1)
+    c_el = [e for e in conflicted["slides"][0]["elements"] if e.get("role") != "title"][-1]
+    c_el["paragraphs"][0]["runs"][0]["text"] = "課題は私が直した"
+    merged2 = pipeline.merge_import(conflicted, pipeline.import_html(html_v2, "plan.html")["presentation"])
+    conflicts = merged2["report"]["conflicts"]
+    record("両方で変わった箇所を競合として報告する", len(conflicts) == 1 and conflicts[0]["ours"] == "課題は私が直した" and "転記" in conflicts[0]["theirs"], f"conflicts={len(conflicts)} applied={conflicts[0]['applied'] if conflicts else '-'}")
 
     # --- 例外系 ---
     try:

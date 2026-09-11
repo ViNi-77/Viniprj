@@ -14,7 +14,7 @@ window.PWB = window.PWB || {};
   "use strict";
 
   /** @type {{presentation: object|null, selectedSlide: number, config: object|null, warnings: object[], quality: object|null, report: object|null}} グローバル状態 */
-  var state = { presentation: null, selectedSlide: 0, config: null, warnings: [], quality: null, report: null };
+  var state = { presentation: null, selectedSlide: 0, config: null, warnings: [], quality: null, report: null, mergeReport: null };
   var LS_KEY = "pptx_web_bridge.autosave";
   var LOG_LEVELS = { DEBUG: 10, INFO: 20, WARNING: 30, ERROR: 40 };
   var logLevel = "INFO";
@@ -106,8 +106,10 @@ window.PWB = window.PWB || {};
     log(sourceLabel + " 取込完了: slides=" + state.presentation.slides.length + " warnings=" + state.warnings.length);
   }
 
-  function importFile(file) {
+  function importFile(file, mode) {
     var name = file.name.toLowerCase();
+    if (!mode && canMerge(file)) { askMergeMode(file); return; }
+    if (mode === "merge") { mergeFile(file); return; }
     var fd = new FormData();
     fd.append("file", file);
     fd.append("template_id", $("template-select").value);
@@ -121,6 +123,89 @@ window.PWB = window.PWB || {};
     api(path, { method: "POST", body: fd }).then(function (r) { progressStep(1); return r.json(); })
       .then(function (result) { progressStep(2); applyImport(result, file.name); progressDone(true); })
       .catch(function (e) { progressDone(false); setStatus("取込失敗: " + e.message, true); });
+  }
+
+  // ---------------------------------------------------------------------
+  // 差分マージ再取込（Phase G）
+  // ---------------------------------------------------------------------
+  function canMerge(file) {
+    var pres = state.presentation;
+    if (!pres || !pres.meta || !pres.meta.import_snapshot) return false;
+    var src = pres.meta.import_snapshot.source || {};
+    var name = file.name.toLowerCase();
+    var kind = name.endsWith(".pptx") ? "pptx" : (name.endsWith(".json") ? "json" : "html");
+    var prev = String(src.type || "");
+    return prev === kind || (prev === "html" && kind === "html");
+  }
+
+  function askMergeMode(file) {
+    var box = $("merge-dialog");
+    box.hidden = false;
+    $("merge-file-name").textContent = file.name;
+    box.dataset.pending = "1";
+    pendingMergeFile = file;
+  }
+  var pendingMergeFile = null;
+
+  function mergeFile(file) {
+    var fd = new FormData();
+    fd.append("file", file);
+    fd.append("presentation", JSON.stringify(state.presentation));
+    fd.append("template_id", $("template-select").value);
+    fd.append("conflict", ($("merge-conflict") && $("merge-conflict").value) || "theirs");
+    var before = snapshot();
+    setStatus("差分を取り込み中: " + file.name + " …");
+    progressStart(["送信", "照合・マージ", "プレビュー描画"], 1500 + file.size / 1e6 * 1500);
+    api("/api/import/merge", { method: "POST", body: fd }).then(function (r) { progressStep(1); return r.json(); })
+      .then(function (result) {
+        progressStep(2);
+        PWB.history.push(before);
+        applyImport(result, file.name + "（差分）", true);
+        state.mergeReport = result.report || null;
+        showMergeReport(result);
+        progressDone(true);
+      })
+      .catch(function (e) { progressDone(false); setStatus("差分取込に失敗: " + e.message, true); });
+  }
+
+  function showMergeReport(result) {
+    var rep = result.report || {};
+    var box = $("merge-report");
+    if (!box) return;
+    var lines = ["<p>" + escapeHtml(result.summary || "") + "</p>"];
+    if (rep.slides_added || rep.slides_removed) lines.push("<p class=\"muted\">スライド: 追加 " + (rep.slides_added || 0) + " / 削除 " + (rep.slides_removed || 0) + "</p>");
+    if ((rep.conflicts || []).length) {
+      lines.push("<p class=\"muted\">両方で変わった箇所（取り込み側を採用しました。必要なら元に戻して選び直してください）:</p><ul class=\"merge-conflicts\">");
+      rep.conflicts.forEach(function (c) {
+        lines.push("<li><code>" + escapeHtml(c.element_id || "") + "</code><div>今の資料: " + escapeHtml(c.ours) + "</div><div>取り込み: " + escapeHtml(c.theirs) + "</div>"
+          + '<button class="small secondary" data-action="merge-keep-ours" data-element="' + escapeHtml(c.element_id || "") + '" data-slide="' + escapeHtml(c.slide_id || "") + '">今の資料の文言に戻す</button></li>');
+      });
+      lines.push("</ul>");
+    }
+    box.innerHTML = lines.join("");
+    $("merge-result").hidden = false;
+    setStatus("差分を取り込みました（" + (result.summary || "") + "）");
+  }
+
+  function keepOursText(slideId, elementId) {
+    var rep = state.mergeReport;
+    if (!rep) return;
+    var c = (rep.conflicts || []).filter(function (x) { return x.element_id === elementId && x.slide_id === slideId; })[0];
+    if (!c) return;
+    var si = state.presentation.slides.map(function (s) { return s.id; }).indexOf(slideId);
+    var s = state.presentation.slides[si < 0 ? state.selectedSlide : si];
+    var el = (s.elements || []).filter(function (e) { return e.id === elementId; })[0];
+    if (!el) return;
+    var before = snapshot();
+    if (el.type === "text" || el.type === "shape") {
+      var base = (el.paragraphs && el.paragraphs[0]) || { runs: [{ text: "" }], level: 0, bullet: null };
+      var r0 = (base.runs && base.runs[0]) || {};
+      var nr = {}; for (var k in r0) if (k !== "text") nr[k] = r0[k];
+      el.paragraphs = c.ours.split("\n").map(function (line) { var rr = {}; for (var kk in nr) rr[kk] = nr[kk]; rr.text = line; return { runs: [rr], level: base.level || 0, bullet: base.bullet || null }; });
+    }
+    c.applied = "ours";
+    changed({ index: si < 0 ? state.selectedSlide : si, before: before, elementIds: [el.id] });
+    setStatus("今の資料の文言に戻しました: " + elementId);
   }
 
   // ---------------------------------------------------------------------
@@ -298,7 +383,15 @@ window.PWB = window.PWB || {};
       changed({ index: state.selectedSlide, before: before });
     }).catch(function (e) { setStatus(e.message, true); });
   }
-  function addElement(kind, file) {
+  var DIAGRAM_DEFAULTS = {
+    flow: { h: 180, items: [{ title: "受付", text: "説明" }, { title: "審査", text: "説明" }, { title: "完了", text: "説明" }] },
+    cards: { h: 200, items: [{ title: "見出し 1", text: "説明" }, { title: "見出し 2", text: "説明" }, { title: "見出し 3", text: "説明" }] },
+    compare: { h: 260, items: [{ title: "Before", text: "現状" }, { title: "After", text: "改善後" }] },
+    kpi: { h: 170, items: [{ title: "削減率", value: "40%", text: "削減率" }, { title: "浮いた時間", value: "12h", text: "浮いた時間" }] },
+    timeline: { h: 150, items: [{ title: "2024", text: "できごと" }, { title: "2025", text: "できごと" }] }
+  };
+
+  function addElement(kind, file) {  // file: 画像はファイル、図解は型（"flow" など）
     var s = currentSlide();
     if (!s) { setStatus("先にスライドを用意してください。", true); return; }
     var before = snapshot();
@@ -309,6 +402,10 @@ window.PWB = window.PWB || {};
     var el = null;
     if (kind === "text") el = { id: newId("e"), type: "text", role: "body", bbox: { x: m + 24, y: m + 100, w: 400, h: 60 }, paragraphs: [{ runs: [{ text: "テキスト" }], level: 0, bullet: null }], editable: true };
     if (kind === "shape") el = { id: newId("e"), type: "shape", role: null, bbox: { x: m + 24, y: m + 120, w: 240, h: 100 }, shape: "rounded_rect", fill: colors.surface || "#F4F6F9", stroke: colors.line || "#C9D1DB", stroke_width_pt: 1, paragraphs: [], editable: true };
+    if (kind === "diagram") {
+      var dt = (typeof file === "string" && file) || "flow";  // 図解は第 2 引数が型
+      el = { id: newId("e"), type: "diagram", role: null, bbox: { x: m, y: m + 110, w: cw - 2 * m, h: DIAGRAM_DEFAULTS[dt] ? DIAGRAM_DEFAULTS[dt].h : 180 }, diagram: { type: dt, items: (DIAGRAM_DEFAULTS[dt] || DIAGRAM_DEFAULTS.flow).items.map(function (it) { return { title: it.title, text: it.text || "", value: it.value || "" }; }) }, editable: true };
+    }
     if (kind === "line") el = { id: newId("e"), type: "line", role: null, bbox: { x: m, y: ch / 2, w: cw - 2 * m, h: 1 }, points: [[m, ch / 2], [cw - m, ch / 2]], stroke: colors.line || "#999999", stroke_width_pt: 1.5, editable: true };
     if (kind === "image" && file) {
       var reader = new FileReader();
@@ -392,9 +489,9 @@ window.PWB = window.PWB || {};
   }
 
   PWB.core = {
-    state: state, api: api, apiJson: apiJson, currentBody: currentBody, log: log, setStatus: setStatus, escapeHtml: escapeHtml,
+    state: state, api: api, apiJson: apiJson, importFile: importFile, currentBody: currentBody, log: log, setStatus: setStatus, escapeHtml: escapeHtml,
     setTemplates: setTemplates, templateInfo: templateInfo, scheduleRender: scheduleRender, applyImport: applyImport, snapshot: snapshot,
-    changed: changed, deleteElements: deleteElements, duplicateElements: duplicateElements, reorderZ: reorderZ, alignSelection: alignSelection, fitHeight: fitHeight, addElement: addElement, moveSlide: moveSlide,
+    DIAGRAM_DEFAULTS: DIAGRAM_DEFAULTS, changed: changed, deleteElements: deleteElements, duplicateElements: duplicateElements, reorderZ: reorderZ, alignSelection: alignSelection, fitHeight: fitHeight, addElement: addElement, moveSlide: moveSlide,
     onSelectionChanged: function () { PWB.inspector.render(); },
     focusInspector: function (id) { PWB.canvas.setSelection([id]); activateTab("inspector"); PWB.inspector.focusText(); },
     select: function (ids) { PWB.canvas.setSelection(ids); }
@@ -493,6 +590,12 @@ window.PWB = window.PWB || {};
     "add-text": function () { addElement("text"); },
     "add-shape": function () { addElement("shape"); },
     "add-line": function () { addElement("line"); },
+    "add-diagram": function (btn) { addElement("diagram", btn.getAttribute("data-diagram") || "flow"); },
+    "merge-replace": function () { $("merge-dialog").hidden = true; if (pendingMergeFile) { var f = pendingMergeFile; pendingMergeFile = null; importFile(f, "replace"); } },
+    "merge-diff": function () { $("merge-dialog").hidden = true; if (pendingMergeFile) { var f2 = pendingMergeFile; pendingMergeFile = null; importFile(f2, "merge"); } },
+    "merge-cancel": function () { $("merge-dialog").hidden = true; pendingMergeFile = null; },
+    "merge-report-close": function () { $("merge-result").hidden = true; },
+    "merge-keep-ours": function (btn) { keepOursText(btn.getAttribute("data-slide"), btn.getAttribute("data-element")); },
     "add-image": function () { if (!currentSlide()) { setStatus("先にスライドを用意してください。", true); return; } $("add-image-input").click(); },
     "json-apply": function () {
       var raw;
@@ -511,7 +614,7 @@ window.PWB = window.PWB || {};
   document.addEventListener("click", function (e) {
     var t = e.target.closest("[data-action], [data-slide-act], [data-project-act], .tab, .slide-item, #dropzone");
     if (!t) return;
-    if (t.hasAttribute("data-action")) { var fn = actions[t.getAttribute("data-action")]; if (fn) fn(); return; }
+    if (t.hasAttribute("data-action")) { var fn = actions[t.getAttribute("data-action")]; if (fn) fn(t); return; }
     if (t.hasAttribute("data-slide-act")) { e.stopPropagation(); slideAction(t.getAttribute("data-slide-act"), parseInt(t.getAttribute("data-slide"), 10)); return; }
     if (t.hasAttribute("data-project-act")) {
       var name = t.getAttribute("data-project");

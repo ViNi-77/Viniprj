@@ -5,7 +5,7 @@ import io
 import posixpath
 import zipfile
 
-from . import template_kit
+from . import merge, template_kit
 from .html_parser import parse_html
 from .layout import layout_presentation
 from .pptx_generator import generate_pptx
@@ -22,6 +22,7 @@ def import_pptx(data: bytes, filename: str, template_id: str | None = None) -> d
         raise ValueError("PPTX（ZIP 形式）として読めません。ファイルが壊れているか、別形式です。")
     pres = parse_pptx(data, filename, template_id)
     pres, errors, fixes = validate_and_repair(pres)
+    merge.attach_snapshot(pres)
     return {"presentation": pres, "warnings": pres.get("warnings", []) + fixes, "schema_errors": errors, "quality": _quality(pres)}
 
 
@@ -51,7 +52,16 @@ def import_html(data: bytes, filename: str, template_id: str | None = None, extr
     pres = parse_html(html_bytes, html_name, files, template_id, computed_style=computed_style)
     pres = layout_presentation(pres)
     pres, errors, fixes = validate_and_repair(pres)
+    merge.attach_snapshot(pres)
     return {"presentation": pres, "warnings": pres.get("warnings", []) + fixes, "schema_errors": errors, "quality": _quality(pres)}
+
+
+def merge_import(current: dict, incoming: dict, policy: dict | None = None) -> dict:
+    """取り込み直した資料を、いまの資料へ差分として反映する（編集を残す）。"""
+    merged, report = merge.merge(current, incoming, policy=policy)
+    merged = layout_presentation(merged)  # 座標の無い（新しく増えた）要素だけ配置される
+    merged, errors, fixes = validate_and_repair(merged)
+    return {"presentation": merged, "report": report, "summary": merge.summary_text(report), "warnings": merged.get("warnings", []) + fixes, "schema_errors": errors, "quality": _quality(merged)}
 
 
 def prepare(presentation: dict) -> tuple[dict, list[str], list[dict]]:

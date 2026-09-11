@@ -14,6 +14,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from .config import get_config
+from .diagrams import item_limits, normalize_items, normalize_type, word_of
 from .model import SCHEMA_VERSION, new_presentation, warning
 
 _schema_cache: dict | None = None
@@ -127,7 +128,7 @@ def repair(presentation: Any) -> tuple[dict, list[dict]]:
             s["warnings"] = []
         valid_elements = []
         for j, el in enumerate(s["elements"]):
-            if not isinstance(el, dict) or el.get("type") not in ("text", "image", "shape", "line", "table", "unsupported"):
+            if not isinstance(el, dict) or el.get("type") not in ("text", "image", "shape", "line", "table", "diagram", "unsupported"):
                 fixes.append(warning("repair", "ELEMENT_DROPPED", "型が不明な要素を除外しました。", slide_id=s["id"]))
                 continue
             el.setdefault("id", f"{s['id']}_e{j + 1:03d}")
@@ -161,6 +162,18 @@ def repair(presentation: Any) -> tuple[dict, list[dict]]:
                 fixes.append(warning("repair", "BBOX_FIXED", "bbox が不正なため自動レイアウトへ回しました。", slide_id=s["id"], element_id=el["id"]))
             if el["type"] in ("text", "shape"):
                 el["paragraphs"] = _repair_paragraphs(el.get("paragraphs"), fixes, s["id"], el["id"])
+            if el["type"] == "diagram":
+                spec = el.get("diagram") if isinstance(el.get("diagram"), dict) else {}
+                items = normalize_items(spec.get("items"))
+                dtype = normalize_type(spec.get("type"))
+                _min, maxn = item_limits(dtype)
+                if len(items) > maxn:
+                    items = items[:maxn]
+                    fixes.append(warning("repair", "DIAGRAM_ITEMS_TRIMMED", f"図解「{word_of(dtype)}」の項目が多いため {maxn} 件に切り詰めました。", slide_id=s["id"], element_id=el["id"]))
+                if not items:
+                    fixes.append(warning("repair", "ELEMENT_DROPPED", "項目の無い図解要素を除外しました。", slide_id=s["id"]))
+                    continue
+                el["diagram"] = {"type": dtype, "items": items}
             if el["type"] == "table":
                 el["rows"] = _repair_rows(el.get("rows"), fixes, s["id"], el["id"])
                 if not isinstance(el.get("header_rows"), int) or el["header_rows"] < 0:
