@@ -1,0 +1,948 @@
+Decoded bytes: 62038
+SHA256: 2b6376bf0900c67e495473c1b74a464abc3c216b02023fe912dd2a36030f6d33
+Code filename: box_copy_gui_direct_context_mode_fixed.pyw
+
+Imports:
+datetime
+docx
+json
+openpyxl
+openpyxl.utils
+os
+pathlib
+pptx
+pypdf
+queue
+re
+shutil
+tempfile
+threading
+tkinter
+zipfile
+
+Code objects:
+<module>
+  refresh_context_output_paths
+  now_text
+  filename_timestamp
+  format_size
+  clean_filename
+  is_same_or_child
+  load_settings
+  save_settings
+  send_log
+  matched_file
+    <genexpr>
+  push_progress
+  normalize_text
+  read_text_file
+  read_docx_file
+  read_pdf_file
+  read_excel_file
+  append_unique_text
+  extract_ooxml_texts
+  extract_shape_alt_texts
+  collect_ppt_shape_text
+  read_pptx_file
+  read_zip_file
+    <lambda>
+  extract_text
+  simple_summary
+  split_text_for_context
+  markdown_code_block
+  context_markdown_header
+  write_latest_markdown_manifest
+  m365_fixed_file_pattern
+  cleanup_m365_fixed_files
+  m365_part_header
+  build_m365_section
+  write_m365_agent_context_files
+    <genexpr>
+  build_ai_context
+    <lambda>
+    flush_markdown_part
+    append_markdown_section
+    append_m365_section
+  backup_worker
+  browse_folder
+  browse_search_root
+  browse_context_output_dir
+  add_folder_row
+  start_backup
+  stop_backup
+  update_gui_from_queue
+  on_close
+
+URLs:
+
+
+Strings:
+C:\BoxDrive\Box\第2ユニット生技部_全員\002_室運営\2026年\NZB00_アルミ開発室
+---
+C:\BoxDrive\Box\第2ユニット生技部_全員\002_室運営\2026年\NZB00_アルミ開発室\2G\401_内製ソフト\ChatGPT用コンテキストファイル生成\生成コンテキスト
+---
+C:\BoxDrive\Box\第2ユニット生技部_全員\002_室運営\2026年\NZB00_アルミ開発室\2G\401_内製ソフト\ChatGPT用コンテキストファイル生成\管理
+---
+box_copy_gui_log.txt
+---
+box_copy_gui_settings.json
+---
+_AI_CONTEXT_SUMMARY.md
+---
+_AI_CONTEXT_DATA.jsonl
+---
+_AI_CONTEXT_SUMMARY.md
+---
+_AI_CONTEXT_DATA.jsonl
+---
+.zip
+---
+Copyright (c) 2026 第２ユニット生技部アルミ加工開発室. All rights reserved.
+---
+M365AgentContext
+---
+Archive
+---
+%Y-%m-%d %H:%M:%S
+---
+%Y%m%d_%H%M%S
+---
+.2f
+---
+ GB
+---
+ MB
+---
+ KB
+---
+ B
+---
+[\\/:*?"<>|]
+---
+_
+---
+r
+---
+utf-8
+---
+search_root
+---
+context_output_dir
+---
+w
+---
+utf-8
+---
+設定保存エラー: 
+---
+[
+---
+] 
+---
+log
+---
+a
+---
+utf-8
+---
+
+
+---
+scan_checked
+---
+progress
+---
+target
+---
+error
+---
+referenced_bytes
+---
+ext
+---
+
+---
+
+
+---
+\n{3,}
+---
+
+
+
+---
+[ \t]+
+---
+ 
+---
+ignore
+---
+
+---
+
+---
+ | 
+---
+
+
+---
+
+---
+# Page 
+---
+
+
+---
+
+---
+# Sheet: 
+---
+R
+---
+C
+---
+=
+---
+Row 
+---
+: 
+---
+ | 
+---
+
+
+---
+
+---
+}t
+---
+}v
+---
+t
+---
+v
+---
+
+---
+}cNvPr
+---
+
+---
+text
+---
+table
+---
+ | 
+---
+has_chart
+---
+
+---
+# Slide 
+---
+## Notes
+---
+## XML Text
+---
+
+
+---
+
+---
+# ZIP: 
+---
+ai_context_zip_
+---
+\
+---
+/
+---
+_AI_CONTEXT_
+---
+...（ZIP内ファイルは
+---
+件で抽出打ち切り）
+---
+## ZIP内ファイル: 
+---
+...（
+---
+のため抽出スキップ）
+---
+...（ZIP内の合計抽出サイズが
+---
+を超えるため抽出打ち切り）
+---
+04d
+---
+_
+---
+wb
+---
+## ZIP内ファイル 
+---
+: 
+---
+- 種別: `
+---
+`
+---
+- サイズ: 
+---
+本文抽出不可。ZIP内ファイル名・パス・拡張子を参照。
+---
+対応形式のファイルはZIP内に見つかりませんでした。
+---
+
+
+---
+.txt
+---
+.docx
+---
+.pdf
+---
+.zip
+---
+.doc
+---
+
+---
+本文抽出不可。ファイル名・パス・拡張子を参照。
+---
+
+
+---
+...
+---
+
+---
+
+
+---
+本文抽出不可。ファイル名・パス・拡張子を参照。
+---
+`+
+---
+`
+---
+text
+---
+# AI用コンテキスト要約
+---
+
+---
+- 生成日時: 
+---
+- 分割番号: 
+---
+- コンテキスト生成元フォルダ: `
+---
+`
+---
+- 生成コンテキスト保存先: `
+---
+- 対象ファイル数: 
+---
+- 1ファイルあたり最大文字数: 
+---
+## 全体インデックス
+---
+# AI用コンテキスト要約ファイル一覧
+---
+
+---
+- 生成日時: 
+---
+- 分割ファイル数: 
+---
+## 分割ファイル
+---
+- `
+---
+`
+---
+
+
+---
+utf-8
+---
+^
+---
+_(INDEX|\d{3})\.txt$
+---
+_*.txt
+---
+M365固定名ファイル削除エラー: 
+---
+# M365 Agent Context 
+---
+03d
+---
+
+---
+GeneratedAt: 
+---
+GeneratedStamp: 
+---
+Part: 
+---
+ / 
+---
+SourceScope: 
+---
+ContentType: measurement-context
+---
+FileRole: body
+---
+SourceFileCount: 
+---
+SourceChunkCount: 
+---
+TargetCharactersPerFile: 
+---
+## Retrieval Notes
+---
+- This file is generated for Microsoft 365 Copilot agent knowledge.
+---
+- Use SourcePath, FileName, Page, Sheet, Row, Slide, and Chunk fields when answering.
+---
+- Prefer precise source references when the answer depends on a specific file.
+---
+## Content
+---
+### Source 
+---
+-
+---
+
+---
+FileName: 
+---
+FileType: 
+---
+SourcePath: 
+---
+Size: 
+---
+TextLength: 
+---
+Chunk: 
+---
+ / 
+---
+Summary:
+---
+本文抽出不可。ファイル名・パス・拡張子を参照。
+---
+Text:
+---
+---
+---
+
+
+---
+No content was extracted.
+---
+relative_path
+---
+_
+---
+03d
+---
+.txt
+---
+
+
+---
+utf-8
+---
+_INDEX.txt
+---
+# M365 Agent Context Index
+---
+
+---
+GeneratedAt: 
+---
+GeneratedStamp: 
+---
+SourceScope: 
+---
+ContentType: measurement-context
+---
+FileRole: index
+---
+BodyFileCount: 
+---
+TotalFileCountForUpload: 
+---
+UploadLimitPolicy: 1 index file + up to 
+---
+ body files = 20 files
+---
+TargetCharactersPerBodyFile: 
+---
+SourceChunkCount: 
+---
+OverflowChunkCount: 
+---
+OverflowCharacterCount: 
+---
+## How To Use
+---
+- Add this INDEX file and all body files listed in RequiredFiles to the Microsoft 365 Copilot agent knowledge sources.
+---
+- Keep the fixed file names unchanged so the agent can continue to reference the same files after regeneration.
+---
+- The Archive folder keeps timestamped copies for traceability and normally does not need to be added to the agent.
+---
+## RequiredFiles
+---
+- 
+---
+## BodyFileMap
+---
+m365_part
+---
+: 
+---
+ chunks
+---
+## SourceChunkIndex
+---
+- Part 
+---
+m365_part
+---
+ | 
+---
+file_name
+---
+ | Chunk 
+---
+chunk_index
+---
+/
+---
+chunk_count
+---
+## OverflowWarning
+---
+ chunks were not included in the fixed 20-file M365 package.
+---
+- The full extracted text remains available in _AI_CONTEXT_DATA.jsonl and the timestamped Markdown files.
+---
+- Narrow the source folder, split by topic, or create multiple agents if all overflow content is required.
+---
+M365 Copilot投入用TXT作成: 
+---
+M365 Copilot履歴保存先: 
+---
+AI用コンテキスト生成開始
+---
+AI用コンテキスト生成を停止しました
+---
+_AI_CONTEXT_
+---
+*
+---
+AI用コンテキスト対象ファイル数: 
+---
+
+
+---
+_AI_CONTEXT_SUMMARY_
+---
+_
+---
+03d
+---
+.md
+---
+
+
+---
+utf-8
+---
+
+
+---
+
+---
+
+
+
+---
+m365_part
+---
+w
+---
+utf-8
+---
+current
+---
+AIコンテキスト生成中... 
+---
+/
+---
+ 
+---
+### 
+---
+. 
+---
+-
+---
+
+---
+- パス: `
+---
+`
+---
+- 種別: `
+---
+- サイズ: 
+---
+- 抽出文字数: 
+---
+- 本文分割: 
+---
+#### 要約 / 抜粋
+---
+#### 抽出本文
+---
+AIコンテキスト生成中: 
+---
+AIコンテキスト生成エラー: 
+---
+AI用Markdown作成: 
+---
+AI用Markdown一覧作成: 
+---
+AI用JSONL作成: 
+---
+AI用JSONLレコード数: 
+---
+M365 Copilot投入用TXTの20ファイル上限により未収録チャンク数: 
+---
+AI用コンテキスト生成完了
+---
+====================================
+---
+参照元直接読み取りコンテキスト生成開始
+---
+収集データへのコピーは行いません
+---
+検索元: 
+---
+AIコンテキスト保存先: 
+---
+検索元フォルダが存在しません: 
+---
+停止要求を受けました
+---
+current_dir
+---
+scan_checked
+---
+除外フォルダスキップ: 
+---
+target
+---
+referenced_bytes
+---
+ext
+---
+current
+---
+参照元ファイル発見: 
+---
+検索中... 確認:
+---
+ / 参照元ファイル:
+---
+error
+---
+ファイル処理エラー: 
+---
+フォルダ読込エラー: 
+---
+確認件数: 
+---
+参照元ファイル数: 
+---
+エラー数: 
+---
+参照元ファイル容量: 
+---
+参照元検索処理終了
+---
+コンテキスト生成対象数: 
+---
+致命的エラー: 
+---
+Copilot M365用コンテキスト生成 GUI
+---
+1080x800
+---
+both
+---
+Copilot M365用コンテキスト生成
+---
+w
+---
+search_root
+---
+context_output_dir
+---
+"
+---
+参照元フォルダを選択
+---
+コンテキスト出力先フォルダを選択
+---
+フォルダ設定
+---
+x
+---
+x
+---
+left
+---
+参照
+---
+参照元:
+---
+コンテキスト出力先:
+---
+動作状況
+---
+horizontal
+---
+determinate
+---
+動作待機中
+---
+center
+---
+現在検索中フォルダ: 待機中
+---
+blue
+---
+現在処理中ファイル: 待機中
+---
+カウンター
+---
+確認: 0
+---
+参照元ファイル: 0
+---
+エラー: 0
+---
+参照元容量: 0 B
+---
+ファイル種別ごとの参照元ファイル数
+---
+.doc: 0
+---
+.docx: 0
+---
+.txt: 0
+---
+.pdf: 0
+---
+.xlsx: 0
+---
+.xlsm: 0
+---
+.pptx: 0
+---
+.pptm: 0
+---
+.zip: 0
+---
+実行中
+---
+すでに処理中です
+---
+"
+---
+参照元エラー
+---
+参照元フォルダを指定してください。
+---
+コンテキスト出力先エラー
+---
+コンテキスト出力先フォルダを指定してください。
+---
+参照元フォルダが存在しません。
+
+---
+出力先エラー
+---
+コンテキスト出力先を作成できません。
+
+---
+コンテキスト出力先・管理フォルダは参照元に指定できません。
+指定: 
+---
+
+対象外: 
+---
+検索・コンテキスト生成中
+---
+現在検索中フォルダ: 開始準備中...
+---
+現在処理中ファイル: 開始準備中...
+---
+確認: 0
+---
+参照元ファイル: 0
+---
+エラー: 0
+---
+参照元容量: 0 B
+---
+.doc: 0
+---
+.docx: 0
+---
+.txt: 0
+---
+.pdf: 0
+---
+.xlsx: 0
+---
+.xlsm: 0
+---
+.pptx: 0
+---
+.pptm: 0
+---
+.zip: 0
+---
+disabled
+---
+normal
+---
+現在処理中ファイル: 停止要求中... 現在の処理が終わるまで待機
+---
+停止ボタンが押されました
+---
+開始
+---
+left
+---
+停止
+---
+disabled
+---
+gray
+---
+bottom
+---
+ログ
+---
+none
+---
+vertical
+---
+right
+---
+y
+---
+log
+---
+end
+---
+
+
+---
+current
+---
+現在処理中ファイル: 
+---
+current_dir
+---
+現在検索中フォルダ: 
+---
+progress
+---
+percent
+---
+検索・コンテキスト生成中
+---
+確認: 
+---
+scan_checked
+---
+参照元ファイル: 
+---
+target
+---
+エラー: 
+---
+error
+---
+参照元容量: 
+---
+referenced_bytes
+---
+ext
+---
+.doc: 
+---
+.doc
+---
+.docx: 
+---
+.docx
+---
+.txt: 
+---
+.txt
+---
+.pdf: 
+---
+.pdf
+---
+.xlsx: 
+---
+.xlsx
+---
+.xlsm: 
+---
+.xlsm
+---
+.pptx: 
+---
+.pptx
+---
+.pptm: 
+---
+.pptm
+---
+.zip: 
+---
+.zip
+---
+finish
+---
+normal
+---
+disabled
+---
+停止
+---
+現在処理中ファイル: 停止しました
+---
+完了
+---
+現在処理中ファイル: 参照元直接読み取り + AIコンテキスト生成完了
+---
+停止中
+---
+処理中です。停止要求を出しました。数秒後に閉じてください。
+---
+WM_DELETE_WINDOW

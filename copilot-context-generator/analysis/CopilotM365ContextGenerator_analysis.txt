@@ -1,0 +1,41 @@
+﻿===== BASIC INFORMATION =====
+
+
+FullName      : C:\Users\1119539-Z100\Desktop\CopilotM365ContextGenerator_2026-05-28.exe
+Length        : 27081065
+CreationTime  : 2026/06/02 18:52:55
+LastWriteTime : 2026/06/02 18:52:56
+
+
+
+
+===== SHA256 =====
+
+
+Algorithm : SHA256
+Hash      : DF767F0407092775ABF785053FCEE4FAE3B56F264358EEBB152A9DCF4F42F8BA
+Path      : C:\Users\1119539-Z100\Desktop\CopilotM365ContextGenerator_2026-05-28.exe
+
+
+
+
+===== SIGNATURE =====
+
+
+Status        : NotSigned
+StatusMessage : ファイル C:\Users\1119539-Z100\Desktop\CopilotM365ContextGenerator_2026-05-28.exe はデジタル署名されていません。このスクリプトは現在
+                のシステムでは実行できません。スクリプトの実行および実行ポリシーの設定の詳細については、「about_Execution_Policies」(https://go.microsoft.com/fwlink/
+                ?LinkID=135170) を参照してください
+SignatureType : None
+IsOSBinary    : False
+
+
+
+
+===== RUNTIME MARKERS =====
+FOUND: PyInstaller
+FOUND: _MEIPASS
+FOUND: pyi-runtime-tmpdir
+FOUND: python312.dll
+FOUND: mscoree.dll
+===== IMPORT/URL/FILE MARKERS =====
