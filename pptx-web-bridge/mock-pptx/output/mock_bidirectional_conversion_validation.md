@@ -1,6 +1,6 @@
 # 模擬 PPTX 検査記録（mock_bidirectional_conversion_validation.md）
 
-- 実行日時: 2026-09-11T03:08:40
+- 実行日時: 2026-09-11T04:02:04
 - 対象: `mock_bidirectional_conversion_12slides.pptx`（12 枚、16:9、テーマ Generic Corporate Blue）
 - 生成器: python-pptx + Pillow (mock-pptx/src/generate_mock_pptx.py)
 - 自動検査（pytest）: 合格（15 件）

@@ -23,6 +23,10 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 
+sys.path.insert(0, str(ROOT / "backend"))
+from app.version import APP_VERSION  # noqa: E402
+
+
 def main() -> int:
     spec = ROOT / "packaging" / "pptx-web-bridge.spec"
     if not (ROOT / "samples" / "sample_deck.pptx").exists():
@@ -51,6 +55,31 @@ def main() -> int:
             sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(ROOT), capture_output=True, text=True).stdout.strip()
         except OSError:
             sha = "unknown"
+    # 画面の版バッジが exe でも正しく出るよう、機械可読の版情報も同梱する（git の無い環境で読む）
+    import json as _json
+
+    commit_date = ""
+    branch = os.environ.get("GITHUB_REF_NAME", "")
+    try:
+        commit_date = subprocess.run(["git", "log", "-1", "--format=%cI"], cwd=str(ROOT), capture_output=True, text=True).stdout.strip()
+        branch = branch or subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(ROOT), capture_output=True, text=True).stdout.strip()
+    except OSError:
+        pass
+    (DIST / "build_info.json").write_text(
+        _json.dumps(
+            {
+                "version": APP_VERSION,
+                "commit": (sha or "不明")[:7],
+                "commit_date": commit_date,
+                "branch": branch,
+                "dirty": False,
+                "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     (DIST / "BUILD_INFO.txt").write_text(f"commit: {sha}\nbuilt_at_utc: {datetime.datetime.utcnow().isoformat(timespec='seconds')}Z\nplatform: {platform.platform()}\npython: {platform.python_version()}\n", encoding="utf-8")
     (DIST / "はじめにお読みください.txt").write_text(
         "PPTX <-> Web図解 変換アプリ\n\n"

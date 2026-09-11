@@ -310,6 +310,17 @@ def main() -> int:
             record("差分マージ再取込（位置を残して本文を更新・ページ追加）", bool(kept) and kept["x"] == 50 and "転記" in kept["text"] and n_after == 2, f"slides={n_after} summary={summary.splitlines()[0] if summary else ''}")
             page.click("button[data-action='merge-report-close']")
 
+            # --- 版の表示（更新できているかの確認） ---
+            page.wait_for_function("() => document.getElementById('version-badge').textContent.indexOf('確認中') < 0", timeout=20000)
+            badge = page.inner_text("#version-badge")
+            page.click("#version-badge")
+            page.wait_for_selector("#version-modal:not([hidden])", timeout=10000)
+            feature_rows = page.evaluate("() => document.querySelectorAll('#version-body .version-table tbody tr').length")
+            build = page.evaluate("() => qcDebug.build()")
+            page.click("button[data-action='version-close']")
+            tagged = page.evaluate("() => Array.prototype.slice.call(document.querySelectorAll('script[src], link[rel=stylesheet]')).every(function (e) { var u = e.src || e.href; return u.indexOf('/static/') < 0 && u.indexOf('/viewer/') < 0 || u.indexOf('?v=') > 0; })")
+            record("版の表示と機能一覧（キャッシュ無効化の印つき）", badge.startswith("版 ") and feature_rows >= 7 and bool(build) and tagged, f"badge={badge} features={feature_rows} tagged={tagged}")
+
             record("JavaScript エラーなし", not errors, "; ".join(errors)[:200])
             browser.close()
     finally:

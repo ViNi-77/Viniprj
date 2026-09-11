@@ -169,3 +169,9 @@ table.report td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .modal.small .modal-box { width: min(560px, 100%); height: auto; max-height: 80vh; }
 .merge-conflicts { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .merge-conflicts li { border: 1px solid var(--line, #ddd); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+
+.version-badge { cursor: pointer; border: 1px solid rgba(255,255,255,.35); font: inherit; }
+.version-badge:hover { filter: brightness(1.15); }
+.version-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0; }
+.version-table th, .version-table td { border-bottom: 1px solid var(--line, #ddd); padding: 4px 6px; text-align: left; vertical-align: top; }
+.version-table th:first-child, .version-table td:first-child { width: 3em; text-align: center; }
