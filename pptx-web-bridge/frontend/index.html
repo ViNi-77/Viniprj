@@ -39,6 +39,10 @@
         <button id="btn-template-from-pptx" class="secondary" data-action="template-from-pptx" title="表紙・中身・最終ページの PowerPoint を読み込み、ロゴ・帯・題名位置などの部品を推定してテンプレートにする">PPTX からテンプレート作成</button>
       </div>
       <div class="row wrap">
+        <button id="btn-restyle" data-action="restyle" title="選んだテンプレートに合わせて、資料全体の色・フォント・題名の位置・背景をそろえる（元に戻せます）">テンプレートで着せ替える</button>
+        <button id="btn-unrestyle" class="secondary" data-action="unrestyle" title="着せ替える前の見た目に戻す" hidden>元の見た目に戻す</button>
+      </div>
+      <div class="row wrap">
         <button id="btn-new" class="secondary" data-action="new">空の資料を作る</button>
         <button id="btn-closing" class="secondary" data-action="closing" title="テンプレートの最終ページ（ロゴ中央）を末尾に追加">最終ページを追加</button>
       </div>
@@ -214,6 +218,13 @@
 
     </div>
     <footer class="modal-foot"><button data-action="merge-diff" title="座標・文字の編集・ノートを残したまま、変わったところだけ取り込む">差分を取り込む（編集を残す）</button><button class="secondary" data-action="merge-replace">まるごと置き換える</button><button class="secondary" data-action="merge-cancel">やめる</button></footer>
+  </article>
+</dialog>
+<dialog id="restyle-result" hidden aria-label="着せ替えの結果">
+  <article class="modal-box small">
+    <header class="modal-head"><h2>テンプレートで着せ替えました</h2><button class="secondary small" data-action="restyle-close">閉じる</button></header>
+    <div class="modal-body col" id="restyle-report"></div>
+    <footer class="modal-foot"><button class="secondary" data-action="unrestyle">元の見た目に戻す</button><button data-action="restyle-close">このまま使う</button></footer>
   </article>
 </dialog>
 <dialog id="merge-result" hidden aria-label="差分の結果">

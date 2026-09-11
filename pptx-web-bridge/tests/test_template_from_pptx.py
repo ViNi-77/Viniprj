@@ -176,10 +176,22 @@ def test_export_with_base_pptx_keeps_master_and_reparses(brand_pptx: bytes, samp
         data, _pres, warns = pipeline.export_pptx(pres, "editable", use_base_pptx=True)
         assert not [w for w in warns if w["code"].startswith("BASE_PPTX")]
         prs = Presentation(io.BytesIO(data))
-        assert len(prs.slides) == len(pres["slides"])
-        assert "blank" in prs.slide_layout_names[0].lower() if hasattr(prs, "slide_layout_names") else True
-        assert all(len(list(s.slide_layout.placeholders)) <= 3 for s in prs.slides)  # 白紙レイアウト（フッター類のみ）
-        names = [sh.name for sh in prs.slides[1].shapes]
+        slides = list(prs.slides)
+        assert len(slides) == len(pres["slides"])
+        # Phase J: 題名は土台のレイアウトの題名プレースホルダへ入る（PowerPoint 側でテーマが効く）
+        from pptx.enum.shapes import PP_PLACEHOLDER
+
+        titles = {PP_PLACEHOLDER.TITLE, PP_PLACEHOLDER.CENTER_TITLE}
+        for sd, sl in zip(pres["slides"], slides):
+            want = next((e for e in sd["elements"] if e.get("role") == "title" and e.get("paragraphs")), None)
+            if want is None or sd.get("layout") == "closing":
+                continue
+            ph = [p for p in sl.placeholders if p.placeholder_format.type in titles]
+            assert ph, f"題名プレースホルダが無い: {sd['id']} / {sl.slide_layout.name}"
+            assert ph[0].name.startswith("title:") and ph[0].text_frame.text.strip()
+        # 使わなかった空のプレースホルダは外す（「テキストを入力」の枠を残さない）
+        assert all(p.has_text_frame and p.text_frame.text.strip() for sl in slides for p in sl.placeholders if p.placeholder_format.type in titles)
+        names = [sh.name for sh in slides[1].shapes]
         assert "bar" in names and "logo" in names and "page_number" in names  # スライド由来の部品は描く
         again = parse_pptx(data, "rt.pptx")
         assert [s["title"] for s in again["slides"]][:3] == [s["title"] for s in pres["slides"]][:3]

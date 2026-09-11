@@ -256,6 +256,32 @@ def main() -> int:
     finally:
         template_store.delete_template("e2e_ext")
 
+    # --- テンプレートの適用＝着せ替え（Phase J） ---
+    from app import restyle as restyle_mod
+
+    rs_tpl = template_store.save_template(dict(tpl_analyze((ROOT / "samples" / "brand_template_ext.pptx").read_bytes(), "brand_template_ext.pptx", template_id="e2e_restyle")["proposal"]))
+    try:
+        rs_pres = parse_pptx((ROOT / "samples" / "sample_deck.pptx").read_bytes(), "sample_deck.pptx", template_id=rs_tpl["id"])
+        before_colors = {r.get("color") for s_ in rs_pres["slides"] for e in s_["elements"] for q in e.get("paragraphs", []) for r in q["runs"] if r.get("color")}
+        styled, rs_report = restyle_mod.restyle(rs_pres, rs_tpl)
+        after_colors = {r.get("color") for s_ in styled["slides"] for e in s_["elements"] for q in e.get("paragraphs", []) for r in q["runs"] if r.get("color")}
+        texts_same = [[r.get("text") for e in s_["elements"] for q in e.get("paragraphs", []) for r in q["runs"]] for s_ in rs_pres["slides"]] == [[r.get("text") for e in s_["elements"] for q in e.get("paragraphs", []) for r in q["runs"]] for s_ in styled["slides"]]
+        record("テンプレートで着せ替える（色・フォント・題名を合わせ、文字は変えない）", texts_same and styled["meta"]["restyled_with"] == rs_tpl["id"] and rs_report["titles_styled"] >= 3, f"{restyle_mod.summary_text(rs_report)} / 色 {len(before_colors)} → {len(after_colors)} 種")
+        write_bundle(pipeline.prepare(styled)[0], OUT / "restyled_web")
+        back, back_report = restyle_mod.unstyle(styled)
+        same = [[(e.get("bbox"), e.get("fill")) for e in s_["elements"]] for s_ in back["slides"]] == [[(e.get("bbox"), e.get("fill")) for e in s_["elements"]] for s_ in rs_pres["slides"]]
+        record("着せ替えを元に戻せる（座標・色が完全に戻る）", same and "restyled_with" not in back["meta"], f"restored={back_report['restored']}")
+        rs_bytes, _rp, rs_warns = pipeline.export_pptx(styled)  # 土台 PPTX が既定で使われる
+        (OUT / "restyled.pptx").write_bytes(rs_bytes)
+        from pptx import Presentation as _Prs
+        from pptx.enum.shapes import PP_PLACEHOLDER as _PH
+
+        prs_out = _Prs(io.BytesIO(rs_bytes))
+        titled = [sl for sl in prs_out.slides if any(ph.placeholder_format.type in (_PH.TITLE, _PH.CENTER_TITLE) and ph.has_text_frame and ph.text_frame.text.strip() for ph in sl.placeholders)]
+        record("着せ替えた資料を PPTX に出すと題名がマスターの枠に入る（土台 PPTX が既定）", len(titled) >= 3 and not [w for w in rs_warns if w["code"].startswith("BASE_PPTX")], f"題名プレースホルダ {len(titled)} 枚 / warns={len(rs_warns)}")
+    finally:
+        template_store.delete_template("e2e_restyle")
+
     # --- 差分マージ再取込（Phase G） ---
     from app import merge as mg
 
@@ -287,7 +313,7 @@ def main() -> int:
 
     vinfo = version_mod.version_info()
     feature_ids = {f["id"] for f in vinfo["features"]}
-    record("版と機能一覧を返す（/api/version の中身）", vinfo["version"] == version_mod.APP_VERSION and {"diagrams", "merge_import", "copilot_agent_kit"} <= feature_ids and bool(vinfo["commit"]), f"v{vinfo['version']} commit={vinfo['commit']} features={len(feature_ids)}")
+    record("版と機能一覧を返す（/api/version の中身）", vinfo["version"] == version_mod.APP_VERSION and {"diagrams", "merge_import", "copilot_agent_kit", "template_restyle"} <= feature_ids and bool(vinfo["commit"]), f"v{vinfo['version']} commit={vinfo['commit']} features={len(feature_ids)}")
 
     # --- 例外系 ---
     try:

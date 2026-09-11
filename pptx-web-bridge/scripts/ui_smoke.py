@@ -50,10 +50,45 @@ LAPTOPS = [
 ]
 
 
+_TEXTS_JS = (
+    "() => JSON.stringify(qcDebug.presentation().slides.map(function (s) {"
+    "  return (s.elements || []).map(function (e) {"
+    "    return (e.paragraphs || []).map(function (pp) {"
+    "      return (pp.runs || []).map(function (r) { return r.text; }).join('');"
+    "    }).join('\\n');"
+    "  }).join('|');"
+    "}))"
+)
+"""資料の文章だけを取り出す JS（着せ替えで文章が変わらないことの確認に使う）。"""
+
+
+def _stable_box(page, selector: str, timeout: float = 15.0) -> dict:
+    """枠の位置と大きさを測る（描き直しで枠が差し替わっても測れるように待つ）。
+
+    プレビューの再取得が終わると DOM ごと作り直されるため、`wait_for_selector` の
+    直後に `bounding_box()` を呼ぶと、見つけた要素が既に外されていて None が返る
+    ことがある（遅い CI で再現）。寸法が取れて、かつ 2 回続けて同じ位置になるまで
+    測り直す。
+    """
+    deadline, last = time.time() + timeout, None
+    while time.time() < deadline:
+        try:
+            box = page.locator(selector).first.bounding_box()
+        except Exception:  # noqa: BLE001 - 差し替え途中の要素は測れない
+            box = None
+        if box and box["width"] > 0 and box["height"] > 0:
+            if last and abs(last["x"] - box["x"]) < 0.5 and abs(last["y"] - box["y"]) < 0.5:
+                return box
+            last = box
+        page.wait_for_timeout(150)
+    raise AssertionError(f"{selector} の枠が測れませんでした（描き直しが終わらない）")
+
+
 def _clickable(page, selector: str) -> tuple[bool, str]:
     """要素が画面内にあり、その中心を押すとその要素（または子）に当たるか（＝スクロール無しで押せる）。"""
-    box = page.locator(selector).first.bounding_box()
-    if not box:
+    try:
+        box = _stable_box(page, selector, timeout=5.0)
+    except AssertionError:
         return False, f"{selector}: 位置なし"
     vw, vh = page.viewport_size["width"], page.viewport_size["height"]
     inside = box["x"] >= 0 and box["y"] >= 0 and box["x"] + box["width"] <= vw + 1 and box["y"] + box["height"] <= vh + 1
@@ -206,8 +241,7 @@ def main() -> int:
             page.wait_for_function("() => qcDebug.state().selectedSlide === 1")
             page.wait_for_timeout(500)
             el_id, before = page.evaluate("() => { var s = qcDebug.slide(); var el = s.elements.filter(function(e){return e.type==='text';})[0]; return [el.id, el.bbox]; }")
-            box = page.locator(f".canvas-stage .el[id='{el_id}']").bounding_box()
-            assert box
+            box = _stable_box(page, f".canvas-stage .el[id='{el_id}']")
             page.mouse.move(box["x"] + box["width"] / 2, box["y"] + 10)
             page.mouse.down()
             page.mouse.move(box["x"] + box["width"] / 2 + 60, box["y"] + 10 + 30, steps=8)
@@ -223,8 +257,7 @@ def main() -> int:
 
             # リサイズ（右下ハンドル）
             page.wait_for_selector(".sel-handle.h-se")
-            hb = page.locator(".sel-handle.h-se").bounding_box()
-            assert hb
+            hb = _stable_box(page, ".sel-handle.h-se")
             page.mouse.move(hb["x"] + 5, hb["y"] + 5)
             page.mouse.down()
             page.mouse.move(hb["x"] + 5 + 80, hb["y"] + 5 + 40, steps=8)
@@ -295,8 +328,7 @@ def main() -> int:
             page.click(".tpl-part[data-part='content:bar']")
             page.wait_for_selector("#tpl-canvas .sel-box.primary")
             bar_before = page.evaluate("() => JSON.parse(JSON.stringify(PWB.templateEditor.state().proposal.content.bar))")
-            bb = page.locator("#tpl-canvas .sel-box.primary").bounding_box()
-            assert bb
+            bb = _stable_box(page, "#tpl-canvas .sel-box.primary")
             page.mouse.move(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2)
             page.mouse.down()
             page.mouse.move(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2 - 40, steps=8)
@@ -326,6 +358,30 @@ def main() -> int:
             record("テンプレートの保存と選択（★付き、削除・土台の選択肢が出る）", "ui_brand" in page.evaluate("() => document.getElementById('template-select').value") and tpl_opt.startswith("★") and del_visible, tpl_opt)
             page.wait_for_function("() => document.querySelector('.canvas-stage .tpl-bar') !== null", timeout=20000)
             record("保存したテンプレートでキャンバスが描き直される（帯が出る）", True)
+
+            # --- テンプレートで着せ替える（Phase J） ---
+            texts_before = page.evaluate(_TEXTS_JS)
+            page.click("#btn-restyle")
+            page.wait_for_selector("#restyle-result:not([hidden])", timeout=30000)
+            page.wait_for_timeout(400)
+            styled_with = page.evaluate("() => qcDebug.presentation().meta.restyled_with")
+            color_rows = page.evaluate("() => document.querySelectorAll('#restyle-report table tr').length")
+            texts_after = page.evaluate(_TEXTS_JS)
+            ok, why = _clickable(page, "#restyle-result .modal-foot button[data-action='unrestyle']")
+            record(
+                "テンプレートで着せ替える（結果が出て、文章はそのまま）",
+                styled_with == "ui_brand" and texts_after == texts_before and ok,
+                f"restyled_with={styled_with} 色の対応 {color_rows} 行 / {why}",
+            )
+            if shots:
+                page.screenshot(path=str(shots / "ui_06_restyle.png"))
+            page.click("#restyle-result .modal-foot button[data-action='unrestyle']")
+            page.wait_for_function("() => !qcDebug.presentation().meta.restyled_with", timeout=20000)
+            page.wait_for_timeout(400)
+            closed = page.evaluate("() => document.getElementById('restyle-result').hidden")
+            undo_hidden = page.evaluate("() => document.getElementById('btn-unrestyle').hidden")
+            record("着せ替えを元の見た目に戻せる", closed and undo_hidden and page.evaluate(_TEXTS_JS) == texts_before)
+
             page.on("dialog", lambda d: d.accept())
             page.click("#btn-template-delete")
             page.wait_for_function("() => Array.prototype.every.call(document.getElementById('template-select').options, function (o) { return o.value !== 'ui_brand'; })", timeout=20000)
