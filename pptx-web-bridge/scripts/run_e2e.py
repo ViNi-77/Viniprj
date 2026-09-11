@@ -264,6 +264,13 @@ def main() -> int:
     conflicts = merged2["report"]["conflicts"]
     record("両方で変わった箇所を競合として報告する", len(conflicts) == 1 and conflicts[0]["ours"] == "課題は私が直した" and "転記" in conflicts[0]["theirs"], f"conflicts={len(conflicts)} applied={conflicts[0]['applied'] if conflicts else '-'}")
 
+    # --- 版の表示 ---
+    from app import version as version_mod
+
+    vinfo = version_mod.version_info()
+    feature_ids = {f["id"] for f in vinfo["features"]}
+    record("版と機能一覧を返す（/api/version の中身）", vinfo["version"] == version_mod.APP_VERSION and {"diagrams", "merge_import", "copilot_agent_kit"} <= feature_ids and bool(vinfo["commit"]), f"v{vinfo['version']} commit={vinfo['commit']} features={len(feature_ids)}")
+
     # --- 例外系 ---
     try:
         pipeline.import_pptx(b"broken", "broken.pptx")

@@ -13,6 +13,7 @@
   <h1>PPTX ⇄ Web図解 変換アプリ</h1>
   <span class="status" id="status">準備完了</span>
   <span class="badge" id="raster-badge" title="見た目優先モードに必要な画像化環境">画像化: 確認中</span>
+  <button class="badge version-badge" id="version-badge" data-action="show-version" title="この画面が動いている版。押すと入っている機能の一覧が出ます">版: 確認中</button>
   <label class="loglevel" title="ログレベル（設計基準 7.3）">ログ <select id="loglevel-select"><option>DEBUG</option><option selected>INFO</option><option>WARNING</option><option>ERROR</option></select></label>
 </header>
 <div id="progress" class="progress hidden" role="progressbar" aria-live="polite">
@@ -200,6 +201,12 @@
   </div>
 </div>
 <!-- Copilot に頼む -->
+<div id="version-modal" class="modal small" hidden role="dialog" aria-label="版と機能">
+  <div class="modal-box">
+    <div class="modal-head"><h2>この版に入っているもの</h2><button class="secondary small" data-action="version-close">閉じる</button></div>
+    <div class="modal-body col" id="version-body"></div>
+  </div>
+</div>
 <div id="merge-dialog" class="modal small" hidden role="dialog" aria-label="取り込み方を選ぶ">
   <div class="modal-box">
     <div class="modal-head"><h2>取り込み方を選んでください</h2></div>

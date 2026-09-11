@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ import logging
 from . import copilot_agent_kit, copilot_handoff, pipeline, storage, template_from_pptx, template_kit, template_store
 from .layout import element_height, layout_slide
 from .report import build_report
+from . import version as version_mod
 from .config import get_config, resource_path
 from .logging_setup import get_logger
 from .model import new_presentation
@@ -39,7 +41,7 @@ def _cfg():
 
 
 cfg = _cfg()
-app = FastAPI(title="PPTX ⇄ Web図解 変換アプリ", version="0.1.0")
+app = FastAPI(title="PPTX ⇄ Web図解 変換アプリ", version=version_mod.APP_VERSION)
 FRONTEND_DIR = resource_path("frontend")
 _MAX_UPLOAD = int(_cfg().get("limits.max_upload_mb", 50)) * 1024 * 1024
 
@@ -81,9 +83,21 @@ def _apply_template(pres: dict, template_id: str | None) -> dict:
     return pres
 
 
+_ASSET_REF = re.compile(r'(?P<ref>(?:href|src)="/(?:static|viewer)/[^"?]+)"')
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> Any:
-    return FileResponse(FRONTEND_DIR / "index.html")
+    """画面の HTML。JS・CSS の URL に版の印を付けて、古いものが使われないようにする。"""
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    html = _ASSET_REF.sub(lambda m: f'{m.group("ref")}?v={version_mod.asset_tag()}"', html)
+    return HTMLResponse(html, headers={"Cache-Control": "no-store, must-revalidate"})
+
+
+@app.get("/api/version")
+def api_version() -> dict:
+    """版・コミット・入っている機能の一覧。「更新できているか」の確認に使う。"""
+    return version_mod.version_info()
 
 
 @app.get("/api/config")
@@ -97,6 +111,7 @@ def api_config() -> dict:
         "output_dir": str(_cfg().path("output_dir")),
         "projects_dir": str(_cfg().path("projects_dir")),
         "version": app.version,
+        "build": version_mod.build_info(),
         "log_level": logging.getLevelName(logging.getLogger("pptx_web_bridge").level),
         "layout": {"margin_pt": _cfg().get("layout.margin_pt"), "gutter_pt": _cfg().get("layout.gutter_pt"), "size_bands": _cfg().get("layout.size_bands"), "body_font_pt": _cfg().get("layout.body_font_pt"), "title_font_pt": _cfg().get("layout.title_font_pt")},
         "canvas": {"width_pt": _cfg().get("canvas.default_width_pt"), "height_pt": _cfg().get("canvas.default_height_pt")},

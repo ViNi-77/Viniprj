@@ -126,6 +126,43 @@ window.PWB = window.PWB || {};
   }
 
   // ---------------------------------------------------------------------
+  // 版の表示（「更新できているか」を画面で確かめられるように）
+  // ---------------------------------------------------------------------
+  var versionInfo = null;
+  function loadVersion() {
+    return api("/api/version").then(function (r) { return r.json(); }).then(function (v) {
+      versionInfo = v;
+      var badge = $("version-badge");
+      var dirty = v.dirty ? "+変更あり" : "";
+      badge.textContent = "版 " + v.version + (v.commit && v.commit !== "不明" ? " (" + v.commit + dirty + ")" : "");
+      badge.title = "版 " + v.version + " / コミット " + v.commit + (v.branch ? " / ブランチ " + v.branch : "")
+        + (v.commit_date ? " / " + v.commit_date.slice(0, 19).replace("T", " ") : "") + "\n押すと入っている機能の一覧が出ます";
+      log("版 " + v.version + " コミット " + v.commit + " スキーマ " + v.schema_version, "INFO");
+      return v;
+    }).catch(function (e) { $("version-badge").textContent = "版: 不明"; log("版の取得に失敗: " + e.message, "WARNING"); });
+  }
+
+  function showVersion() {
+    var box = $("version-body");
+    var render = function (v) {
+      var rows = (v.features || []).map(function (f) {
+        return "<tr><td>" + escapeHtml(f.phase) + "</td><td>" + escapeHtml(f.name) + "</td><td class=\"muted\">" + escapeHtml(f.hint) + "</td></tr>";
+      }).join("");
+      box.innerHTML = "<p><strong>版 " + escapeHtml(v.version) + "</strong>"
+        + (v.commit && v.commit !== "不明" ? " / コミット <code>" + escapeHtml(v.commit) + (v.dirty ? "（作業中の変更あり）" : "") + "</code>" : "")
+        + (v.branch ? " / ブランチ <code>" + escapeHtml(v.branch) + "</code>" : "")
+        + "</p>"
+        + (v.commit_date ? '<p class="muted">コミット日時: ' + escapeHtml(v.commit_date.slice(0, 19).replace("T", " ")) + "</p>" : "")
+        + '<p class="muted">資料形式（スキーマ）: ' + escapeHtml(v.schema_version) + "</p>"
+        + '<table class="version-table"><thead><tr><th>段階</th><th>機能</th><th>内容</th></tr></thead><tbody>' + rows + "</tbody></table>"
+        + '<p class="muted">画面が古いままのときは Ctrl+F5（強制再読み込み）を試してください。</p>';
+      $("version-modal").hidden = false;
+    };
+    if (versionInfo) { render(versionInfo); return; }
+    loadVersion().then(function (v) { if (v) render(v); });
+  }
+
+  // ---------------------------------------------------------------------
   // 差分マージ再取込（Phase G）
   // ---------------------------------------------------------------------
   function canMerge(file) {
@@ -593,6 +630,8 @@ window.PWB = window.PWB || {};
     "add-diagram": function (btn) { addElement("diagram", btn.getAttribute("data-diagram") || "flow"); },
     "merge-replace": function () { $("merge-dialog").hidden = true; if (pendingMergeFile) { var f = pendingMergeFile; pendingMergeFile = null; importFile(f, "replace"); } },
     "merge-diff": function () { $("merge-dialog").hidden = true; if (pendingMergeFile) { var f2 = pendingMergeFile; pendingMergeFile = null; importFile(f2, "merge"); } },
+    "show-version": function () { showVersion(); },
+    "version-close": function () { $("version-modal").hidden = true; },
     "merge-cancel": function () { $("merge-dialog").hidden = true; pendingMergeFile = null; },
     "merge-report-close": function () { $("merge-result").hidden = true; },
     "merge-keep-ours": function (btn) { keepOursText(btn.getAttribute("data-slide"), btn.getAttribute("data-element")); },
@@ -674,6 +713,7 @@ window.PWB = window.PWB || {};
   // ---------------------------------------------------------------------
   window.qcDebug = window.__QC_DEBUG__ = {
     version: "0.3.0",
+    build: function () { return versionInfo; },
     state: function () { return state; },
     presentation: function () { return state.presentation; },
     setPresentation: function (p) { state.presentation = p; PWB.slidelist.clearThumbs(); renderAll(); },
@@ -706,6 +746,7 @@ window.PWB = window.PWB || {};
     PWB.slidelist.init($("slide-list"));
     PWB.templateEditor.init($("tpl-modal"));
     PWB.copilot.init($("copilot-modal"));
+    loadVersion();
     apiJson("/api/config").then(function (c) {
       state.config = c;
       setTemplates(c.templates, null);
