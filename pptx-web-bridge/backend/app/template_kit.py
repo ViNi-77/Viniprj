@@ -304,6 +304,7 @@ def chrome_spec(slide: dict, presentation: dict) -> dict[str, Any]:
     sx = float(canvas.get("width_pt", _BASE_W)) / _BASE_W
     bars = [part["bar"]] if isinstance(part.get("bar"), dict) else []
     bars += [b for b in (part.get("bars") or []) if isinstance(b, dict)]
+    bars += [d for d in (part.get("decor") or []) if isinstance(d, dict) and d.get("enabled")]  # 画面で「使う」にした装飾
     for i, bar in enumerate(bars):
         b = scale(bar, canvas)
         spec["bars"].append({"x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"], "color": bar.get("color", "#000000"), "slant_pt": round(float(bar.get("slant_pt", 0)) * sx, 2), "name": "bar" if i == 0 else f"bar{i + 1}", "source": bar.get("source", "slide")})

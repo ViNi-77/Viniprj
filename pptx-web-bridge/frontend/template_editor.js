@@ -16,7 +16,32 @@ PWB.templateEditor = (function () {
   var core = function () { return PWB.core; };
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
 
+  // 一覧の「種類」セレクト。値はサーバの ROLE_TARGETS と同じ
+  var ROLE_OPTIONS = { image: [["logo", "ロゴ"], ["images", "画像"], ["skip", "外す"]], bar: [["bar", "帯"], ["decor", "装飾"], ["skip", "外す"]], decor: [["decor", "装飾"], ["bar", "帯"], ["skip", "外す"]],
+    text: [["title", "題名"], ["subtitle", "副題"], ["footer", "フッター"], ["page_number", "ページ番号"], ["message", "一言"], ["candidates", "候補に戻す"], ["skip", "外す"]],
+    candidate: [["candidates", "文字候補"], ["title", "題名"], ["subtitle", "副題"], ["footer", "フッター"], ["page_number", "ページ番号"], ["message", "一言"], ["body", "本文領域"], ["skip", "外す"]],
+    area: [["body", "本文領域"], ["skip", "外す"]], background: [["background_image", "背景画像"], ["skip", "外す"]] };
+  var CONF_LABELS = { high: "確か", low: "要確認" };
   function partId(p) { return p.part + ":" + p.key; }
+  function currentRole(p) { return p.key.indexOf(".") >= 0 ? p.key.split(".")[0] : p.key; }
+  function changeRole(kind, key, role) {
+    if (!st.proposal) return;
+    setStatus("役割を変えています …");
+    core().apiJson("/api/templates/part-role", { template: st.proposal, kind: kind, key: key, role: role }).then(function (r) {
+      st.proposal = r.template; st.previews = r.previews; st.parts = r.parts; st.themeCss = r.theme_css;
+      canvas.setSelection([]);
+      renderTab();
+      setStatus("解釈を確認してください（" + st.parts.length + " 個の部品）");
+    }).catch(function (e) { setStatus("役割の変更に失敗: " + e.message, true); });
+  }
+  function toggleDecor(kind, key, enabled) {
+    var spec = partSpec(kind, key);
+    if (!spec) return;
+    spec.enabled = !!enabled;
+    st.parts.forEach(function (p) { if (p.part === kind && p.key === key) p.enabled = !!enabled; });
+    canvas.setSelection([]);
+    refreshPreview();
+  }
   function currentParts() { return st.parts.filter(function (p) { return p.part === st.tab; }); }
 
   /** 提案の中の部品（key = "logo" / "images.0" / "title" …）を返す。 */
@@ -40,7 +65,7 @@ PWB.templateEditor = (function () {
   }
 
   var adapter = {
-    items: function () { return currentParts().filter(function (p) { return p.box; }).map(function (p) { return { id: partId(p), bbox: p.box, no: p.no, label: p.label, type: p.type }; }); },
+    items: function () { return currentParts().filter(function (p) { return p.box && p.type !== "candidate" && !(p.type === "decor" && !p.enabled); }).map(function (p) { return { id: partId(p), bbox: p.box, no: p.no, label: p.label, type: p.type }; }); },
     snapshot: function () { return null; },
     commit: function (boxes) {
       Object.keys(boxes).forEach(function (id) { var key = id.split(":").slice(1).join(":"); setPartBox(st.tab, key, boxes[id]); });
@@ -149,18 +174,36 @@ PWB.templateEditor = (function () {
     if (!st.proposal) { box.innerHTML = ""; return; }
     if (!st.proposal[st.tab]) { box.innerHTML = '<p class="muted">' + TAB_LABELS[st.tab] + 'に該当するスライドがありません。左の役割を変えると作れます。</p>'; return; }
     var sel = canvas.getSelection();
-    var html = "";
+    var guide = (st.proposal.guide || {})[st.tab];
+    var html = guide ? '<p class="muted tpl-guide">この解釈で入ります: ' + esc(guide) + "</p>" : "";
+    html += '<table class="tpl-table"><thead><tr><th>#</th><th>種類</th><th>内容</th><th>元</th><th>信頼度</th><th>座標 (x, y, w, h)</th><th></th></tr></thead><tbody>';
     parts.forEach(function (p) {
       var id = partId(p);
-      var src = p.source === "slide" ? "スライド" : (p.source === "layout" ? "レイアウト" : (p.source === "master" ? "マスター" : p.source));
-      var detail = p.type === "text" && p.text ? ' 「' + esc(p.text) + '」' : "";
-      if (p.type === "text" && p.size_pt) detail += " " + p.size_pt + "pt";
-      html += '<div class="tpl-part' + (sel.indexOf(id) >= 0 ? " selected" : "") + '" data-part="' + esc(id) + '"><span class="no">' + p.no + '</span><span>' + esc(p.label) + detail + ' <span class="src">(' + src + (p.color ? " " + esc(p.color) : "") + ')</span></span><button class="small secondary" data-tpl-remove="' + esc(id) + '" title="この部品を使わない">✕</button></div>';
-      if (p.box && sel.indexOf(id) >= 0) {
-        html += '<div class="tpl-part-edit">' + ["x", "y", "w", "h"].map(function (c) { return '<label class="f"><span>' + c + '</span><input type="number" step="1" data-tpl-box="' + c + '" data-part="' + esc(id) + '" value="' + Math.round(p.box[c]) + '"' + (p.key === "logo" && c === "h" ? " disabled" : "") + "></label>"; }).join("") + "</div>";
+      var src = p.source === "slide" ? "スライド" : (p.source === "layout" ? "レイアウト" : (p.source === "master" ? "マスター" : (p.source === "auto" ? "自動" : p.source)));
+      var detail = "";
+      if (p.text) detail += "「" + esc(p.text) + "」";
+      if (p.size_pt) detail += " " + p.size_pt + "pt";
+      if (p.color) detail += ' <span class="swatch inline" style="background:' + esc(p.color) + '"></span>' + esc(p.color);
+      if (p.reason) detail += '<div class="muted">' + esc(p.reason) + "</div>";
+      var opts = (ROLE_OPTIONS[p.type] || [["skip", "外す"]]).map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === currentRole(p) ? " selected" : "") + ">" + o[1] + "</option>"; }).join("");
+      var use = p.type === "decor" ? '<label class="check"><input type="checkbox" data-tpl-decor="' + esc(id) + '"' + (p.enabled ? " checked" : "") + "> 使う</label>" : "";
+      var conf = p.confidence || "high";
+      var selected = sel.indexOf(id) >= 0;
+      var drawn = p.box && p.type !== "candidate" && !(p.type === "decor" && !p.enabled);
+      html += '<tr class="tpl-part' + (selected ? " selected" : "") + (drawn ? "" : " undrawn") + ' conf-' + conf + '" data-part="' + esc(id) + '">'
+        + '<td><span class="no">' + p.no + "</span></td>"
+        + '<td><select class="small" data-tpl-role-of="' + esc(id) + '" title="この部品の役割を変える">' + opts + "</select>" + use + "</td>"
+        + "<td>" + esc(p.label) + (detail ? " " + detail : "") + "</td>"
+        + '<td class="src">' + src + "</td>"
+        + '<td><span class="conf">' + (CONF_LABELS[conf] || conf) + "</span></td>"
+        + '<td class="num">' + (p.box ? [Math.round(p.box.x), Math.round(p.box.y), Math.round(p.box.w), Math.round(p.box.h)].join(", ") : "—") + "</td>"
+        + '<td><button class="small secondary" data-tpl-remove="' + esc(id) + '" title="この部品を使わない">✕</button></td></tr>';
+      if (p.box && selected) {
+        html += '<tr class="tpl-part-edit-row"><td></td><td colspan="6"><div class="tpl-part-edit">' + ["x", "y", "w", "h"].map(function (c) { return '<label class="f"><span>' + c + '</span><input type="number" step="1" data-tpl-box="' + c + '" data-part="' + esc(id) + '" value="' + Math.round(p.box[c]) + '"' + (p.key === "logo" && c === "h" ? " disabled" : "") + "></label>"; }).join("") + "</div></td></tr>";
       }
     });
-    box.innerHTML = html || '<p class="muted">部品はありません。</p>';
+    html += "</tbody></table>";
+    box.innerHTML = parts.length ? html : '<p class="muted">部品はありません。</p>';
   }
 
   // ---------------------------------------------------------------- 操作
@@ -172,13 +215,16 @@ PWB.templateEditor = (function () {
     if (tab) { st.tab = tab.getAttribute("data-tpl-tab"); canvas.setSelection([]); renderTab(); return; }
     var rm = t.closest("[data-tpl-remove]");
     if (rm) { var id = rm.getAttribute("data-tpl-remove"); removePart(st.tab, id.split(":").slice(1).join(":")); canvas.setSelection([]); refreshPreview(); return; }
+    if (t.closest("select, input, label")) return;
     var row = t.closest(".tpl-part");
-    if (row) { canvas.setSelection([row.getAttribute("data-part")]); renderParts(); return; }
+    if (row) { var pid = row.getAttribute("data-part"); var pinfo = st.parts.filter(function (p) { return partId(p) === pid; })[0]; if (pinfo && pinfo.box && pinfo.type !== "candidate" && !(pinfo.type === "decor" && !pinfo.enabled)) canvas.setSelection([pid]); else canvas.setSelection([]); renderParts(); return; }
   }
   function onChange(e) {
     var t = e.target;
     if (t.id === "tpl-file") { if (t.files[0]) { st.roles = {}; st.thumbs = []; st.proposal = null; analyze(t.files[0]); } return; }
     if (t.hasAttribute("data-tpl-role")) { st.roles[t.getAttribute("data-tpl-role")] = t.value; if (st.file) analyze(st.file); return; }
+    if (t.hasAttribute("data-tpl-role-of")) { var rid = t.getAttribute("data-tpl-role-of"); changeRole(st.tab, rid.split(":").slice(1).join(":"), t.value); return; }
+    if (t.hasAttribute("data-tpl-decor")) { var did = t.getAttribute("data-tpl-decor"); toggleDecor(st.tab, did.split(":").slice(1).join(":"), t.checked); return; }
     if (t.hasAttribute("data-tpl-box")) {
       var id = t.getAttribute("data-part"), c = t.getAttribute("data-tpl-box");
       var box = {}; box[c] = parseFloat(t.value);

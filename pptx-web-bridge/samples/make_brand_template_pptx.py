@@ -111,5 +111,47 @@ def build(out: Path = OUT) -> Path:
     return out
 
 
+OUT_EXT = Path(__file__).resolve().parent / "brand_template_ext.pptx"
+
+
+def build_extended(out: Path = OUT_EXT) -> Path:
+    """推定精度の試験用: 上の 3 枚に「色見本スライド」と「装飾の小さな四角」を足した 4 枚デッキ。
+
+    実案件のテンプレートには、色の指定を示すスライド（正方形の色チップが並ぶ）や、飾りの小さな四角が
+    よく入っている。これらを帯と誤認しないこと、中身スライドとして選ばれないことを確かめる。
+    """
+    build(out)
+    prs = Presentation(str(out))
+    # 中身（2 枚目）に飾りの小さな四角を 2 つ（帯ではない）
+    content = prs.slides[1]
+    for i, (x, color) in enumerate(((11.6, RGBColor(0x4B, 0xC3, 0xFF)), (12.3, RGBColor(0xFA, 0x0A, 0x3C)))):
+        sq = content.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(0.45), Inches(0.4), Inches(0.4))
+        sq.name = f"decor_square_{i + 1}"
+        sq.fill.solid()
+        sq.fill.fore_color.rgb = color
+        sq.line.fill.background()
+    # 色見本スライドを最終ページの前に挿す（8 個の同じ大きさの色チップ + ラベル）
+    sw = prs.slides.add_slide(prs.slide_layouts[6])
+    t = sw.shapes.add_textbox(Inches(0.5), Inches(0.4), Inches(8), Inches(0.6))
+    t.text_frame.text = "カラーパレット（参考）"
+    swatches = [(0x00, 0x1A, 0x72), (0x40, 0x53, 0x95), (0x80, 0x8C, 0xB8), (0xBF, 0xC6, 0xDC), (0x00, 0x00, 0x00), (0x33, 0x33, 0x33), (0x4B, 0xC3, 0xFF), (0xFA, 0x0A, 0x3C)]
+    for i, rgb in enumerate(swatches):
+        chip = sw.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.6 + i * 1.5), Inches(1.5), Inches(1.2), Inches(1.2))
+        chip.name = f"swatch_{i + 1}"
+        chip.fill.solid()
+        chip.fill.fore_color.rgb = RGBColor(*rgb)
+        chip.line.fill.background()
+        label = sw.shapes.add_textbox(Inches(0.6 + i * 1.5), Inches(2.8), Inches(1.2), Inches(0.4))
+        label.text_frame.text = f"#{rgb[0]:02X}{rgb[1]:02X}{rgb[2]:02X}"
+    # 挿した色見本を最終ページの前へ（sldIdLst の並びを入れ替える）
+    lst = prs.slides._sldIdLst
+    ids = list(lst)
+    lst.remove(ids[-1])
+    lst.insert(2, ids[-1])
+    prs.save(str(out))
+    return out
+
+
 if __name__ == "__main__":
     print(build(Path(sys.argv[1]) if len(sys.argv) > 1 else OUT))
+    print(build_extended())

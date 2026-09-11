@@ -238,6 +238,24 @@ def main() -> int:
     )
     record("Copilot エージェント一式（定義・指示文・ナレッジ・目次）", ok_kit, f"files={len(names_k)} knowledge={len(bodies_k)} starters={len(manifest['conversation_starters'])}")
 
+    # --- テンプレート推定の精度（Phase I）: 色見本・装飾入りの 4 枚デッキ ---
+    from app import template_store
+    from app.template_from_pptx import analyze as tpl_analyze, set_part_role
+
+    sys.path.insert(0, str(ROOT / "samples"))
+    from make_brand_template_pptx import build_extended  # noqa: E402
+
+    ext_path = build_extended(ROOT / "samples" / "brand_template_ext.pptx")
+    ext = tpl_analyze(ext_path.read_bytes(), "brand_template_ext.pptx", template_id="e2e_ext")
+    try:
+        roles = [s_["role"] for s_ in ext["slides"]]
+        c = ext["proposal"]["content"]
+        record("色見本のスライドを避けて中身を選び、帯は 1 本・飾りは装飾にする", roles == ["cover", "content", "skip", "closing"] and "bars" not in c and len(c.get("decor", [])) == 2 and ext["proposal"]["colors"]["primary"] == "#001A72", f"roles={roles} decor={len(c.get('decor', []))} primary={ext['proposal']['colors']['primary']}")
+        moved = set_part_role(ext["proposal"], "content", "decor.0", "bar")
+        record("画面の表で装飾を帯に変えられる（提案が組み替わる）", len(moved["content"].get("bars", [])) == 1 and len(moved["content"]["decor"]) == 1 and "帯" in ext["proposal"]["guide"]["content"], f"guide={ext['proposal']['guide']['content']}")
+    finally:
+        template_store.delete_template("e2e_ext")
+
     # --- 差分マージ再取込（Phase G） ---
     from app import merge as mg
 

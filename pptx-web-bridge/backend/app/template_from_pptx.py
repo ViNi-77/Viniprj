@@ -8,7 +8,11 @@ UI で位置を直してから `template_store.save_template` で保存する。
 - スライドの役割: 先頭 = 表紙、末尾 = 最終ページ（3 枚以上、または 2 枚で末尾の文字が 40 字未満）、残り = 中身。UI から上書き可。
 - 図形はスライド本体に加えてレイアウト・マスターの図形も見る（showMasterSp=0 のときはマスターを見ない）。
 - 画像: 面積 80% 以上 → 背景画像。幅 25% 以下で端から 15% 以内 → ロゴ。それ以外 → 装飾画像。
-- 文字の無い塗り図形・線 → 帯（平行四辺形は adj から傾きを取る）。面積 80% 以上なら背景色。
+- 文字の無い塗り図形: **細長く（縦横比 4 以上）、幅か高さが 30% 以上で、端から 15% 以内**なら帯（平行四辺形は adj から傾きを取る）。
+  それ以外は「装飾」として提案に載せるが既定では使わない。同じ大きさの塗り図形が 3 個以上並ぶものは色見本と見なして部品にせず、色をテーマ候補に回す。
+  帯は大きい順に 3 個まで。面積 80% 以上なら背景色。
+- 中身スライドは、候補が複数あるとき「題名・本文プレースホルダを持ち、文字図形が多い」ものを選ぶ（色見本や装飾のスライドを避ける）。
+- 部品には信頼度（high / low）を付け、判定に使わなかった文字は「文字候補」として理由付きで返す（画面で役割を選べる）。
 - 題名 / 副題 / 本文 プレースホルダ → title / subtitle / body（本文領域）。
 - 下部 15% の小さな文字: ページ番号フィールドや数字だけなら page_number、それ以外は footer（日付は {date} に置換）。
 - 最終ページの文字 → message。
@@ -52,7 +56,9 @@ _DATE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 ]
 _PAGE_RE = re.compile(r"^\s*(?:[‹<]#[›>]|#|\d{1,3})\s*$")
 _PAGE_TOTAL_RE = re.compile(r"^\s*(?:[‹<]#[›>]|\d{1,3})\s*/\s*\d{1,3}\s*$")
-PART_LABELS = {"background_image": "背景画像", "logo": "ロゴ", "images": "画像", "bar": "帯", "bars": "帯", "title": "題名", "subtitle": "副題", "body": "本文領域", "message": "一言", "footer": "フッター", "page_number": "ページ番号"}
+PART_LABELS = {"background_image": "背景画像", "logo": "ロゴ", "images": "画像", "bar": "帯", "bars": "帯", "decor": "装飾", "title": "題名", "subtitle": "副題", "body": "本文領域", "message": "一言", "footer": "フッター", "page_number": "ページ番号", "candidates": "文字候補"}
+MAX_BARS = 3
+SWATCH_MIN = 3
 SOURCE_LABELS = {"slide": "スライド", "layout": "レイアウト", "master": "マスター"}
 
 
@@ -295,8 +301,12 @@ def _to_base(box: dict, sx: float, sy: float) -> dict:
     return {"x": round(box["x"] * sx, 1), "y": round(box["y"] * sy, 1), "w": round(box["w"] * sx, 1), "h": round(box["h"] * sy, 1)}
 
 
-def classify_slides(n: int, texts: list[int], overrides: dict[int, str] | None = None) -> list[str]:
-    """各スライドの役割（cover / content / closing / skip）。texts は各スライドの文字数。"""
+def classify_slides(n: int, texts: list[int], overrides: dict[int, str] | None = None, scores: list[float] | None = None) -> list[str]:
+    """各スライドの役割（cover / content / closing / skip）。texts は各スライドの文字数。
+
+    scores（中身らしさ: 題名・本文プレースホルダの有無と文字図形の数）があれば、中間のスライドのうち
+    最も点の高い 1 枚を中身にし、残りは skip にする（色見本や装飾のスライドが中身に選ばれないように）。
+    """
     roles: list[str] = []
     for i in range(n):
         if i == 0:
@@ -305,6 +315,13 @@ def classify_slides(n: int, texts: list[int], overrides: dict[int, str] | None =
             roles.append("closing")
         else:
             roles.append("content")
+    if scores is not None and len(scores) == n:
+        middle = [i for i, r in enumerate(roles) if r == "content"]
+        if len(middle) > 1:
+            best = max(middle, key=lambda i: (scores[i], -i))
+            for i in middle:
+                if i != best:
+                    roles[i] = "skip"
     for i, r in (overrides or {}).items():
         if 0 <= int(i) < n and r in ("cover", "content", "closing", "skip"):
             roles[int(i)] = r
@@ -320,6 +337,125 @@ def _text_len(slide: Any) -> int:
         except Exception:  # noqa: BLE001
             pass
     return n
+
+
+def _content_score(slide: Any, cw: float, ch: float) -> float:
+    """中身スライドらしさ。題名・本文プレースホルダがあり、文字図形が多く、同じ大きさの塗り図形（色見本）が少ないほど高い。"""
+    score = 0.0
+    fills: list[tuple[float, float]] = []
+    for sh in slide.shapes:
+        ph = _placeholder_type(sh)
+        if ph in _TITLE_TYPES:
+            score += 2.0
+        elif ph in _BODY_TYPES:
+            score += 2.0
+        try:
+            has_text = sh.has_text_frame and bool(sh.text_frame.text.strip())
+        except Exception:  # noqa: BLE001
+            has_text = False
+        if has_text:
+            score += 0.5
+        elif sh.shape_type not in (MSO_SHAPE_TYPE.PICTURE, MSO_SHAPE_TYPE.LINE, MSO_SHAPE_TYPE.GROUP):
+            try:
+                if sh.width and sh.height:
+                    fills.append((round(emu_to_pt(sh.width)), round(emu_to_pt(sh.height))))
+            except Exception:  # noqa: BLE001
+                pass
+    score -= 0.5 * (len(fills) - len(set(fills)))  # 同じ大きさの塗りが並ぶほど減点
+    return score
+
+
+def _classify_fill(b: dict, cw: float, ch: float) -> str:
+    """文字の無い塗り図形を 帯（bar）か 装飾（decor）に分ける。
+
+    帯 = 細長く（縦横比 4 以上）、幅か高さがスライドの 30% 以上で、上下左右いずれかの端から 15% 以内。
+    """
+    w, h = float(b["w"]), float(b["h"])
+    if w <= 0 or h <= 0:
+        return "decor"
+    aspect = max(w, h) / min(w, h)
+    horizontal = w >= h
+    span = (w >= cw * 0.3) if horizontal else (h >= ch * 0.3)
+    # 横帯は上下の端、縦帯は左右の端に寄っているか（横長の図形は大抵左端から始まるので x では判定しない）
+    near_edge = (b["y"] <= ch * 0.15 or b["y"] + h >= ch * 0.85) if horizontal else (b["x"] <= cw * 0.15 or b["x"] + w >= cw * 0.85)
+    return "bar" if aspect >= 4 and span and near_edge else "decor"
+
+
+def _find_swatches(fills: list[dict]) -> set[int]:
+    """同じ大きさ（±10%）の塗り図形が SWATCH_MIN 個以上あれば色見本と見なし、その index を返す。"""
+    groups: list[list[int]] = []
+    for i, f in enumerate(fills):
+        placed = False
+        for g in groups:
+            r = fills[g[0]]
+            if abs(f["_w"] - r["_w"]) <= max(2.0, r["_w"] * 0.1) and abs(f["_h"] - r["_h"]) <= max(2.0, r["_h"] * 0.1):
+                g.append(i)
+                placed = True
+                break
+        if not placed:
+            groups.append([i])
+    out: set[int] = set()
+    for g in groups:
+        if len(g) >= SWATCH_MIN and len({fills[i]["color"] for i in g}) >= 2:
+            out.update(g)
+    return out
+
+
+def _hsl(hex_color: str) -> tuple[float, float, float]:
+    try:
+        r, g, b = (int(hex_color[i : i + 2], 16) / 255.0 for i in (1, 3, 5))
+    except (ValueError, TypeError, IndexError):
+        return (0.0, 0.0, 0.5)
+    mx, mn = max(r, g, b), min(r, g, b)
+    light = (mx + mn) / 2
+    if mx == mn:
+        return (0.0, 0.0, light)
+    d = mx - mn
+    sat = d / (1 - abs(2 * light - 1)) if (1 - abs(2 * light - 1)) else 0.0
+    if mx == r:
+        hue = ((g - b) / d) % 6
+    elif mx == g:
+        hue = (b - r) / d + 2
+    else:
+        hue = (r - g) / d + 4
+    return (hue * 60.0, sat, light)
+
+
+def _derive_colors(base: dict, candidates: list[str]) -> dict:
+    """色見本などの候補色から primary / accent / text / muted / surface / line を決め、テーマ色に上書きする。
+
+    候補が 3 色未満なら何もしない。判定は明度と彩度だけ（暗く鮮やか → primary、鮮やかで primary と色相が離れる → accent、
+    暗い無彩色 → text、中間の無彩色 → muted、明るい色 → surface / line）。
+    """
+    uniq: list[str] = []
+    for c in candidates:
+        c = str(c or "").upper()
+        if re.fullmatch(r"#[0-9A-F]{6}", c) and c not in uniq:
+            uniq.append(c)
+    if len(uniq) < 3:
+        return base
+    out = dict(base)
+    info = {c: _hsl(c) for c in uniq}
+    chroma = [c for c in uniq if info[c][1] >= 0.25 and 0.15 <= info[c][2] <= 0.7]
+    grays = [c for c in uniq if info[c][1] < 0.25]
+    if chroma:
+        primary = min(chroma, key=lambda c: info[c][2])
+        out["primary"] = primary
+        others = [c for c in chroma if c != primary and abs(info[c][0] - info[primary][0]) % 360 > 25]
+        if others:
+            out["accent"] = max(others, key=lambda c: info[c][1] + (0.3 if info[c][2] > 0.35 else 0))
+    dark = [c for c in grays if info[c][2] < 0.35]
+    if dark:
+        out["text"] = min(dark, key=lambda c: info[c][2])
+    mids = [c for c in grays if 0.35 <= info[c][2] < 0.75]
+    if mids:
+        out["muted"] = mids[0]
+    light = sorted([c for c in uniq if info[c][2] >= 0.75], key=lambda c: -info[c][2])
+    if light:
+        out["surface"] = light[0]
+        if len(light) > 1:
+            out["line"] = light[1]
+    return out
 
 
 def _slide_title(slide: Any) -> str:
@@ -378,6 +514,7 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
         shapes = collect_shapes(slide, slide_no)
         images: list[dict] = []
         bars: list[dict] = []
+        fills: list[dict] = []
         texts: list[tuple[_Shape, dict]] = []
         for s in shapes:
             b = s.box
@@ -411,8 +548,8 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
                     width = float(s.shape.line.width.pt) if s.shape.line.width else 1.0
                 except Exception:  # noqa: BLE001
                     width = 1.0
-                if b["w"] >= b["h"]:
-                    bars.append({**_to_base({"x": b["x"], "y": b["y"] - width / 2, "w": b["w"], "h": max(width, 1.0)}, sx, sy), "color": color or "#666666", "slant_pt": 0, "source": s.source, "_desc": s.describe()})
+                if b["w"] >= b["h"] and b["w"] >= cw * 0.3:
+                    bars.append({**_to_base({"x": b["x"], "y": b["y"] - width / 2, "w": b["w"], "h": max(width, 1.0)}, sx, sy), "color": color or "#666666", "slant_pt": 0, "source": s.source, "_desc": s.describe(), "confidence": "high" if s.source == "slide" else "low"})
                 continue
             # 文字の無い図形: 塗りがあれば帯、面積 80% 以上なら背景色
             fill = _rgb_of(s.shape.fill.fore_color) if _fill_is_solid(s.shape) else None
@@ -432,7 +569,28 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
                     slant = float(s.shape.adjustments[0]) * min(b["w"], b["h"])
             except Exception:  # noqa: BLE001
                 slant = 0.0
-            bars.append({**_to_base(b, sx, sy), "color": fill, "slant_pt": round(slant * sx, 1), "source": s.source, "_desc": s.describe()})
+            fills.append({**_to_base(b, sx, sy), "color": fill, "slant_pt": round(slant * sx, 1), "source": s.source, "_desc": s.describe(), "_kind": _classify_fill(b, cw, ch), "_w": b["w"], "_h": b["h"], "_ratio": ratio})
+
+        # --- 塗り図形: 色見本を除き、帯と装飾に分ける
+        swatch_idx = _find_swatches(fills)
+        if swatch_idx:
+            palette = []
+            for i in sorted(swatch_idx):
+                if fills[i]["color"] not in palette:
+                    palette.append(fills[i]["color"])
+            part["_palette"] = palette
+            warnings.append(f"{kind}: 同じ大きさの塗り図形 {len(swatch_idx)} 個は色見本と判断し、部品にはせず色をテーマ候補に入れました。")
+        decor: list[dict] = []
+        for i, f in enumerate(fills):
+            if i in swatch_idx:
+                continue
+            entry = {k: v for k, v in f.items() if k not in ("_kind", "_w", "_h", "_ratio")}
+            if f["_kind"] == "bar":
+                entry["confidence"] = "high" if f["source"] == "slide" else "low"
+                bars.append(entry)
+            else:
+                entry["confidence"] = "low"
+                decor.append(entry)
 
         # --- 画像: ロゴ（最初の 1 つ）と装飾画像
         logo_done = False
@@ -440,7 +598,7 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
         for img in sorted(images, key=lambda i: (not i["_logo"], i["y"], i["x"])):
             if img["_logo"] and not logo_done:
                 rel = assets.put(img["_blob"], img["_ext"], f"{kind}_logo")
-                part["logo"] = {"image": rel, "x": img["x"], "y": img["y"], "w": img["w"], "source": img["source"]}
+                part["logo"] = {"image": rel, "x": img["x"], "y": img["y"], "w": img["w"], "source": img["source"], "confidence": "high" if img["source"] == "slide" else "low"}
                 logo_done = True
             else:
                 rel = assets.put(img["_blob"], img["_ext"], f"{kind}_image{len(extra) + 1}")
@@ -451,11 +609,20 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
                 warnings.append(f"{kind}: 画像が多いため 6 つまでを部品にしました。")
         if bars:
             bars.sort(key=lambda b: -(b["w"] * b["h"]))
+            if len(bars) > MAX_BARS:
+                warnings.append(f"{kind}: 帯らしい図形が {len(bars)} 個あるため、大きい {MAX_BARS} 個を帯にし、残りは装飾（既定では使わない）にしました。")
+                decor = bars[MAX_BARS:] + decor
+                bars = bars[:MAX_BARS]
             for b in bars:
                 b.pop("_desc", None)
             part["bar"] = bars[0]
             if len(bars) > 1:
-                part["bars"] = bars[1:8]
+                part["bars"] = bars[1:]
+        if decor:
+            for d in decor:
+                d.pop("_desc", None)
+                d["enabled"] = False
+            part["decor"] = decor[:12]
 
         # --- 文字: 役割の判定
         bottom_zone = ch * 0.85
@@ -476,26 +643,31 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
                 footers.append((s, b))
             else:
                 others.append((s, b))
+        inferred: set[int] = set()  # プレースホルダ以外から推定した（信頼度 low）
         if kind == "cover" and (title_s is None or subtitle_s is None) and others:
             others.sort(key=lambda t: -(_text_style(t[0], resolver).get("size_pt") or 0))
             if title_s is None:
                 title_s = others.pop(0)
+                inferred.add(id(title_s[0]))
             if subtitle_s is None and others:
                 subtitle_s = others.pop(0)
+                inferred.add(id(subtitle_s[0]))
         if kind == "content" and title_s is None:
             top = [t for t in others if t[1]["y"] <= ch * 0.25]
             if top:
                 title_s = sorted(top, key=lambda t: t[1]["y"])[0]
                 others.remove(title_s)
+                inferred.add(id(title_s[0]))
         if kind == "content" and body_s is None:
             big = [t for t in others if t[1]["h"] >= ch * 0.25]
             if big:
                 body_s = max(big, key=lambda t: t[1]["w"] * t[1]["h"])
                 others.remove(body_s)
+                inferred.add(id(body_s[0]))
 
         def text_spec(s: _Shape, b: dict, default_size: float) -> dict:
             st = _text_style(s, resolver)
-            spec = {**_to_base(b, sx, sy), "size_pt": float(st["size_pt"] or default_size), "color": st["color"] or "#222222", "bold": bool(st["bold"]), "align": st["align"] or "left", "source": s.source}
+            spec = {**_to_base(b, sx, sy), "size_pt": float(st["size_pt"] or default_size), "color": st["color"] or "#222222", "bold": bool(st["bold"]), "align": st["align"] or "left", "source": s.source, "confidence": "low" if id(s) in inferred else "high"}
             if st.get("font"):
                 spec["font"] = st["font"]
             return spec
@@ -506,7 +678,7 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
             part["subtitle"] = text_spec(subtitle_s[0], subtitle_s[1], 20)
         if kind == "content":
             if body_s:
-                part["body"] = {**_to_base(body_s[1], sx, sy), "source": body_s[0].source}
+                part["body"] = {**_to_base(body_s[1], sx, sy), "source": body_s[0].source, "confidence": "low" if id(body_s[0]) in inferred else "high"}
             else:
                 # 題名の下から下部の部品（帯・フッター・ロゴ）の上までを本文領域にする
                 top = (part["title"]["y"] + part["title"]["h"] + 12) if part.get("title") else 36
@@ -517,7 +689,7 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
                 x = part["title"]["x"] if part.get("title") else 36
                 w = part["title"]["w"] if part.get("title") else BASE_W - 72
                 if floor - top >= 100:
-                    part["body"] = {"x": x, "y": round(top, 1), "w": w, "h": round(floor - top, 1), "source": "auto"}
+                    part["body"] = {"x": x, "y": round(top, 1), "w": w, "h": round(floor - top, 1), "source": "auto", "confidence": "low"}
         if kind == "closing":
             cand = others or ([title_s] if title_s else []) or ([subtitle_s] if subtitle_s else [])
             if cand:
@@ -541,14 +713,29 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
                 if "{date}" not in text:
                     text = "{date}"
             spec = text_spec(s, b, 9)
+            spec["confidence"] = "high" if (s.ph in (PP_PLACEHOLDER.FOOTER, PP_PLACEHOLDER.DATE) or fmt or s.fields) else "low"
             part["footer"] = {**spec, "text": text}
             if fmt:
                 part["date_format"] = fmt
             if len(footers) > 1:
                 warnings.append(f"{kind}: 下部の文字が {len(footers)} 個あるため、一番幅の広いもの（'{s.text[:20]}'）をフッターにしました。")
-        for s, _b in others:
-            if kind != "closing":
-                warnings.append(f"{kind}: 文字 '{s.text[:20]}'（{s.describe()}）は部品に含めませんでした。")
+        candidates: list[dict] = []
+        for s, b in others:
+            if kind == "closing":
+                continue
+            if b["y"] >= bottom_zone - b["h"]:
+                reason = "下部にあるが幅が狭い、または文字が長い（フッターの候補）"
+            elif b["y"] <= ch * 0.25:
+                reason = "上部にあるが題名は別に決まった（副題の候補）"
+            elif b["h"] < ch * 0.25:
+                reason = "本文領域より小さい（説明文や注記の候補）"
+            else:
+                reason = "題名・本文・フッターのどれにも当たらない位置"
+            spec = text_spec(s, b, 12)
+            candidates.append({**spec, "text": s.text[:60], "reason": reason, "confidence": "low"})
+            warnings.append(f"{kind}: 文字 '{s.text[:20]}'（{s.describe()}）は部品に含めませんでした（{reason}）。画面の「文字候補」で役割を選べます。")
+        if candidates:
+            part["candidates"] = candidates[:8]
     finally:
         reset_current_theme(token)
     return part
@@ -576,7 +763,8 @@ def analyze(data: bytes, filename: str, template_id: str | None = None, roles: d
     warnings: list[str] = []
 
     texts = [_text_len(s) for s in prs.slides]
-    role_list = classify_slides(n, texts, roles)
+    scores = [_content_score(s, cw, ch) for s in prs.slides]
+    role_list = classify_slides(n, texts, roles, scores)
     slides_info = [{"index": i, "role": role_list[i], "title": _slide_title(s), "chars": texts[i]} for i, s in enumerate(prs.slides)]
     master = prs.slides[0].slide_layout.slide_master
     theme = ThemeInfo(master)
@@ -605,6 +793,22 @@ def analyze(data: bytes, filename: str, template_id: str | None = None, roles: d
                     proposal["content"] = part
             continue
         proposal[kind] = _analyze_part(kind, prs.slides[idx], idx + 1, theme, cw, ch, assets, warnings)
+    palette: list[str] = []
+    for kind in _KINDS:
+        part = proposal.get(kind)
+        if isinstance(part, dict) and part.get("_palette"):
+            palette.extend(part.pop("_palette"))
+    for i, r in enumerate(role_list):
+        if r == "skip":  # 色見本のスライドは使わないが、色だけはテーマ候補に回す
+            for c in _palette_from_slide(prs.slides[i], cw, ch):
+                if c not in palette:
+                    palette.append(c)
+    if palette:
+        warnings.append(f"色見本らしい塗り図形から {len(palette)} 色をテーマ候補にしました（primary / accent / text などに反映）。")
+    if palette:
+        proposal["colors"] = _derive_colors(proposal["colors"], palette)
+        proposal["palette_candidates"] = palette
+    proposal["guide"] = {kind: _guide_of(proposal[kind]) for kind in _KINDS if isinstance(proposal.get(kind), dict)}
     if proposal.get("content", {}).get("date_format"):
         proposal["date_format"] = proposal["content"]["date_format"]
     elif proposal.get("cover", {}).get("date_format"):
@@ -618,6 +822,48 @@ def analyze(data: bytes, filename: str, template_id: str | None = None, roles: d
         warnings.append("テーマ色の一部を解決できませんでした: " + ", ".join(sorted(theme.unresolved)))
     log.info("テンプレート推定: %s slides=%d parts=%s warnings=%d", filename, n, [k for k in _KINDS if k in proposal], len(warnings))
     return {"proposal": proposal, "parts": parts_of(proposal), "slides": slides_info, "warnings": warnings}
+
+
+def _palette_from_slide(slide: Any, cw: float, ch: float) -> list[str]:
+    """使わないスライド（色見本など）から、同じ大きさで並ぶ塗り図形の色だけを拾う。"""
+    fills: list[dict] = []
+    for sh, tf in _iter_shapes(slide.shapes):
+        box = _box_of(sh, tf)
+        if box is None:
+            continue
+        s = _Shape(sh, box, "slide", 0)
+        if s.is_picture or s.is_line or s.text or s.ph is not None:
+            continue
+        fill = _rgb_of(sh.fill.fore_color) if _fill_is_solid(sh) else None
+        if not fill:
+            continue
+        fills.append({"color": fill, "_w": box["w"], "_h": box["h"]})
+    idx = _find_swatches(fills)
+    out: list[str] = []
+    for i in sorted(idx):
+        if fills[i]["color"] not in out:
+            out.append(fills[i]["color"])
+    return out
+
+
+def _guide_of(part: dict) -> str:
+    """部品の一文要約（例: 「背景画像、ロゴ、題名、副題、フッター」）。"""
+    names: list[str] = []
+    for key in ("background_image", "logo", "images", "bar", "bars", "title", "subtitle", "body", "message", "footer", "page_number"):
+        v = part.get(key)
+        if not v:
+            continue
+        if key in ("images", "bars"):
+            names.append(f"{PART_LABELS[key]} {len(v)}")
+        elif key == "bar":
+            names.append("帯")
+        else:
+            names.append(PART_LABELS[key])
+    if part.get("decor"):
+        names.append(f"装飾 {len(part['decor'])}（既定は使わない）")
+    if part.get("candidates"):
+        names.append(f"文字候補 {len(part['candidates'])}")
+    return "、".join(names) if names else "部品なし"
 
 
 # ---------------------------------------------------------------- UI 用: 部品の一覧と座標の書き戻し
@@ -654,13 +900,100 @@ def parts_of(template: dict) -> list[dict]:
         if isinstance(part.get("bar"), dict):
             add("bar", PART_LABELS["bar"], {k: float(part["bar"][k]) for k in ("x", "y", "w", "h")}, "bar", part["bar"].get("source"), {"color": part["bar"].get("color")})
         for i, b in enumerate(part.get("bars") or []):
-            add(f"bars.{i}", f"帯 {i + 2}", {k: float(b[k]) for k in ("x", "y", "w", "h")}, "bar", b.get("source"), {"color": b.get("color")})
+            add(f"bars.{i}", f"帯 {i + 2}", {k: float(b[k]) for k in ("x", "y", "w", "h")}, "bar", b.get("source"), {"color": b.get("color"), "confidence": b.get("confidence", "high")})
         for key in ("title", "subtitle", "body", "message", "footer", "page_number"):
             spec = part.get(key)
             if isinstance(spec, dict) and all(k in spec for k in ("x", "y", "w", "h")):
-                extra = {k: spec.get(k) for k in ("text", "size_pt", "color") if k in spec}
+                extra = {k: spec.get(k) for k in ("text", "size_pt", "color", "confidence") if k in spec}
                 add(key, PART_LABELS[key], {k: float(spec[k]) for k in ("x", "y", "w", "h")}, "area" if key == "body" else "text", spec.get("source"), extra)
+        for i, d in enumerate(part.get("decor") or []):
+            add(f"decor.{i}", f"装飾 {i + 1}", {k: float(d[k]) for k in ("x", "y", "w", "h")}, "decor", d.get("source"), {"color": d.get("color"), "enabled": bool(d.get("enabled")), "confidence": "low"})
+        for i, c in enumerate(part.get("candidates") or []):
+            add(f"candidates.{i}", f"文字候補 {i + 1}", {k: float(c[k]) for k in ("x", "y", "w", "h")}, "candidate", c.get("source"), {"text": c.get("text"), "size_pt": c.get("size_pt"), "reason": c.get("reason"), "enabled": False, "confidence": "low"})
     return out
+
+
+# 役割の変更で受け付ける先（UI のセレクトと同じ）
+ROLE_TARGETS = ("bar", "decor", "logo", "images", "title", "subtitle", "body", "message", "footer", "page_number", "candidates", "skip")
+
+
+def _pop_part(part: dict, key: str) -> dict | None:
+    """key（"bar" / "bars.1" / "decor.0" …）の部品を提案から外して返す。"""
+    if "." in key:
+        base, idx = key.split(".", 1)
+        items = part.get(base)
+        if isinstance(items, list) and idx.isdigit() and int(idx) < len(items):
+            spec = items.pop(int(idx))
+            if not items:
+                part.pop(base, None)
+            return spec
+        return None
+    spec = part.pop(key, None)
+    if key == "background_image":
+        part.pop("background_source", None)
+    if key == "bar" and part.get("bars"):
+        part["bar"] = part["bars"].pop(0)
+        if not part["bars"]:
+            part.pop("bars")
+    return spec if isinstance(spec, dict) else None
+
+
+def set_part_role(template: dict, kind: str, key: str, role: str) -> dict:
+    """画面で選んだ役割に部品を移す（帯 ⇄ 装飾、文字候補 → 題名/副題/フッター/一言/ページ番号、ロゴ ⇄ 画像、skip = 外す）。"""
+    t = copy.deepcopy(template)
+    part = t.get(kind)
+    if not isinstance(part, dict) or role not in ROLE_TARGETS:
+        return t
+    spec = _pop_part(part, key)
+    if spec is None or role == "skip":
+        return t
+    spec = dict(spec)
+    spec.pop("enabled", None)
+    spec.pop("reason", None)
+    spec["confidence"] = "high"  # 人が決めた
+    if role in ("bar", "decor", "images", "candidates"):
+        if role == "bar":
+            spec.setdefault("color", "#000000")
+            spec.setdefault("slant_pt", 0)
+            if not isinstance(part.get("bar"), dict):
+                part["bar"] = spec
+            else:
+                part.setdefault("bars", []).append(spec)
+        elif role == "decor":
+            spec.setdefault("color", "#000000")
+            spec["enabled"] = False
+            part.setdefault("decor", []).append(spec)
+        elif role == "images":
+            if spec.get("image"):
+                part.setdefault("images", []).append({k: spec[k] for k in ("image", "x", "y", "w", "h", "source") if k in spec})
+        else:
+            spec["enabled"] = False
+            part.setdefault("candidates", []).append(spec)
+        return t
+    if role == "logo":
+        if spec.get("image"):
+            part["logo"] = {k: spec[k] for k in ("image", "x", "y", "w", "source", "confidence") if k in spec}
+        return t
+    # 文字系の役割
+    text = str(spec.get("text") or "")
+    if role == "page_number":
+        spec["text"] = "{page}"
+        spec.setdefault("size_pt", 9)
+        spec["align"] = spec.get("align") or "right"
+    elif role == "footer":
+        tok, fmt = _tokenize_footer(text)
+        spec["text"] = tok
+        spec.setdefault("size_pt", 9)
+        if fmt:
+            t["date_format"] = fmt
+    elif role == "body":
+        spec = {k: spec[k] for k in ("x", "y", "w", "h", "source", "confidence")}
+    else:
+        spec.pop("text", None)
+        if role == "message":
+            spec["align"] = spec.get("align") if spec.get("align") not in (None, "left") else "center"
+    part[role] = spec
+    return t
 
 
 def set_part_box(template: dict, kind: str, key: str, box: dict) -> dict:

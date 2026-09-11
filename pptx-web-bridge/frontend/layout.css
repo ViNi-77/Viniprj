@@ -187,11 +187,23 @@ dialog > article.modal-box.small { width: min(600px, 100%); }
 .tpl-slide .thumb { width: 6rem; height: 3.375rem; }
 .tpl-slide select { width: 100%; }
 .tpl-parts { display: flex; flex-direction: column; gap: 0.25rem; flex: 0 1 auto; min-height: 5rem; overflow: auto; }
-.tpl-part { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr) auto; gap: 0.4rem; align-items: center; padding: 0.25rem 0.4rem; border: 1px solid transparent; border-radius: 0.3rem; cursor: pointer; font-size: 0.85rem; }
-.tpl-part.selected { border-color: var(--accent); background: #fff7ee; }
-.tpl-part .no { display: inline-block; width: 1.4em; height: 1.4em; line-height: 1.4em; text-align: center; border-radius: 50%; background: var(--primary); color: #fff; font-size: 0.75rem; }
+.tpl-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 0; }
+.tpl-table th, .tpl-table td { padding: 0.2rem 0.35rem; border-bottom: 1px solid #eef1f4; text-align: left; vertical-align: middle; }
+.tpl-table th { color: var(--muted); font-weight: normal; white-space: nowrap; font-size: 0.8rem; }
+.tpl-table td.num { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.8rem; }
+.tpl-table select.small { width: auto; padding: 0.05rem 1.4rem 0.05rem 0.4rem; font-size: 0.8rem; height: auto; margin: 0; display: inline-block; }
+.tpl-table label.check { display: inline-flex; margin-left: 0.4rem; font-size: 0.8rem; }
+.tpl-part { cursor: pointer; }
+.tpl-part.selected td { background: #fff7ee; }
+.tpl-part.undrawn td { color: var(--muted); }
+.tpl-part.undrawn .no { background: #b7bfca; }
+.tpl-part.conf-low .conf { color: var(--accent); }
+.tpl-part.conf-high .conf { color: var(--ok); }
+.tpl-guide { margin: 0 0 0.3rem 0; }
+.swatch.inline { display: inline-block; width: 0.8em; height: 0.8em; vertical-align: -0.1em; margin-right: 0.2em; }
+.tpl-part .no { display: inline-block; width: 1.5em; height: 1.5em; line-height: 1.5em; text-align: center; border-radius: 50%; background: var(--primary); color: #fff; font-size: 0.75rem; }
 .tpl-part .src { color: var(--muted); font-size: 0.75rem; }
-.tpl-part-edit { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.25rem; padding: 0.25rem 0.4rem 0.5rem 2.2rem; }
+.tpl-part-edit { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.25rem; padding: 0.15rem 0 0.35rem 0; }
 .tpl-part-edit input { width: 100%; padding: 0.15rem 0.3rem; font-size: 0.8rem; height: auto; }
 .tpl-warnings { font-size: 0.8rem; color: var(--accent); margin: 0; padding-left: 1rem; max-height: 20dvh; overflow: auto; }
 .swatches { display: flex; gap: 0.25rem; flex-wrap: wrap; }
