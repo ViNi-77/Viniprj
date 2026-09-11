@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 import logging
 
-from . import copilot_handoff, pipeline, storage, template_from_pptx, template_kit, template_store
+from . import copilot_agent_kit, copilot_handoff, pipeline, storage, template_from_pptx, template_kit, template_store
 from .layout import element_height, layout_slide
 from .report import build_report
 from .config import get_config, resource_path
@@ -468,6 +468,38 @@ def api_copilot_docx(body: PresentationBody) -> Response:
     pres, _e, _f = validate_and_repair(_apply_template(body.presentation, body.template_id))
     name = storage.safe_name(body.name or pres.get("meta", {}).get("title") or "outline")
     return Response(content=copilot_handoff.to_docx(pres), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": _content_disposition(f"{name}.docx")})
+
+
+class AgentKitBody(BaseModel):
+    template_id: str | None = None
+    agent_name: str | None = None
+    description: str | None = None
+    write_to_output: bool = False
+
+
+@app.get("/api/copilot/agent-kit/preview")
+def api_copilot_agent_kit_preview(template_id: str | None = None) -> dict:
+    """エージェント一式に入る指示文と知識ファイルの一覧（書き出す前の確認用）。"""
+    records = copilot_agent_kit.collect_sources(template_id)
+    knowledge = copilot_agent_kit.pack_knowledge(records)
+    manifest = copilot_agent_kit.build_manifest()
+    return {
+        "agent": {"name": manifest["name"], "description": manifest["description"], "starters": manifest["conversation_starters"]},
+        "instructions": copilot_agent_kit.build_instructions(template=_cfg().template(template_id)),
+        "files": [{"name": name, "chars": len(text)} for name, text in knowledge],
+    }
+
+
+@app.post("/api/copilot/agent-kit")
+def api_copilot_agent_kit(body: AgentKitBody) -> Response:
+    """Copilot エージェント一式（定義・指示文・ナレッジ）を ZIP で書き出す。"""
+    data = copilot_agent_kit.build_kit_zip(body.template_id, body.agent_name, body.description)
+    name = storage.safe_name(body.agent_name or _cfg().copilot_prompts().get("agent", {}).get("name") or "copilot_agent")
+    headers = {"Content-Disposition": _content_disposition(f"{name}_agent.zip")}
+    if body.write_to_output:
+        path = storage.write_output("copilot", name, data, "zip")
+        headers["X-Output-Path"] = quote(str(path))
+    return Response(content=data, media_type="application/zip", headers=headers)
 
 
 @app.post("/api/copilot/import")

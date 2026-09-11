@@ -1,6 +1,11 @@
 {
   "_comment": "「Copilot に頼む」の用途プリセット。プロンプトの文面はここで編集する（コードに固定しない）。{title} {count} {brand} {slides} {language} が置き換わる。content_format は Copilot へ渡す本文の形式（markdown / json）。",
   "chat_url": "https://m365.cloud.microsoft/chat",
+  "agent": {
+    "name": "資料づくりの相棒",
+    "description": "PowerPoint・Web 図解 双方向変換アプリと同じ書式で、資料の構成を整えるエージェント。座標や体裁はアプリが決めるため、文章と構成だけを扱う。",
+    "starters_max": 6
+  },
   "purposes": [
     {
       "id": "brand_deck",
