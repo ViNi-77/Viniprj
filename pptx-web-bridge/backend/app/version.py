@@ -15,7 +15,7 @@ from pathlib import Path
 from .config import ROOT_DIR, resource_path
 from .model import SCHEMA_VERSION
 
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.5.0"
 
 # 画面に出す「この版に入っている機能」。増えた機能はここに足す（UI はこれをそのまま並べる）
 FEATURES: list[dict[str, str]] = [
@@ -26,7 +26,9 @@ FEATURES: list[dict[str, str]] = [
     {"id": "copilot_agent_kit", "phase": "E", "name": "Copilot エージェント一式", "hint": "定義・指示文・ナレッジを ZIP で書き出す"},
     {"id": "diagrams", "phase": "F", "name": "図解部品", "hint": "フロー / カード / 比較 / 数値 / 年表"},
     {"id": "merge_import", "phase": "G", "name": "差分マージ再取込", "hint": "編集を残して変わったところだけ反映"},
-    {"id": "ui_foundation", "phase": "H", "name": "画面基盤（ノート PC 対応）", "hint": "Pico.css / <dialog> / Split.js。125〜150% 表示でも切れない"},    {"id": "template_detect", "phase": "I", "name": "テンプレート推定の精度", "hint": "帯は形で判定、色見本・装飾は部品にしない、役割を画面で変えられる"},
+    {"id": "ui_foundation", "phase": "H", "name": "画面基盤（ノート PC 対応）", "hint": "Pico.css / <dialog> / Split.js。125〜150% 表示でも切れない"},
+    {"id": "template_detect", "phase": "I", "name": "テンプレート推定の精度", "hint": "帯は形で判定、色見本・装飾は部品にしない、役割を画面で変えられる"},
+    {"id": "template_restyle", "phase": "J", "name": "テンプレートの着せ替え", "hint": "色・フォント・題名・背景をテンプレートにそろえる（元に戻せる）"},
 ]
 
 _BUILD_INFO_NAME = "build_info.json"

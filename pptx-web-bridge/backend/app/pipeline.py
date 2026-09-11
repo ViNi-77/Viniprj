@@ -72,8 +72,12 @@ def prepare(presentation: dict) -> tuple[dict, list[str], list[dict]]:
     return pres, errors, fixes
 
 
-def export_pptx(presentation: dict, mode: str | None = None, use_base_pptx: bool = False) -> tuple[bytes, dict, list[dict]]:
+def export_pptx(presentation: dict, mode: str | None = None, use_base_pptx: bool | None = None) -> tuple[bytes, dict, list[dict]]:
+    """PPTX を書き出す。use_base_pptx が未指定なら、テンプレートが元 PPTX を持っていれば土台として使う
+    （マスター・テーマ・題名プレースホルダが効き、PowerPoint の「デザイン適用」と同じ見た目になる）。"""
     pres, _errors, fixes = prepare(presentation)
+    if use_base_pptx is None:
+        use_base_pptx = bool(template_kit.template_for(pres).get("base_pptx"))
     data, warns = generate_pptx(pres, mode, use_base_pptx=use_base_pptx)
     return data, pres, fixes + warns
 

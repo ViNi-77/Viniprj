@@ -50,6 +50,18 @@ LAPTOPS = [
 ]
 
 
+_TEXTS_JS = (
+    "() => JSON.stringify(qcDebug.presentation().slides.map(function (s) {"
+    "  return (s.elements || []).map(function (e) {"
+    "    return (e.paragraphs || []).map(function (pp) {"
+    "      return (pp.runs || []).map(function (r) { return r.text; }).join('');"
+    "    }).join('\\n');"
+    "  }).join('|');"
+    "}))"
+)
+"""資料の文章だけを取り出す JS（着せ替えで文章が変わらないことの確認に使う）。"""
+
+
 def _clickable(page, selector: str) -> tuple[bool, str]:
     """要素が画面内にあり、その中心を押すとその要素（または子）に当たるか（＝スクロール無しで押せる）。"""
     box = page.locator(selector).first.bounding_box()
@@ -326,6 +338,30 @@ def main() -> int:
             record("テンプレートの保存と選択（★付き、削除・土台の選択肢が出る）", "ui_brand" in page.evaluate("() => document.getElementById('template-select').value") and tpl_opt.startswith("★") and del_visible, tpl_opt)
             page.wait_for_function("() => document.querySelector('.canvas-stage .tpl-bar') !== null", timeout=20000)
             record("保存したテンプレートでキャンバスが描き直される（帯が出る）", True)
+
+            # --- テンプレートで着せ替える（Phase J） ---
+            texts_before = page.evaluate(_TEXTS_JS)
+            page.click("#btn-restyle")
+            page.wait_for_selector("#restyle-result:not([hidden])", timeout=30000)
+            page.wait_for_timeout(400)
+            styled_with = page.evaluate("() => qcDebug.presentation().meta.restyled_with")
+            color_rows = page.evaluate("() => document.querySelectorAll('#restyle-report table tr').length")
+            texts_after = page.evaluate(_TEXTS_JS)
+            ok, why = _clickable(page, "#restyle-result .modal-foot button[data-action='unrestyle']")
+            record(
+                "テンプレートで着せ替える（結果が出て、文章はそのまま）",
+                styled_with == "ui_brand" and texts_after == texts_before and ok,
+                f"restyled_with={styled_with} 色の対応 {color_rows} 行 / {why}",
+            )
+            if shots:
+                page.screenshot(path=str(shots / "ui_06_restyle.png"))
+            page.click("#restyle-result .modal-foot button[data-action='unrestyle']")
+            page.wait_for_function("() => !qcDebug.presentation().meta.restyled_with", timeout=20000)
+            page.wait_for_timeout(400)
+            closed = page.evaluate("() => document.getElementById('restyle-result').hidden")
+            undo_hidden = page.evaluate("() => document.getElementById('btn-unrestyle').hidden")
+            record("着せ替えを元の見た目に戻せる", closed and undo_hidden and page.evaluate(_TEXTS_JS) == texts_before)
+
             page.on("dialog", lambda d: d.accept())
             page.click("#btn-template-delete")
             page.wait_for_function("() => Array.prototype.every.call(document.getElementById('template-select').options, function (o) { return o.value !== 'ui_brand'; })", timeout=20000)

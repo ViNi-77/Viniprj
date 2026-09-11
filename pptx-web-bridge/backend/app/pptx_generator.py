@@ -83,6 +83,7 @@ class _Gen:
             bp = resource_path(self.template["base_pptx"])
             self.base_path = bp if bp.exists() else None
         self.skip_inherited_chrome = self.base_path is not None
+        self.placeholder_title: dict | None = None
         self.fonts = self.cfg.font_fallback()
         self.theme_fonts = presentation.get("theme", {}).get("fonts", {})
         self.colors = presentation.get("theme", {}).get("colors", {})
@@ -448,6 +449,76 @@ class _Gen:
                 best, best_n = lay, score
         return best if best is not None else prs.slide_layouts[len(prs.slide_layouts) - 1]
 
+    @staticmethod
+    def _layout_for(prs: Any, kind: str) -> Any | None:
+        """土台 PPTX の中から、スライドの役割に合うレイアウトを選ぶ（表紙 → 題名、中身 → 題名+本文）。
+
+        題名をレイアウトのプレースホルダへ入れると、PowerPoint 側でテーマのフォント・色・位置が
+        そのまま効く（＝「デザインの適用」と同じ結果になる）。
+        """
+        from pptx.enum.shapes import PP_PLACEHOLDER as _PH
+
+        titles = {_PH.TITLE, _PH.CENTER_TITLE}
+        bodies = {_PH.BODY, _PH.OBJECT}
+        best, best_score = None, -(10**6)
+        for lay in prs.slide_layouts:
+            kinds = [ph.placeholder_format.type for ph in lay.placeholders]
+            has_title = any(k in titles for k in kinds)
+            has_sub = any(k == _PH.SUBTITLE for k in kinds)
+            has_body = any(k in bodies for k in kinds)
+            extra = sum(1 for k in kinds if k not in titles | bodies | {_PH.SUBTITLE, _PH.FOOTER, _PH.DATE, _PH.SLIDE_NUMBER})
+            if not has_title:
+                continue
+            if kind == "cover":
+                score = 10 + (5 if has_sub else 0) - (3 if has_body else 0)
+            else:
+                score = 10 + (5 if has_body else 0) - (3 if has_sub else 0)
+            score -= extra * 2
+            name = str(lay.name or "").lower()
+            if kind == "cover" and ("title slide" in name or "表紙" in name or "タイトル スライド" in name):
+                score += 3
+            if score > best_score:
+                best, best_score = lay, score
+        return best
+
+    def _fill_title_placeholder(self, slide: Any, sd: dict) -> dict | None:
+        """レイアウトの題名プレースホルダへ題名を入れ、その要素を返す（入れられなければ None）。"""
+        try:
+            ph = slide.shapes.title
+        except Exception:  # noqa: BLE001
+            ph = None
+        if ph is None:
+            return None
+        el = next((e for e in sd.get("elements", []) if e.get("type") == "text" and e.get("role") == "title" and e.get("paragraphs")), None)
+        if el is None:
+            return None
+        try:
+            self.fill_paragraphs(ph.text_frame, el.get("paragraphs", []), "title", el=el)
+            ph.name = f"title:{el.get('id', 'title')}"
+            if el.get("user_bbox") and el.get("bbox"):  # 手で動かした枠だけ位置を上書きする
+                b = el["bbox"]
+                ph.left, ph.top, ph.width, ph.height = (Emu(pt_to_emu(float(b[k]))) for k in ("x", "y", "w", "h"))
+        except Exception as e:  # noqa: BLE001
+            log.warning("題名プレースホルダへの流し込みに失敗: %s", e)
+            return None
+        return el
+
+    @staticmethod
+    def _drop_empty_placeholders(slide: Any) -> None:
+        """使わなかった空のプレースホルダを外す（PowerPoint で「テキストを入力」の枠が残らないように）。"""
+        from pptx.enum.shapes import PP_PLACEHOLDER as _PH
+
+        keep = {_PH.FOOTER, _PH.DATE, _PH.SLIDE_NUMBER}
+        for ph in list(slide.placeholders):
+            try:
+                if ph.placeholder_format.type in keep:
+                    continue
+                if ph.has_text_frame and ph.text_frame.text.strip():
+                    continue
+                ph._element.getparent().remove(ph._element)
+            except Exception:  # noqa: BLE001
+                continue
+
     def _open_base(self) -> Any:
         """土台 PPTX を開き、既存スライドを全て外す（マスター・レイアウト・テーマだけを残す）。"""
         prs = Presentation(str(self.base_path))
@@ -473,7 +544,9 @@ class _Gen:
             prs = Presentation()
         prs.slide_width = Emu(pt_to_emu(float(self.p["canvas"]["width_pt"])))
         prs.slide_height = Emu(pt_to_emu(float(self.p["canvas"]["height_pt"])))
-        blank = self._blank_layout(prs) if self.base_path is not None and self.skip_inherited_chrome else prs.slide_layouts[6]
+        use_master_layouts = self.base_path is not None and self.skip_inherited_chrome
+        blank = self._blank_layout(prs) if use_master_layouts else prs.slide_layouts[6]
+        layout_for_kind = {k: (self._layout_for(prs, k) if use_master_layouts else None) for k in ("cover", "content", "closing")}
         prs.core_properties.title = self.p.get("meta", {}).get("title", "")
         self._set_office_metadata(prs, self.p.get("meta", {}).get("author", "") or "")
 
@@ -492,10 +565,12 @@ class _Gen:
                     self.warn("HYBRID_RASTER_UNAVAILABLE", f"画像化環境が使えないため未対応要素は枠のみ出力します: {e}", fallback="枠のみ")
 
         for si, sd in enumerate(self.p.get("slides", [])):
-            slide = prs.slides.add_slide(blank)
+            kind = template_kit.slide_kind(sd, self.p)
+            layout = layout_for_kind.get(kind) if kind != "closing" else None
+            slide = prs.slides.add_slide(layout or blank)
+            self.placeholder_title = self._fill_title_placeholder(slide, sd) if layout is not None and self.mode != "visual" else None
             self.slide_text_color = (sd.get("background") or {}).get("text_color")
             # スライド種別（表紙 / 最終ページ）を cSld の name 属性へ残す。図形ではないので本文要素に混ざらない（Issue #8）
-            kind = template_kit.slide_kind(sd, self.p)
             if kind in ("cover", "closing"):
                 slide._element.cSld.set("name", f"kind:{kind}")
             if self.mode != "visual":
@@ -513,6 +588,8 @@ class _Gen:
                     self._add_native_elements(slide, sd, si)
             else:
                 self._add_native_elements(slide, sd, si)
+            if layout is not None:
+                self._drop_empty_placeholders(slide)
             notes = sd.get("notes")
             if notes:
                 slide.notes_slide.notes_text_frame.text = str(notes)
@@ -554,6 +631,8 @@ class _Gen:
     def _add_native_elements(self, slide: Any, sd: dict, si: int) -> None:
         elements = sorted(sd.get("elements", []), key=lambda e: int(e.get("z", 0) or 0))
         for el in elements:
+            if el is getattr(self, "placeholder_title", None):
+                continue  # レイアウトの題名プレースホルダへ入れたので二重に出さない
             if not el.get("bbox"):
                 self.warn("ELEMENT_NO_BBOX", "座標の無い要素をスキップしました（事前にレイアウトを実行してください）。", sd, el, "スキップ")
                 continue

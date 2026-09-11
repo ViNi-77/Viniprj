@@ -20,7 +20,8 @@ from pydantic import BaseModel, Field
 
 import logging
 
-from . import copilot_agent_kit, copilot_handoff, pipeline, storage, template_from_pptx, template_kit, template_store
+from . import copilot_agent_kit, copilot_handoff, pipeline, restyle, storage, template_from_pptx, template_kit, template_store
+from . import layout as layout_slide_module
 from .layout import element_height, layout_slide
 from .report import build_report
 from . import version as version_mod
@@ -272,6 +273,29 @@ async def api_import_merge(
     result = await run_in_threadpool(pipeline.merge_import, current, incoming["presentation"], policy)
     log.info("差分取込: %s %s", file.filename, result["summary"])
     return result
+
+
+class RestyleBody(PresentationBody):
+    pass
+
+
+@app.post("/api/template/apply")
+def api_template_apply(body: RestyleBody) -> dict:
+    """テンプレートを資料全体へ着せ替える（色・フォント・題名の位置・背景）。元に戻せる。"""
+    pres = _apply_template(body.presentation, body.template_id)
+    template = _cfg().template(pres.get("theme", {}).get("template_id"))
+    styled, report = restyle.restyle(pres, template)
+    styled, errors, fixes = validate_and_repair(styled)
+    styled = layout_slide_module.layout_presentation(styled)
+    return {"presentation": styled, "report": report, "summary": restyle.summary_text(report), "warnings": styled.get("warnings", []) + fixes, "schema_errors": errors, "quality": pipeline.quality(styled)}
+
+
+@app.post("/api/template/unapply")
+def api_template_unapply(body: PresentationBody) -> dict:
+    """着せ替えを取り消して元の見た目へ戻す。"""
+    plain, report = restyle.unstyle(body.presentation)
+    plain, errors, fixes = validate_and_repair(plain)
+    return {"presentation": plain, "report": report, "summary": f"{report['restored']} 個の要素を元に戻しました。" if report.get("restored") else str(report.get("skipped", "")), "warnings": fixes, "schema_errors": errors, "quality": pipeline.quality(plain)}
 
 
 @app.post("/api/validate")

@@ -253,7 +253,7 @@ window.PWB = window.PWB || {};
     PWB.slidelist.render();
     $("slide-count").textContent = state.presentation ? "(" + state.presentation.slides.length + " 枚)" : "";
     if (!opts.keepInspector) PWB.inspector.render();
-    renderWarnings(); renderQuality(); renderReport();
+    renderWarnings(); renderQuality(); renderReport(); updateRestyleButtons();
     $("json-editor").value = state.presentation ? JSON.stringify(state.presentation, null, 2) : "";
     updateUndoButtons();
     scheduleRender();
@@ -523,6 +523,60 @@ window.PWB = window.PWB || {};
     var t = templateInfo($("template-select").value);
     $("btn-template-delete").hidden = !(t && t.source === "user");
     $("use-base-pptx-label").hidden = !(t && t.has_base_pptx);
+    if (t && t.has_base_pptx && $("use-base-pptx") && !$("use-base-pptx").dataset.touched) $("use-base-pptx").checked = true;
+    updateRestyleButtons();
+  }
+
+  // ---------------------------------------------------------------------
+  // テンプレートで着せ替える（Phase J）
+  // ---------------------------------------------------------------------
+  function updateRestyleButtons() {
+    var pres = state.presentation;
+    var styled = !!(pres && pres.meta && pres.meta.restyled_with);
+    var btn = $("btn-restyle"), undo = $("btn-unrestyle");
+    if (!btn) return;
+    btn.disabled = !pres;
+    btn.textContent = styled ? "別のテンプレートで着せ替える" : "テンプレートで着せ替える";
+    if (undo) undo.hidden = !styled;
+  }
+
+  function restyleNow() {
+    if (!state.presentation) { setStatus("先に資料を取り込んでください。", true); return; }
+    var before = snapshot();
+    setStatus("着せ替え中 …");
+    apiJson("/api/template/apply", currentBody()).then(function (r) {
+      PWB.history.push(before);
+      applyImport(r, "テンプレートの着せ替え", true);
+      showRestyleReport(r);
+      updateRestyleButtons();
+    }).catch(function (e) { setStatus("着せ替えに失敗: " + e.message, true); });
+  }
+
+  function unrestyleNow() {
+    if (!state.presentation) return;
+    var before = snapshot();
+    apiJson("/api/template/unapply", { presentation: state.presentation }).then(function (r) {
+      PWB.history.push(before);
+      applyImport(r, "着せ替えの取り消し", true);
+      PWB.ui.closeModal($("restyle-result"));
+      updateRestyleButtons();
+      setStatus(r.summary || "元の見た目に戻しました。");
+    }).catch(function (e) { setStatus("元に戻せませんでした: " + e.message, true); });
+  }
+
+  function showRestyleReport(r) {
+    var rep = r.report || {};
+    var box = $("restyle-report");
+    if (!box) return;
+    if (rep.skipped) { setStatus(rep.skipped); return; }
+    var map = rep.color_map || {};
+    var rows = Object.keys(map).map(function (from) {
+      return '<tr><td><span class="swatch inline" style="background:' + escapeHtml(from) + '"></span>' + escapeHtml(from) + "</td><td>→</td><td><span class=\"swatch inline\" style=\"background:" + escapeHtml(map[from]) + '"></span>' + escapeHtml(map[from]) + "</td></tr>";
+    }).join("");
+    box.innerHTML = "<p>" + escapeHtml(r.summary || "") + "</p>"
+      + (rows ? '<p class="muted">色の対応（資料で使われていた色 → テンプレートの色）</p><table class="version-table"><tbody>' + rows + "</tbody></table>" : '<p class="muted">置き換えた色はありません（元の色をそのまま使います）。</p>')
+      + '<p class="muted">思っていた見た目と違うときは「元の見た目に戻す」で戻せます（Ctrl+Z でも戻せます）。</p>';
+    PWB.ui.openModal($("restyle-result"));
   }
 
   PWB.core = {
@@ -632,6 +686,9 @@ window.PWB = window.PWB || {};
     "merge-diff": function () { PWB.ui.closeModal($("merge-dialog")); if (pendingMergeFile) { var f2 = pendingMergeFile; pendingMergeFile = null; importFile(f2, "merge"); } },
     "show-version": function () { showVersion(); },
     "version-close": function () { PWB.ui.closeModal($("version-modal")); },
+    "restyle": function () { restyleNow(); },
+    "unrestyle": function () { unrestyleNow(); },
+    "restyle-close": function () { PWB.ui.closeModal($("restyle-result")); },
     "merge-cancel": function () { PWB.ui.closeModal($("merge-dialog")); pendingMergeFile = null; },
     "merge-report-close": function () { PWB.ui.closeModal($("merge-result")); },
     "merge-keep-ours": function (btn) { keepOursText(btn.getAttribute("data-slide"), btn.getAttribute("data-element")); },
@@ -680,6 +737,7 @@ window.PWB = window.PWB || {};
       changed({ before: before, structural: true }); return;
     }
     if (t.id === "file-input") { if (t.files[0]) importFile(t.files[0]); t.value = ""; return; }
+    if (t.id === "use-base-pptx") { t.dataset.touched = "1"; return; }
     if (t.id === "add-image-input") { if (t.files[0]) addElement("image", t.files[0]); t.value = ""; return; }
     if (t.id === "template-select") { onTemplateSelected(); state.report = null; renderReport(); PWB.slidelist.clearThumbs(); scheduleRender(); return; }
     if (t.id === "loglevel-select") { setLogLevel(t.value); return; }
@@ -741,7 +799,7 @@ window.PWB = window.PWB || {};
   // ---------------------------------------------------------------------
   function init() {
     PWB.ui.initPanes(["pane-left", "pane-center", "pane-right"], { sizes: [22, 24, 54], minSize: [220, 200, 420], onResize: function () { PWB.canvas.fit(); } });
-    ["version-modal", "merge-dialog", "merge-result"].forEach(function (id) { PWB.ui.bindModal($(id), { backdropCloses: id !== "merge-dialog", onClose: function () { if (id === "merge-dialog") pendingMergeFile = null; } }); });
+    ["version-modal", "merge-dialog", "merge-result", "restyle-result"].forEach(function (id) { PWB.ui.bindModal($(id), { backdropCloses: id !== "merge-dialog", onClose: function () { if (id === "merge-dialog") pendingMergeFile = null; } }); });
     PWB.canvas.init($("canvas-area"));
     PWB.inspector.init($("inspector"));
     PWB.slidelist.init($("slide-list"));
