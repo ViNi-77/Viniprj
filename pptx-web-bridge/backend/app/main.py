@@ -460,6 +460,28 @@ def api_template_preview(body: TemplateBody) -> dict:
     return out
 
 
+class PartRoleBody(BaseModel):
+    template: dict[str, Any]
+    kind: str
+    key: str
+    role: str
+
+
+@app.post("/api/templates/part-role")
+def api_template_part_role(body: PartRoleBody) -> dict:
+    """画面で部品の役割を変える（帯 ⇄ 装飾、文字候補 → 題名/フッター …）。描き直した提案・部品一覧・プレビューを返す。"""
+    if body.kind not in ("cover", "content", "closing"):
+        raise HTTPException(400, "kind は cover / content / closing のいずれかです。")
+    if body.role not in template_from_pptx.ROLE_TARGETS:
+        raise HTTPException(400, f"role が不正です: {body.role}")
+    template = template_from_pptx.set_part_role(body.template, body.kind, body.key, body.role)
+    out = _template_previews(template)
+    out.pop("sample", None)
+    out["template"] = template
+    out["parts"] = template_from_pptx.parts_of(template)
+    return out
+
+
 @app.put("/api/templates/{template_id}")
 def api_template_save(template_id: str, body: TemplateBody) -> dict:
     t = dict(body.template)

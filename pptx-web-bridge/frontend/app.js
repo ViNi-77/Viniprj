@@ -712,7 +712,7 @@ window.PWB = window.PWB || {};
   // デバッグコンソール（設計基準 7.1: 最終ビルド時に削除指示があるまで保持）
   // ---------------------------------------------------------------------
   window.qcDebug = window.__QC_DEBUG__ = {
-    version: "0.4.0",
+    version: "0.4.1",
     build: function () { return versionInfo; },
     state: function () { return state; },
     presentation: function () { return state.presentation; },

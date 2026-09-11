@@ -189,3 +189,117 @@ def test_export_with_base_pptx_keeps_master_and_reparses(brand_pptx: bytes, samp
         assert data2 and not warns2
     finally:
         template_store.delete_template(t["id"])
+
+
+# ---------------------------------------------------------------- Phase I: 推定精度（色見本・装飾・帯の形状・役割の変更）
+@pytest.fixture(scope="module")
+def ext_pptx() -> bytes:
+    path = ROOT / "samples" / "brand_template_ext.pptx"
+    sys.path.insert(0, str(ROOT / "samples"))
+    from make_brand_template_pptx import build_extended  # type: ignore
+
+    build_extended(path)
+    return path.read_bytes()
+
+
+@pytest.fixture(scope="module")
+def analyzed_ext(ext_pptx: bytes) -> dict:
+    r = analyze(ext_pptx, "brand_template_ext.pptx", template_id="brand_ext")
+    yield r
+    template_store.delete_template("brand_ext")
+
+
+def test_swatch_slide_is_skipped_and_content_is_the_real_one(analyzed_ext: dict):
+    assert [s["role"] for s in analyzed_ext["slides"]] == ["cover", "content", "skip", "closing"]
+    content = analyzed_ext["proposal"]["content"]
+    assert content["title"]["size_pt"] == 28 and content["body"]["h"] > 300  # 中身は本物のスライドから
+
+
+def test_small_squares_become_decor_not_bars(analyzed_ext: dict):
+    content = analyzed_ext["proposal"]["content"]
+    assert content["bar"]["color"] == "#001A72" and "bars" not in content  # 帯は下部の平行四辺形 1 本だけ
+    decor = content["decor"]
+    assert len(decor) == 2 and all(d["enabled"] is False for d in decor)
+    assert {d["color"] for d in decor} == {"#4BC3FF", "#FA0A3C"}
+    assert all(d["confidence"] == "low" for d in decor)
+
+
+def test_palette_from_swatches_drives_theme_colors(analyzed_ext: dict):
+    p = analyzed_ext["proposal"]
+    assert len(p["palette_candidates"]) == 8
+    assert p["colors"]["primary"] == "#001A72" and p["colors"]["text"] == "#000000"
+    assert p["colors"]["accent"] in ("#4BC3FF", "#FA0A3C")
+    assert any("色見本" in w for w in analyzed_ext["warnings"])
+
+
+def test_bar_shape_rule():
+    from app.template_from_pptx import _classify_fill
+
+    cw, ch = 960.0, 540.0
+    assert _classify_fill({"x": 40, "y": 515, "w": 880, "h": 12}, cw, ch) == "bar"  # 下端の細長い帯
+    assert _classify_fill({"x": 0, "y": 0, "w": 30, "h": 540}, cw, ch) == "bar"  # 左端の縦帯
+    assert _classify_fill({"x": 800, "y": 30, "w": 30, "h": 30}, cw, ch) == "decor"  # 正方形
+    assert _classify_fill({"x": 100, "y": 250, "w": 700, "h": 12}, cw, ch) == "decor"  # 中央の線は帯ではない
+    assert _classify_fill({"x": 900, "y": 500, "w": 40, "h": 8}, cw, ch) == "decor"  # 短すぎる
+
+
+def test_bars_are_capped_at_three():
+    from app.template_from_pptx import MAX_BARS, classify_slides
+
+    assert MAX_BARS == 3
+    # scores があれば中間スライドは最も中身らしい 1 枚だけ content、残りは skip
+    assert classify_slides(4, [50, 40, 30, 10], None, [0, 5.0, -2.0, 0]) == ["cover", "content", "skip", "closing"]
+    assert classify_slides(4, [50, 40, 30, 10], {2: "content"}, [0, 5.0, -2.0, 0]) == ["cover", "content", "content", "closing"]
+
+
+def test_confidence_and_guide(analyzed_ext: dict):
+    p = analyzed_ext["proposal"]
+    assert p["content"]["title"]["confidence"] == "high" and p["content"]["logo"]["confidence"] == "high"
+    assert "帯" in p["guide"]["content"] and "装飾 2" in p["guide"]["content"]
+    parts = parts_of(p)
+    decor_parts = [x for x in parts if x["type"] == "decor"]
+    assert len(decor_parts) == 2 and decor_parts[0]["enabled"] is False and decor_parts[0]["confidence"] == "low"
+
+
+def test_set_part_role_moves_parts(analyzed_ext: dict):
+    from app.template_from_pptx import set_part_role
+
+    p = analyzed_ext["proposal"]
+    # 装飾 → 帯
+    t = set_part_role(p, "content", "decor.0", "bar")
+    assert len(t["content"]["bars"]) == 1 and t["content"]["bars"][0]["color"] in ("#4BC3FF", "#FA0A3C") and len(t["content"]["decor"]) == 1
+    assert len(p["content"]["decor"]) == 2  # 元は変えない
+    # 帯 → 装飾（bar が空くと bars の先頭が繰り上がる）
+    t2 = set_part_role(t, "content", "bar", "decor")
+    assert t2["content"]["bar"]["color"] in ("#4BC3FF", "#FA0A3C") and "bars" not in t2["content"] and len(t2["content"]["decor"]) == 2
+    # 題名 → 文字候補 → 題名（往復）
+    t3 = set_part_role(p, "content", "title", "candidates")
+    assert "title" not in t3["content"] and len(t3["content"]["candidates"]) == 1
+    t4 = set_part_role(t3, "content", "candidates.0", "title")
+    assert t4["content"]["title"]["x"] == p["content"]["title"]["x"] and t4["content"]["title"]["confidence"] == "high"
+    # ページ番号 → 外す
+    t5 = set_part_role(p, "content", "page_number", "skip")
+    assert "page_number" not in t5["content"]
+    # 不正な役割は何もしない
+    assert set_part_role(p, "content", "title", "nonsense") == p
+
+
+def test_enabled_decor_is_drawn(analyzed_ext: dict):
+    t = dict(analyzed_ext["proposal"])
+    t["content"] = dict(t["content"], decor=[dict(t["content"]["decor"][0], enabled=True), t["content"]["decor"][1]])
+    with template_kit.use_template(t):
+        pres, _e, _f = pipeline.prepare(sample_presentation(t))
+        spec = template_kit.chrome_spec(pres["slides"][1], pres)
+        assert len(spec["bars"]) == 2  # 帯 1 + 使う装飾 1
+        from app.web_renderer import slide_html
+
+        html = slide_html(pres["slides"][1], pres, inline_assets=True, template=t, with_notes=False)
+        assert 'data-tpl="bar2"' in html
+
+
+def test_api_part_role(client: TestClient, analyzed_ext: dict):
+    r = client.post("/api/templates/part-role", json={"template": analyzed_ext["proposal"], "kind": "content", "key": "decor.0", "role": "bar"})
+    assert r.status_code == 200
+    d = r.json()
+    assert len(d["template"]["content"]["bars"]) == 1 and any(x["key"] == "bars.0" for x in d["parts"]) and "content" in d["previews"]
+    assert client.post("/api/templates/part-role", json={"template": analyzed_ext["proposal"], "kind": "content", "key": "bar", "role": "nope"}).status_code == 400
