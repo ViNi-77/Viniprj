@@ -287,6 +287,29 @@ def main() -> int:
             size = os.path.getsize(path) if path else 0
             record("Copilot エージェント一式の書き出し（指示文・ナレッジ・ZIP）", files >= 3 and bool(name) and size > 1000, f"knowledge={files} name={name} bytes={size}")
 
+            # --- 差分マージ再取込（Phase G）: 同じ HTML を直して投入 → 差分を選ぶ ---
+            if not page.is_hidden("#copilot-modal"):
+                page.click("button[data-copilot-act='close']")
+                page.wait_for_function("() => document.getElementById('copilot-modal').hidden", timeout=10000)
+            v1 = tmp_store / "merge_v1.html"
+            v2 = tmp_store / "merge_v2.html"
+            v1.write_text("<html><body><section><h2>背景</h2><p>課題は二重作業</p></section></body></html>", encoding="utf-8")
+            v2.write_text("<html><body><section><h2>背景</h2><p>課題は二重作業と転記</p></section><section><h2>今後</h2><p>全社展開</p></section></body></html>", encoding="utf-8")
+            page.set_input_files("#file-input", str(v1))
+            page.wait_for_function("() => qcDebug.presentation() && qcDebug.presentation().meta.import_snapshot", timeout=30000)
+            page.wait_for_timeout(400)
+            moved = page.evaluate("() => { var el = qcDebug.slide(0).elements.filter(function (e) { return e.role !== 'title'; })[0]; return qcDebug.setBbox(el.id, { x: 50, y: 300, w: 200, h: 60 }) && el.id; }")
+            page.set_input_files("#file-input", str(v2))
+            page.wait_for_selector("#merge-dialog:not([hidden])", timeout=20000)
+            page.click("button[data-action='merge-diff']")
+            page.wait_for_selector("#merge-result:not([hidden])", timeout=30000)
+            page.wait_for_timeout(600)
+            kept = page.evaluate("(id) => { var el = qcDebug.slide(0).elements.filter(function (e) { return e.id === id; })[0]; return el ? { x: el.bbox.x, text: (el.paragraphs || []).map(function (p) { return p.runs.map(function (r) { return r.text; }).join(''); }).join('') } : null; }", moved)
+            n_after = page.evaluate("() => qcDebug.presentation().slides.length")
+            summary = page.inner_text("#merge-report")
+            record("差分マージ再取込（位置を残して本文を更新・ページ追加）", bool(kept) and kept["x"] == 50 and "転記" in kept["text"] and n_after == 2, f"slides={n_after} summary={summary.splitlines()[0] if summary else ''}")
+            page.click("button[data-action='merge-report-close']")
+
             record("JavaScript エラーなし", not errors, "; ".join(errors)[:200])
             browser.close()
     finally:
