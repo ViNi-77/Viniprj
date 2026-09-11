@@ -5,10 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PPTX ⇄ Web図解 変換アプリ</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%273%27 fill=%27%231f3a5f%27/%3E%3Cpath d=%27M3 8h10M8 3l5 5-5 5%27 stroke=%27%23e07a1f%27 stroke-width=%272%27 fill=%27none%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/vendor/pico.min.css">
 <link rel="stylesheet" href="/viewer/slide.css">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/layout.css">
 </head>
 <body>
+<div class="app">
 <header class="topbar">
   <h1>PPTX ⇄ Web図解 変換アプリ</h1>
   <span class="status" id="status">準備完了</span>
@@ -16,14 +18,10 @@
   <button class="badge version-badge" id="version-badge" data-action="show-version" title="この画面が動いている版。押すと入っている機能の一覧が出ます">版: 確認中</button>
   <label class="loglevel" title="ログレベル（設計基準 7.3）">ログ <select id="loglevel-select"><option>DEBUG</option><option selected>INFO</option><option>WARNING</option><option>ERROR</option></select></label>
 </header>
-<div id="progress" class="progress hidden" role="progressbar" aria-live="polite">
-  <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
-  <div class="progress-text"><span id="progress-step"></span> <span id="progress-pct">0%</span> <span id="progress-eta" class="muted"></span></div>
-</div>
 
-<main class="layout">
+<main class="layout" id="layout">
   <!-- 左: 入力・プロジェクト -->
-  <aside class="pane pane-left">
+  <aside class="pane pane-left" id="pane-left">
     <section class="card">
       <h2>1. ファイル投入</h2>
       <div id="dropzone" class="dropzone" tabindex="0">
@@ -81,10 +79,9 @@
     </section>
   </aside>
 
-  <div class="splitter" data-splitter="left" title="ドラッグで幅を変更（ダブルクリックで戻す）"></div>
 
   <!-- 中央: スライド一覧 -->
-  <section class="pane pane-center">
+  <section class="pane pane-center" id="pane-center">
     <div class="card grow">
       <div class="row between">
         <h2>スライド一覧 <span class="muted" id="slide-count"></span></h2>
@@ -97,10 +94,9 @@
     </div>
   </section>
 
-  <div class="splitter" data-splitter="center" title="ドラッグで幅を変更（ダブルクリックで戻す）"></div>
 
   <!-- 右: 編集キャンバスとインスペクタ -->
-  <section class="pane pane-right">
+  <section class="pane pane-right" id="pane-right">
     <div class="card grow canvas-card">
       <div class="toolbar">
         <div class="row">
@@ -160,16 +156,17 @@
     </div>
   </section>
 </main>
+</div>
+<div id="progress" class="progress hidden" role="progressbar" aria-live="polite">
+  <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+  <div class="progress-text"><span id="progress-step"></span> <span id="progress-pct">0%</span> <span id="progress-eta" class="muted"></span></div>
+</div>
 
 <!-- PPTX からテンプレート作成 -->
-<div id="tpl-modal" class="modal" hidden role="dialog" aria-label="PPTX からテンプレート作成">
-  <div class="modal-box">
-    <div class="modal-head">
-      <h2>PPTX からテンプレート作成</h2>
-      <span class="tpl-status" id="tpl-status"></span>
-      <button class="secondary small" data-tpl-act="close">閉じる</button>
-    </div>
-    <div class="modal-body">
+<dialog id="tpl-modal" hidden aria-label="PPTX からテンプレート作成">
+  <article class="modal-box wide">
+    <header class="modal-head"><h2>PPTX からテンプレート作成</h2><span class="tpl-status" id="tpl-status"></span><button class="secondary small" data-tpl-act="close">閉じる</button></header>
+    <div class="modal-body two-col">
       <aside class="tpl-side">
         <label>PowerPoint ファイル（表紙・中身・最終ページの 1〜3 枚程度）
           <input type="file" id="tpl-file" accept=".pptx">
@@ -188,28 +185,24 @@
             <button class="tab" data-tpl-tab="content">中身</button>
             <button class="tab" data-tpl-tab="closing">最終ページ</button>
           </div>
-          <span class="muted">枠をドラッグして位置・大きさを直す。Delete で部品を外す。</span>
         </div>
         <div id="tpl-canvas" class="canvas-area" tabindex="0" aria-label="テンプレート部品の確認"></div>
         <div id="tpl-parts" class="tpl-parts"></div>
-        <div class="row">
-          <button data-tpl-act="save" id="tpl-save">保存してこのテンプレートを使う</button>
-          <button class="secondary" data-tpl-act="close">キャンセル</button>
-        </div>
       </section>
     </div>
-  </div>
-</div>
+    <footer class="modal-foot"><button data-tpl-act="save" id="tpl-save">保存してこのテンプレートを使う</button><button class="secondary" data-tpl-act="close">キャンセル</button><span class="muted">枠をドラッグして位置・大きさを直す。Delete で部品を外す。</span></footer>
+  </article>
+</dialog>
 <!-- Copilot に頼む -->
-<div id="version-modal" class="modal small" hidden role="dialog" aria-label="版と機能">
-  <div class="modal-box">
-    <div class="modal-head"><h2>この版に入っているもの</h2><button class="secondary small" data-action="version-close">閉じる</button></div>
+<dialog id="version-modal" hidden aria-label="版と機能">
+  <article class="modal-box small">
+    <header class="modal-head"><h2>この版に入っているもの</h2><button class="secondary small" data-action="version-close">閉じる</button></header>
     <div class="modal-body col" id="version-body"></div>
-  </div>
-</div>
-<div id="merge-dialog" class="modal small" hidden role="dialog" aria-label="取り込み方を選ぶ">
-  <div class="modal-box">
-    <div class="modal-head"><h2>取り込み方を選んでください</h2></div>
+  </article>
+</dialog>
+<dialog id="merge-dialog" hidden aria-label="取り込み方を選ぶ">
+  <article class="modal-box small">
+    <header class="modal-head"><h2>取り込み方を選んでください</h2></header>
     <div class="modal-body col">
       <p><code id="merge-file-name"></code> は、いま開いている資料と同じ形式です。</p>
       <label class="f"><span>両方で変わっていたとき</span>
@@ -218,28 +211,21 @@
           <option value="ours">今の資料の文言を残す</option>
         </select>
       </label>
-      <div class="row wrap">
-        <button data-action="merge-diff" title="座標・文字の編集・ノートを残したまま、変わったところだけ取り込む">差分を取り込む（編集を残す）</button>
-        <button class="secondary" data-action="merge-replace">まるごと置き換える</button>
-        <button class="secondary" data-action="merge-cancel">やめる</button>
-      </div>
+
     </div>
-  </div>
-</div>
-<div id="merge-result" class="modal small" hidden role="dialog" aria-label="差分の結果">
-  <div class="modal-box">
-    <div class="modal-head"><h2>差分を取り込みました</h2><button class="secondary small" data-action="merge-report-close">閉じる</button></div>
+    <footer class="modal-foot"><button data-action="merge-diff" title="座標・文字の編集・ノートを残したまま、変わったところだけ取り込む">差分を取り込む（編集を残す）</button><button class="secondary" data-action="merge-replace">まるごと置き換える</button><button class="secondary" data-action="merge-cancel">やめる</button></footer>
+  </article>
+</dialog>
+<dialog id="merge-result" hidden aria-label="差分の結果">
+  <article class="modal-box small">
+    <header class="modal-head"><h2>差分を取り込みました</h2><button class="secondary small" data-action="merge-report-close">閉じる</button></header>
     <div class="modal-body col" id="merge-report"></div>
-  </div>
-</div>
-<div id="copilot-modal" class="modal" hidden role="dialog" aria-label="Copilot に頼む">
-  <div class="modal-box copilot-box">
-    <div class="modal-head">
-      <h2>Copilot に頼む</h2>
-      <span class="tpl-status" id="copilot-status"></span>
-      <button class="secondary small" data-copilot-act="close">閉じる</button>
-    </div>
-    <div class="modal-body copilot-body">
+  </article>
+</dialog>
+<dialog id="copilot-modal" hidden aria-label="Copilot に頼む">
+  <article class="modal-box wide copilot-box">
+    <header class="modal-head"><h2>Copilot に頼む</h2><span class="tpl-status" id="copilot-status"></span><button class="secondary small" data-copilot-act="close">閉じる</button></header>
+    <div class="modal-body two-col copilot-body">
       <aside class="tpl-side">
         <div class="tabs">
           <button class="tab active" data-copilot-tab="ask">1. 渡す</button>
@@ -298,10 +284,11 @@
         </div>
       </section>
     </div>
-  </div>
-</div>
+  </article>
+</dialog>
+<script src="/static/vendor/split.min.js"></script>
+<script src="/static/ui.js"></script>
 <script src="/static/history.js"></script>
-<script src="/static/splitter.js"></script>
 <script src="/static/canvas.js"></script>
 <script src="/static/inspector.js"></script>
 <script src="/static/slidelist.js"></script>

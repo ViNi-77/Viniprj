@@ -30,7 +30,7 @@
 .el-line svg { position: absolute; left: 0; top: 0; overflow: visible; }
 .el-unsupported { border: 2px dashed #c0392b; color: #c0392b; display: flex; align-items: center; justify-content: center; font-size: 12px; background: rgba(192,57,43,.06); text-align: center; padding: 4px; }
 .tpl { position: absolute; pointer-events: none; z-index: 0; }
-.tpl-text { white-space: nowrap; overflow: hidden; line-height: 1.2; }
+.tpl-text { white-space: normal; overflow: visible; line-height: 1.2; overflow-wrap: anywhere; }
 .tpl-logo { object-fit: contain; }
 .slide-footer { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; padding: 6px 24px; font-size: 10px; color: var(--muted, #666666); pointer-events: none; }
 .confidential { position: absolute; top: 8px; right: 16px; font-size: 10px; color: #c0392b; border: 1px solid #c0392b; padding: 1px 6px; pointer-events: none; }

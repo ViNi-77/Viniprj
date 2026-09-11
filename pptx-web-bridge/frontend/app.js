@@ -1,5 +1,5 @@
 /**
- * アプリ UI ロジック（素の JavaScript）。司令塔として、状態・API・各モジュール（canvas / inspector / slidelist / history / splitter）をつなぐ。
+ * アプリ UI ロジック（素の JavaScript）。司令塔として、状態・API・各モジュール（ui / canvas / inspector / slidelist / history）をつなぐ。
  *
  * 設計基準の反映:
  * - 状態は state.presentation（Presentation JSON）1 つに集約し、編集は必ずここを書き換えてから描画する。
@@ -156,7 +156,7 @@ window.PWB = window.PWB || {};
         + '<p class="muted">資料形式（スキーマ）: ' + escapeHtml(v.schema_version) + "</p>"
         + '<table class="version-table"><thead><tr><th>段階</th><th>機能</th><th>内容</th></tr></thead><tbody>' + rows + "</tbody></table>"
         + '<p class="muted">画面が古いままのときは Ctrl+F5（強制再読み込み）を試してください。</p>';
-      $("version-modal").hidden = false;
+      PWB.ui.openModal($("version-modal"));
     };
     if (versionInfo) { render(versionInfo); return; }
     loadVersion().then(function (v) { if (v) render(v); });
@@ -177,7 +177,7 @@ window.PWB = window.PWB || {};
 
   function askMergeMode(file) {
     var box = $("merge-dialog");
-    box.hidden = false;
+    PWB.ui.openModal(box);
     $("merge-file-name").textContent = file.name;
     box.dataset.pending = "1";
     pendingMergeFile = file;
@@ -220,7 +220,7 @@ window.PWB = window.PWB || {};
       lines.push("</ul>");
     }
     box.innerHTML = lines.join("");
-    $("merge-result").hidden = false;
+    PWB.ui.openModal($("merge-result"));
     setStatus("差分を取り込みました（" + (result.summary || "") + "）");
   }
 
@@ -628,12 +628,12 @@ window.PWB = window.PWB || {};
     "add-shape": function () { addElement("shape"); },
     "add-line": function () { addElement("line"); },
     "add-diagram": function (btn) { addElement("diagram", btn.getAttribute("data-diagram") || "flow"); },
-    "merge-replace": function () { $("merge-dialog").hidden = true; if (pendingMergeFile) { var f = pendingMergeFile; pendingMergeFile = null; importFile(f, "replace"); } },
-    "merge-diff": function () { $("merge-dialog").hidden = true; if (pendingMergeFile) { var f2 = pendingMergeFile; pendingMergeFile = null; importFile(f2, "merge"); } },
+    "merge-replace": function () { PWB.ui.closeModal($("merge-dialog")); if (pendingMergeFile) { var f = pendingMergeFile; pendingMergeFile = null; importFile(f, "replace"); } },
+    "merge-diff": function () { PWB.ui.closeModal($("merge-dialog")); if (pendingMergeFile) { var f2 = pendingMergeFile; pendingMergeFile = null; importFile(f2, "merge"); } },
     "show-version": function () { showVersion(); },
-    "version-close": function () { $("version-modal").hidden = true; },
-    "merge-cancel": function () { $("merge-dialog").hidden = true; pendingMergeFile = null; },
-    "merge-report-close": function () { $("merge-result").hidden = true; },
+    "version-close": function () { PWB.ui.closeModal($("version-modal")); },
+    "merge-cancel": function () { PWB.ui.closeModal($("merge-dialog")); pendingMergeFile = null; },
+    "merge-report-close": function () { PWB.ui.closeModal($("merge-result")); },
     "merge-keep-ours": function (btn) { keepOursText(btn.getAttribute("data-slide"), btn.getAttribute("data-element")); },
     "add-image": function () { if (!currentSlide()) { setStatus("先にスライドを用意してください。", true); return; } $("add-image-input").click(); },
     "json-apply": function () {
@@ -712,7 +712,7 @@ window.PWB = window.PWB || {};
   // デバッグコンソール（設計基準 7.1: 最終ビルド時に削除指示があるまで保持）
   // ---------------------------------------------------------------------
   window.qcDebug = window.__QC_DEBUG__ = {
-    version: "0.3.0",
+    version: "0.4.0",
     build: function () { return versionInfo; },
     state: function () { return state; },
     presentation: function () { return state.presentation; },
@@ -740,7 +740,8 @@ window.PWB = window.PWB || {};
   // 初期化
   // ---------------------------------------------------------------------
   function init() {
-    PWB.splitter.init();
+    PWB.ui.initPanes(["pane-left", "pane-center", "pane-right"], { sizes: [22, 24, 54], minSize: [220, 200, 420], onResize: function () { PWB.canvas.fit(); } });
+    ["version-modal", "merge-dialog", "merge-result"].forEach(function (id) { PWB.ui.bindModal($(id), { backdropCloses: id !== "merge-dialog", onClose: function () { if (id === "merge-dialog") pendingMergeFile = null; } }); });
     PWB.canvas.init($("canvas-area"));
     PWB.inspector.init($("inspector"));
     PWB.slidelist.init($("slide-list"));

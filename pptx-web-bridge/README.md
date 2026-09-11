@@ -27,7 +27,7 @@ start_windows.bat              # 初回: 仮想環境作成・依存導入・Chr
 start_windows.bat --no-browser # ブラウザを開かない
 start_windows.bat --setup-only # 依存導入のみ
 ```
-- 必要: Python 3.10 以上。初回のみネットワーク（pip）。
+- 必要: Python 3.10 以上。初回のみネットワーク（pip）。画面はノート PC（1366×768 の 125% 表示、1920×1080 の 150% 表示）で切れずに使えることを自動試験で確かめています。
 - URL: `http://127.0.0.1:8765/`（`config/app_config.json` の `server.*` で変更）。
 - 見た目優先モード用の Chromium 導入に失敗しても、編集性優先モードで動作します。
 
@@ -62,6 +62,7 @@ python backend/run_server.py
 | Copilot エージェント一式（Phase E） | 上の書式を Copilot 側にも覚えさせる。「Copilot に頼む」→「3. エージェント」で、宣言型エージェントの定義（`declarativeAgent.json`）・指示文（`instructions.md`）・ナレッジ用テキスト（1 ファイル 30,000 字・20 ファイル以内）・登録手順を ZIP で書き出す。Copilot Studio に手で登録すると、前置き無しでこのアプリの Markdown 形式のまま返ってくる。ここでも API は使わない | pytest 157、E2E 46、UI スモーク 26 |
 | 図解部品（Phase F） | フロー・カード・比較・数値・年表の 5 型を「型 + 項目」で持つ図解要素。ツールバーの「図解」から追加し、インスペクタで項目を編集する。PowerPoint へは編集できる図形として出力し、取り込み直すと図解に戻る。Copilot とは `型: フロー` のような 1 語でやり取りし、回答の箇条書きがそのまま図解になる | pytest 157、E2E 46、UI スモーク 26 |
 | 差分マージ再取込（Phase G） | 同じ資料を直したファイルを投入すると「差分を取り込む / まるごと置き換える」を選べる。差分では手で動かした枠・直した文字・発表者ノートを残したまま、変わったところだけを反映する。両方で変わった箇所は競合として一覧に出し、1 件ずつ元の文言に戻せる。Copilot の回答も「差分として反映」できる | pytest 157、E2E 46、UI スモーク 26 |
+| 画面基盤（Phase H） | ノート PC（125〜150% 表示）で切れずに押せる画面。フォーム・ボタン・ダイアログは Pico.css、3 ペインの分割は Split.js、モーダルは HTML 標準の `<dialog>`（保存・キャンセルは常に見えるフッター）。キャンバスは ResizeObserver で自動で収め直す | UI スモーク 45（うちノート PC 2 構成 18） |
 | 配布 | `start_windows.bat`（Windows）、`start.sh`（Linux）、exe 版（PyInstaller、Actions の Windows ランナーでビルド、Edge で画像化） | Linux 版バイナリで凍結ロジックを検証、Windows は CI のスモークテスト |
 
 ## 1.2 第2版で追加したもの
@@ -72,7 +73,7 @@ python backend/run_server.py
 
 ## 1.3 版の確認（「更新できているか」を確かめる）
 
-画面右上に **「版 0.3.0 (コミット)」** のバッジが出ます。押すと、その版に入っている機能が段階ごとに一覧で出ます。
+画面右上に **「版 0.4.0 (コミット)」** のバッジが出ます。押すと、その版に入っている機能が段階ごとに一覧で出ます。
 
 - 端末から確認: `curl http://127.0.0.1:8765/api/version`（ポートは起動時に画面へ出ます）
 - **画面が古いままに見えるとき**:
@@ -82,6 +83,7 @@ python backend/run_server.py
 
 | 版 | 入っているもの |
 |---|---|
+| 0.4.0 | Phase H（画面基盤: Pico.css / `<dialog>` / Split.js、ノート PC 対応） |
 | 0.3.0 | Phase A〜G（レイアウト品質・編集 UI・PPTX テンプレート・Copilot 連携・エージェント一式・図解部品・差分マージ） |
 
 ## 2. 使い方
@@ -126,7 +128,8 @@ backend/app/
   merge.py          差分マージ再取込（前回の取込記録と照合し、編集を残して差分だけ反映）
   report.py          要素判別レポート（文字/画像、座標、フォント pt）
   config.py          設定読込（値はすべて config/*.json）
-frontend/            ブラウザ UI（素の HTML / CSS / JS）
+frontend/            ブラウザ UI（素の HTML / JS。index.html、layout.css、ui.js、canvas.js ほか）
+frontend/vendor/     同梱ライブラリ（Pico.css 2.0.6、Split.js 1.6.5。ビルド不要・オフライン。vendor/README.md）
 schema/presentation.schema.json  Presentation JSON v1.0
 config/              app_config.json / templates.json / font_fallback.json
 samples/             匿名化サンプル（PPTX 生成スクリプト、HTML 3 種）

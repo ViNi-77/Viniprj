@@ -55,7 +55,7 @@ PWB.templateEditor = (function () {
       refreshPreview();
     },
     margin: function () { return 36; },
-    isActive: function () { return modal && !modal.hidden; },
+    isActive: function () { return PWB.ui.isOpen(modal); },
     showAll: true,
     labelOf: function (it) { return it.no + " " + it.label; }
   };
@@ -66,15 +66,15 @@ PWB.templateEditor = (function () {
     canvas.init($("tpl-canvas"));
     modal.addEventListener("click", onClick);
     modal.addEventListener("change", onChange);
-    document.addEventListener("keydown", function (e) { if (!modal.hidden && e.key === "Escape" && !canvas.getSelection().length) close(); });
+    // Esc は「選択解除 → もう一度で閉じる」。背景クリックでは閉じない（枠のドラッグ中の誤操作を防ぐ）
+    PWB.ui.bindModal(modal, { onCancel: function () { if (canvas.getSelection().length) { canvas.setSelection([]); return false; } return true; } });
   }
 
   function open() {
-    modal.hidden = false;
+    PWB.ui.openModal(modal);
     if (!st.proposal) { $("tpl-slides").innerHTML = ""; $("tpl-parts").innerHTML = ""; setStatus("PowerPoint ファイルを選んでください。"); }
-    setTimeout(function () { canvas.fit(); }, 0);
   }
-  function close() { modal.hidden = true; }
+  function close() { PWB.ui.closeModal(modal); }
   function setStatus(msg, isErr) { var s = $("tpl-status"); s.textContent = msg || ""; s.classList.toggle("err", !!isErr); if (isErr) core().log("テンプレート作成: " + msg, "ERROR"); }
 
   // ---------------------------------------------------------------- 解析
@@ -174,7 +174,6 @@ PWB.templateEditor = (function () {
     if (rm) { var id = rm.getAttribute("data-tpl-remove"); removePart(st.tab, id.split(":").slice(1).join(":")); canvas.setSelection([]); refreshPreview(); return; }
     var row = t.closest(".tpl-part");
     if (row) { canvas.setSelection([row.getAttribute("data-part")]); renderParts(); return; }
-    if (t === modal) close();
   }
   function onChange(e) {
     var t = e.target;
