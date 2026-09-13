@@ -7,9 +7,11 @@ python-pptx で取れる情報を主に使い、取れないもの（SmartArt �
 from __future__ import annotations
 
 import base64
+import contextvars
 import hashlib
 import io
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Iterator
 
 from lxml import etree
 from pptx import Presentation
@@ -61,6 +63,26 @@ _SHAPE_MAP = {
     "PARALLELOGRAM": "parallelogram",
 }
 _SKIP_PLACEHOLDERS = {PP_PLACEHOLDER.FOOTER, PP_PLACEHOLDER.DATE, PP_PLACEHOLDER.SLIDE_NUMBER}
+
+# スライドマスター / レイアウトそのものを解析するときだけ True（`template_from_layout` が切り替える）。
+# 通常のスライド解析の挙動は一切変えない。
+_layout_mode: contextvars.ContextVar[bool] = contextvars.ContextVar("pptx_layout_mode", default=False)
+#: レイアウトの空プレースホルダに出す見出し（PowerPoint 自身もレイアウト上にひな形文字を出す）
+_PLACEHOLDER_LABELS = {
+    PP_PLACEHOLDER.FOOTER: "フッター", PP_PLACEHOLDER.DATE: "日付", PP_PLACEHOLDER.SLIDE_NUMBER: "ページ番号",
+    PP_PLACEHOLDER.PICTURE: "画像", PP_PLACEHOLDER.CHART: "グラフ", PP_PLACEHOLDER.TABLE: "表",
+    PP_PLACEHOLDER.MEDIA_CLIP: "メディア", PP_PLACEHOLDER.OBJECT: "コンテンツ",
+}
+
+
+@contextmanager
+def layout_mode() -> Iterator[None]:
+    """レイアウト / マスターを解析する間だけ、フッター等を捨てず空の枠も残す。"""
+    token = _layout_mode.set(True)
+    try:
+        yield
+    finally:
+        _layout_mode.reset(token)
 
 
 def _rgb_of(color_obj: Any) -> str | None:
@@ -237,9 +259,40 @@ def _transform(x: float, y: float, w: float, h: float, tf: dict | None) -> tuple
     return tf["ox"] + (x - tf["cox"]) * sx, tf["oy"] + (y - tf["coy"]) * sy, w * sx, h * sy
 
 
+def _inherited_box(shape: Any) -> tuple[Any, Any, Any, Any] | None:
+    """レイアウトのプレースホルダが a:xfrm を省いてマスターから継承しているとき、その位置を探す。
+
+    継承を解かないと bbox が None になり、エラーも出ないまま自動配置に回って構造が崩れる。
+    """
+    try:
+        ph = shape.element.ph
+        if ph is None:
+            return None
+        idx, ph_type = ph.get("idx"), ph.get("type")
+        master = shape.part.slide_master  # レイアウトのプレースホルダ → そのレイアウトのマスター
+    except Exception:  # noqa: BLE001
+        return None
+    for cand in getattr(master, "placeholders", []):
+        try:
+            cph = cand.element.ph
+            if cph is None:
+                continue
+            if (cph.get("idx") == idx and idx is not None) or (cph.get("type") == ph_type and ph_type is not None):
+                if None not in (cand.left, cand.top, cand.width, cand.height):
+                    return cand.left, cand.top, cand.width, cand.height
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
 def _shape_bbox(shape: Any, tf: dict | None) -> dict | None:
     """図形の bbox。位置情報（xfrm）が無い図形は None を返し、自動レイアウトへ回す。"""
     if shape.left is None or shape.top is None or shape.width is None or shape.height is None:
+        if _layout_mode.get():
+            got = _inherited_box(shape)
+            if got is not None:
+                x, y, w, h = (emu_to_pt(v) for v in got)
+                return bbox(*_transform(x, y, w, h, tf))
         return None
     x, y, w, h = emu_to_pt(shape.left), emu_to_pt(shape.top), emu_to_pt(shape.width), emu_to_pt(shape.height)
     x, y, w, h = _transform(x, y, w, h, tf)
@@ -287,7 +340,8 @@ def _convert_shape_inner(shape: Any, ctx: _Ctx, slide: dict, tf: dict | None, z:
     pres = ctx.presentation
     st = shape.shape_type
     pt = _placeholder_type(shape)
-    if pt in _SKIP_PLACEHOLDERS or _is_chrome_name(str(getattr(shape, "name", ""))):
+    # レイアウト解析中は捨てない。フッター・ページ番号の「位置」こそ見せたい部品だから
+    if not _layout_mode.get() and (pt in _SKIP_PLACEHOLDERS or _is_chrome_name(str(getattr(shape, "name", "")))):
         return []  # フッター・日付・ページ番号・機密表示はテンプレート側で再生成する
 
     # グループ: 子図形を親座標へ写像して平坦化
@@ -341,7 +395,10 @@ def _convert_shape_inner(shape: Any, ctx: _Ctx, slide: dict, tf: dict | None, z:
         fill = _rgb_of(shape.fill.fore_color) if _fill_is_solid(shape) else None
         has_text = any(r.get("text", "").strip() for p_ in paras for r in p_["runs"])
         if not has_text and not fill:
-            return []  # 文字も塗りも無いテキストボックス（未入力プレースホルダ等）は出力しない
+            if not (_layout_mode.get() and pt is not None):
+                return []  # 文字も塗りも無いテキストボックス（未入力プレースホルダ等）は出力しない
+            # レイアウトの空プレースホルダは「この枠に何が入るか」を示す部品。種別名を入れて枠を残す
+            paras = [paragraph([run(_PLACEHOLDER_LABELS.get(pt, "枠"))])]
         el = text_element(ctx.ids.next("el"), paras, role=role, box=box, z=z, vertical_align=_anchor_of(shape))
         if fill:
             el["fill"] = fill

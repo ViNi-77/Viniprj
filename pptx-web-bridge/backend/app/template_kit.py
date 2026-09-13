@@ -109,6 +109,27 @@ def image_size(rel_path: str | None) -> tuple[int, int] | None:
         return _FALLBACK_ASPECT if Path(str(p)).exists() else None
 
 
+def chrome_assets(part: dict) -> dict[str, dict]:
+    """レイアウト方式の装飾が使う画像を、資産（`presentation["assets"]` と同じ形）にして返す。
+
+    テンプレートにはパスだけを持たせているので、描画・出力の直前にここで読み込む
+    （JSON に base64 を持たせるとテンプレート定義が肥大する）。
+    """
+    out: dict[str, dict] = {}
+    for asset_id, ref in (part.get("chrome_assets") or {}).items():
+        if not isinstance(ref, dict) or not ref.get("path"):
+            continue
+        got = image_data(ref["path"])
+        if not got:
+            continue
+        mime, b64 = got
+        ext = Path(str(ref["path"])).suffix.lstrip(".") or "png"
+        out[str(asset_id)] = {"mime": mime, "filename": f"{asset_id}.{ext}", "data_base64": b64,
+                              "width_px": ref.get("width_px"), "height_px": ref.get("height_px"),
+                              "unrenderable": is_unrenderable(ref["path"])}
+    return out
+
+
 def is_unrenderable(rel_path: str | None) -> bool:
     """画面に描けない画像形式か（EMF/WMF）。描けない旨を出すために使う。"""
     return bool(rel_path) and Path(str(rel_path)).suffix.lower() in UNRENDERABLE_EXT
@@ -289,7 +310,7 @@ def chrome_spec(slide: dict, presentation: dict) -> dict[str, Any]:
     template = template_for(presentation)
     canvas = presentation["canvas"]
     kind = slide_kind(slide, presentation)
-    spec: dict[str, Any] = {"kind": kind, "background_color": None, "background_image": None, "images": [], "bars": [], "texts": []}
+    spec: dict[str, Any] = {"kind": kind, "background_color": None, "background_image": None, "images": [], "bars": [], "texts": [], "elements": [], "element_assets": {}}
     if not has_parts(template):
         # 旧式（footer / confidential_mark のみ）のテンプレート
         footer = template.get("footer") or {}
@@ -304,6 +325,12 @@ def chrome_spec(slide: dict, presentation: dict) -> dict[str, Any]:
         return spec
 
     part = template.get(kind) or {}
+    if template.get("mode") == "layout":
+        # レイアウト方式: 装飾はレイアウトから読んだ要素そのもの。推測した部品（帯・ロゴ…）は作らない
+        spec["elements"] = [e for e in (part.get("chrome_elements") or []) if isinstance(e, dict)]
+        spec["element_assets"] = chrome_assets(part)
+        spec["background_color"] = part.get("background_color")
+        return spec
     spec["background_color"] = part.get("background_color")
     if part.get("background_image") and image_data(part["background_image"]):
         spec["background_image"] = part["background_image"]

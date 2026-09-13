@@ -99,6 +99,20 @@ def validate_template(t: dict) -> list[str]:
                             float(spec[c])
                         except (TypeError, ValueError):
                             errors.append(f"'{part}.{key}.{c}' が数値ではありません。")
+    # レイアウト方式（mode="layout"）は保存したレイアウト番号で出力する。範囲外だと出力時に落ちるのでここで弾く
+    mode = t.get("mode")
+    if mode is not None and mode not in ("parts", "layout"):
+        errors.append("'mode' は 'parts' か 'layout' のどちらかです。")
+    lm = t.get("layout_map")
+    if lm is not None:
+        if not isinstance(lm, dict):
+            errors.append("'layout_map' はオブジェクトである必要があります。")
+        else:
+            for kind, ref in lm.items():
+                if kind not in ("cover", "content", "closing"):
+                    errors.append(f"'layout_map.{kind}' は cover / content / closing のいずれかです。")
+                elif not isinstance(ref, dict) or not all(isinstance(ref.get(k), int) and ref.get(k) >= 0 for k in ("master", "index")):
+                    errors.append(f"'layout_map.{kind}' には master と index を 0 以上の整数で入れてください。")
     colors = t.get("colors")
     if isinstance(colors, dict):
         for k, v in colors.items():

@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import io
 import json
 import re
 import zipfile
@@ -20,7 +21,7 @@ from pydantic import BaseModel, Field
 
 import logging
 
-from . import copilot_agent_kit, copilot_handoff, pipeline, restyle, storage, template_from_pptx, template_kit, template_store
+from . import copilot_agent_kit, copilot_handoff, pipeline, restyle, storage, template_from_layout, template_from_pptx, template_kit, template_store
 from . import layout as layout_slide_module
 from .layout import element_height, layout_slide
 from .report import build_report
@@ -418,6 +419,19 @@ class TemplateBody(BaseModel):
     previous_id: str | None = None  # 画面で ID を変えたとき、画像フォルダを移す元の ID
 
 
+class LayoutPreviewBody(BaseModel):
+    template_id: str
+    master: int = 0
+    index: int = 0
+
+
+class LayoutMapBody(BaseModel):
+    template_id: str
+    layout_map: dict[str, dict[str, int]]
+    filename: str | None = None
+    name: str | None = None
+
+
 def _template_previews(template: dict) -> dict:
     """提案テンプレートで 3 枚のサンプル（表紙 / 中身 / 最終）を描く。未保存でも描けるよう use_template で差し込む。"""
     with template_kit.use_template(template):
@@ -477,6 +491,54 @@ async def api_template_from_pptx(file: UploadFile = File(...), roles: str | None
         result["thumbs"], thumb_error = await run_in_threadpool(_slide_thumbs, data, file.filename or "template.pptx")
         if thumb_error:
             result.setdefault("warnings", []).append(thumb_error)
+    # レイアウト方式が使えるファイルかを同じ応答で返す（1 往復で両方式を出せる）
+    try:
+        result["layouts"] = await run_in_threadpool(template_from_layout.enumerate_layouts, data, file.filename or "template.pptx")
+    except Exception as e:  # noqa: BLE001 - 列挙の失敗で推測方式まで止めない
+        log.warning("レイアウトの列挙に失敗: %s", e)
+        result["layouts"] = {"available": False, "masters": [], "layouts": [], "warnings": [f"レイアウトを読めませんでした: {e}"]}
+    _LAYOUT_SOURCES[result["proposal"]["id"]] = data
+    return result
+
+
+#: 「PPTX からテンプレート作成」で読んだ元ファイル（レイアウトの描画と保存に使う）。テンプレート ID ごとに 1 件
+_LAYOUT_SOURCES: dict[str, bytes] = {}
+
+
+def _layout_source(template_id: str) -> bytes:
+    data = _LAYOUT_SOURCES.get(template_id)
+    if data is None:
+        raise HTTPException(409, "元の PowerPoint が見つかりません。もう一度ファイルを選び直してください。")
+    return data
+
+
+@app.post("/api/templates/layout-preview")
+def api_template_layout_preview(body: LayoutPreviewBody) -> dict:
+    """1 つのレイアウトを描いて返す（選択 UI のサムネイル用。必要になったものだけ描く）。"""
+    from pptx import Presentation as _Presentation
+
+    data = _layout_source(body.template_id)
+    try:
+        prs = _Presentation(io.BytesIO(data))
+        pres = template_from_layout.parse_layout(prs, body.master, body.index)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    with template_kit.use_template({}):
+        html = slide_html(pres["slides"][0], pres, inline_assets=True, template={}, with_notes=False)
+    return {"html": html, "canvas": pres["canvas"], "theme_css": theme_css(pres)}
+
+
+@app.post("/api/templates/from-layout")
+def api_template_from_layout(body: LayoutMapBody) -> dict:
+    """選んだレイアウトからテンプレート定義を作る（推測しない）。"""
+    data = _layout_source(body.template_id)
+    try:
+        built = template_from_layout.build_template(data, body.filename or "template.pptx", body.layout_map, body.template_id, body.name)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    result = {"proposal": built["proposal"], "warnings": built["warnings"], "parts": template_from_pptx.parts_of(built["proposal"])}
+    result.update(_template_previews(built["proposal"]))
+    result.pop("sample", None)
     return result
 
 
