@@ -6,7 +6,7 @@ from pptx import Presentation
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 
 from app.pptx_parser import parse_pptx
-from app.pptx_styles import ThemeInfo, apply_brightness
+from app.pptx_styles import ThemeInfo, apply_brightness, apply_color_transforms
 
 NS = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main", "p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
 
@@ -40,6 +40,52 @@ def test_apply_brightness():
     assert apply_brightness("#000000", 0.5) == "#808080"
     assert apply_brightness("#FFFFFF", -0.5) == "#808080"
     assert apply_brightness("#4F81BD", 0) == "#4F81BD"
+
+
+def _transformed(base: str, inner: str) -> str:
+    el = etree.fromstring(f'<a:srgbClr xmlns:a="{NS["a"]}" val="{base}">{inner}</a:srgbClr>')
+    return apply_color_transforms("#" + base.upper(), el)
+
+
+def test_lum_transforms_match_powerpoint_palette():
+    """PowerPoint の色パレット（青 アクセント 1 = 4472C4）の「明るく / 暗く」と一致する。"""
+    assert _transformed("4472C4", '<a:lumMod val="60000"/><a:lumOff val="40000"/>') == "#8FAADC"  # 明るく 40%
+    assert _transformed("4472C4", '<a:lumMod val="75000"/>') == "#2F5597"  # 暗く 25%
+    assert _transformed("4472C4", '<a:lumMod val="50000"/>') == "#203864"  # 暗く 50%
+    assert _transformed("4472C4", "") == "#4472C4"
+
+
+def test_shade_and_tint_use_linear_gamma():
+    """shade / tint はリニアガンマ空間。ECMA-376 の例では 00FF00 に shade 50% で 00BC00。"""
+    assert _transformed("00FF00", '<a:shade val="50000"/>') == "#00BC00"
+    assert _transformed("FFFFFF", '<a:shade val="0"/>') == "#000000"
+    assert _transformed("000000", '<a:tint val="0"/>') == "#FFFFFF"
+    # 以前は shade / tint を無視して元の色のまま返していた
+    assert _transformed("4472C4", '<a:shade val="50000"/>') != "#4472C4"
+
+
+def test_lum_mod_and_off_combine():
+    """lumMod と lumOff が両方あるとき、輝度は L*lumMod + lumOff になる（片方だけ見ない）。"""
+    assert _transformed("808080", '<a:lumMod val="0"/><a:lumOff val="100000"/>') == "#FFFFFF"
+    assert _transformed("808080", '<a:lumMod val="0"/>') == "#000000"
+
+
+def test_shape_fill_keeps_shade(sample_pptx_bytes):
+    """図形の塗りの schemeClr + shade が反映される（python-pptx は shade を落とす）。"""
+    prs = Presentation(io.BytesIO(sample_pptx_bytes))
+    badge = next(sh for sh in prs.slides[4].shapes if sh.has_text_frame and "accent2" in sh.text_frame.text)
+    sch = badge.fill._xPr.find("a:solidFill", NS).find("a:schemeClr", NS)
+    for child in list(sch):
+        sch.remove(child)
+    etree.SubElement(sch, "{%s}shade" % NS["a"]).set("val", "50000")
+    buf = io.BytesIO()
+    prs.save(buf)
+    root, master = _theme_xml(sample_pptx_bytes)
+    accent2 = ThemeInfo(master).scheme_hex("accent2")
+    p = parse_pptx(buf.getvalue(), "shaded.pptx")
+    shaded = next(el for el in p["slides"][4]["elements"] if el["type"] == "shape" and "accent2" in el["paragraphs"][0]["runs"][0]["text"])
+    assert shaded["fill"] == _transformed(accent2[1:], '<a:shade val="50000"/>')
+    assert shaded["fill"] != _scheme(root, "accent2")
 
 
 def test_theme_colors_resolved_in_parse(sample_pptx_bytes):
