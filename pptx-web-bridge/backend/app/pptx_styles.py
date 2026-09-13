@@ -1,7 +1,7 @@
 """PPTX のテーマとスタイル継承の解決（Issue #4 / #5）。
 
 - テーマ色: マスターの theme パート（a:clrScheme）と clrMap を読み、scheme 色（accent1 等）を #RRGGBB に解決する。
-  lumMod/lumOff は python-pptx の brightness（-1.0〜1.0）で近似する。
+  lumMod/lumOff/satMod/hueMod は HSL、shade/tint はリニアガンマ空間で解く（`apply_color_transforms`）。
 - テーマフォント: a:fontScheme（major/minor の latin/ea）で '+mj-ea' などの参照名を実フォント名に解決する。
 - 文字スタイルの継承: run → 段落 → 図形の lstStyle → レイアウトのプレースホルダ → マスターのプレースホルダ → マスターの txStyles
   の順で sz / 箇条書き / 太字 / 色 / フォントを探す（PowerPoint と同じ優先順）。
@@ -132,7 +132,7 @@ class ThemeInfo:
 
 
 def apply_brightness(hex_color: str, brightness: float) -> str:
-    """lumMod/lumOff の近似: 正なら白へ、負なら黒へ寄せる。"""
+    """明るさの調整（正なら白へ、負なら黒へ寄せる）。テンプレートの副次色を作るときに使う。"""
     if not brightness:
         return hex_color
     r, g, b = int(hex_color[1:3], 16), int(hex_color[3:5], 16), int(hex_color[5:7], 16)
@@ -141,6 +141,137 @@ def apply_brightness(hex_color: str, brightness: float) -> str:
     else:
         r, g, b = (int(round(c * (1 + brightness))) for c in (r, g, b))
     return f"#{max(0, min(255, r)):02X}{max(0, min(255, g)):02X}{max(0, min(255, b)):02X}"
+
+
+# ---------------------------------------------------------------- 色トランスフォーム（ECMA-376 20.1.2.3）
+def _clamp01(v: float) -> float:
+    return 0.0 if v < 0.0 else (1.0 if v > 1.0 else v)
+
+
+def _hex_to_rgb01(hex_color: str) -> tuple[float, float, float]:
+    return tuple(int(hex_color[i : i + 2], 16) / 255.0 for i in (1, 3, 5))  # type: ignore[return-value]
+
+
+def _rgb01_to_hex(rgb: tuple[float, float, float]) -> str:
+    r, g, b = (max(0, min(255, int(round(_clamp01(c) * 255)))) for c in rgb)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _rgb_to_hsl(rgb: tuple[float, float, float]) -> tuple[float, float, float]:
+    r, g, b = rgb
+    hi, lo = max(rgb), min(rgb)
+    lum = (hi + lo) / 2.0
+    delta = hi - lo
+    if delta == 0:
+        return 0.0, 0.0, lum
+    sat = delta / (2.0 - hi - lo) if lum > 0.5 else delta / (hi + lo)
+    if hi == r:
+        hue = ((g - b) / delta) % 6.0
+    elif hi == g:
+        hue = (b - r) / delta + 2.0
+    else:
+        hue = (r - g) / delta + 4.0
+    return hue * 60.0, sat, lum
+
+
+def _hsl_to_rgb(hsl: tuple[float, float, float]) -> tuple[float, float, float]:
+    hue, sat, lum = hsl
+    chroma = (1.0 - abs(2.0 * lum - 1.0)) * sat
+    hp = (hue % 360.0) / 60.0
+    second = chroma * (1.0 - abs(hp % 2.0 - 1.0))
+    base = {0: (chroma, second, 0.0), 1: (second, chroma, 0.0), 2: (0.0, chroma, second),
+            3: (0.0, second, chroma), 4: (second, 0.0, chroma), 5: (chroma, 0.0, second)}[int(hp) % 6]
+    m = lum - chroma / 2.0
+    return base[0] + m, base[1] + m, base[2] + m
+
+
+def _srgb_to_linear(c: float) -> float:
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _linear_to_srgb(c: float) -> float:
+    return c * 12.92 if c <= 0.0031308 else 1.055 * (c ** (1 / 2.4)) - 0.055
+
+
+def _pct(el: etree._Element, default: float) -> float:
+    """val="60000" のようなパーセント値（1000 分の 1 パーセント）を 0.6 に。"""
+    try:
+        return int(el.get("val", "")) / 100000.0
+    except (TypeError, ValueError):
+        return default
+
+
+def apply_color_transforms(hex_color: str, xclr: etree._Element) -> str:
+    """色要素（a:schemeClr など）の子の変換を文書順に適用する。
+
+    PowerPoint の色パレットの「明るく / 暗く」は lumMod / lumOff で、HSL の輝度を
+    `L * lumMod + lumOff` にする。shade / tint はリニアガンマ空間で黒 / 白へ混ぜる
+    （ECMA-376 の例: 00FF00 に shade 50% で 00BC00）。
+    """
+    rgb = _hex_to_rgb01(hex_color)
+    for child in xclr:
+        if not isinstance(child.tag, str):
+            continue
+        tag = etree.QName(child).localname
+        if tag in ("lumMod", "lumOff", "satMod", "satOff", "hueMod", "hueOff"):
+            hue, sat, lum = _rgb_to_hsl(rgb)
+            if tag == "lumMod":
+                lum = _clamp01(lum * _pct(child, 1.0))
+            elif tag == "lumOff":
+                lum = _clamp01(lum + _pct(child, 0.0))
+            elif tag == "satMod":
+                sat = _clamp01(sat * _pct(child, 1.0))
+            elif tag == "satOff":
+                sat = _clamp01(sat + _pct(child, 0.0))
+            elif tag == "hueMod":
+                hue = hue * _pct(child, 1.0)
+            else:  # hueOff: 1 度 = 60000
+                try:
+                    hue += int(child.get("val", "")) / 60000.0
+                except (TypeError, ValueError):
+                    pass
+            rgb = _hsl_to_rgb((hue, sat, lum))
+        elif tag in ("shade", "tint"):
+            amount = _pct(child, 1.0)
+            toward = 0.0 if tag == "shade" else 1.0
+            rgb = tuple(  # type: ignore[assignment]
+                _linear_to_srgb(_clamp01(_srgb_to_linear(_clamp01(c)) * amount + toward * (1.0 - amount)))
+                for c in rgb
+            )
+        elif tag == "gray":
+            lum = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
+            rgb = (lum, lum, lum)
+        elif tag == "inv":
+            rgb = (1.0 - rgb[0], 1.0 - rgb[1], 1.0 - rgb[2])
+        # alpha 系は #RRGGBB に載らないので無視する
+    return _rgb01_to_hex(rgb)
+
+
+def color_element_to_hex(xclr: etree._Element | None, theme: "ThemeInfo | None") -> str | None:
+    """a:srgbClr / a:schemeClr / a:sysClr / a:scrgbClr を変換込みで #RRGGBB にする。"""
+    if xclr is None or not isinstance(getattr(xclr, "tag", None), str):
+        return None
+    tag = etree.QName(xclr).localname
+    if tag == "srgbClr":
+        base = _hex(xclr.get("val"))
+    elif tag == "sysClr":
+        base = _hex(xclr.get("lastClr"))
+    elif tag == "scrgbClr":
+        try:
+            base = _rgb01_to_hex(tuple(int(xclr.get(k, "0")) / 100000.0 for k in ("r", "g", "b")))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            base = None
+    elif tag == "schemeClr":
+        if theme is None:
+            return None
+        key = xclr.get("val", "")
+        base = theme.scheme_hex(key)
+        if base is None:
+            theme.unresolved.add(key)  # phClr（テーマ定義内の差し込み色）もここに入る
+            return None
+    else:
+        return None
+    return apply_color_transforms(base, xclr) if base else None
 
 
 def set_current_theme(theme: ThemeInfo | None) -> contextvars.Token:
@@ -157,6 +288,10 @@ def current_theme() -> ThemeInfo | None:
 
 def color_to_hex(color_obj: Any) -> str | None:
     """python-pptx の ColorFormat を #RRGGBB へ。RGB 直指定とテーマ色の両方に対応。"""
+    # python-pptx は lumMod / lumOff しか見ず shade / tint を落とすので、まず元の XML から解く
+    hexval = color_element_to_hex(getattr(getattr(color_obj, "_color", None), "_xClr", None), current_theme())
+    if hexval:
+        return hexval
     try:
         ctype = color_obj.type
     except (AttributeError, TypeError, ValueError):
@@ -188,22 +323,10 @@ def _xml_color(fill_parent: etree._Element | None, theme: ThemeInfo | None) -> s
     sf = fill_parent.find("a:solidFill", NS)
     if sf is None:
         return None
-    srgb = sf.find("a:srgbClr", NS)
-    if srgb is not None:
-        return _hex(srgb.get("val"))
-    sch = sf.find("a:schemeClr", NS)
-    if sch is not None and theme is not None:
-        base = theme.scheme_hex(sch.get("val", ""))
-        if base is None:
-            return None
-        lum_mod = sch.find("a:lumMod", NS)
-        lum_off = sch.find("a:lumOff", NS)
-        brightness = 0.0
-        if lum_off is not None:
-            brightness = int(lum_off.get("val", 0)) / 100000.0
-        elif lum_mod is not None:
-            brightness = int(lum_mod.get("val", 100000)) / 100000.0 - 1.0
-        return apply_brightness(base, brightness)
+    for child in sf:
+        hexval = color_element_to_hex(child, theme)
+        if hexval:
+            return hexval
     return None
 
 
