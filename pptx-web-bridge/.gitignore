@@ -11,3 +11,5 @@ config/user_templates.json
 config/template_assets/user/
 # 試験用一時ファイル
 tests/_tmp/
+# テンプレート試験資産（samples/make_template_matrix.py が作る。必要なときに生成する）
+samples/templates/

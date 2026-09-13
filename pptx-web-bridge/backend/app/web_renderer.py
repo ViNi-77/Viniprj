@@ -260,9 +260,14 @@ def slide_html(slide: dict, presentation: dict, inline_assets: bool, template: d
             clip = f"clip-path:polygon({bar['slant_pt']:g}px 0,100% 0,100% 100%,0 100%);"
         parts.append(f'<div class="tpl tpl-bar" data-tpl="{_esc(bar.get("name", "bar"))}" style="left:{bar["x"]:g}px;top:{bar["y"]:g}px;width:{bar["w"]:g}px;height:{bar["h"]:g}px;background:{_esc(bar["color"])};{clip}"></div>')
     for img in chrome["images"]:
+        box = f'left:{img["x"]:g}px;top:{img["y"]:g}px;width:{img["w"]:g}px;height:{img["h"]:g}px'
+        if img.get("unrenderable"):
+            # EMF/WMF はブラウザが描けない。黙って消すと「ロゴが検出されなかった」ように見えるので枠と理由を出す。
+            parts.append(f'<div class="tpl tpl-logo tpl-unrenderable" data-tpl="{_esc(img.get("name", "logo"))}" style="{box}" title="この画像は EMF / WMF 形式のため画面には出せません。PowerPoint 出力では正しく出ます。">ロゴ（画面では表示できない形式）</div>')
+            continue
         src = _template_image_src(img["image"], inline_assets)
         if src:
-            parts.append(f'<img class="tpl tpl-logo" data-tpl="{_esc(img.get("name", "logo"))}" src="{src}" alt="" style="left:{img["x"]:g}px;top:{img["y"]:g}px;width:{img["w"]:g}px;height:{img["h"]:g}px">')
+            parts.append(f'<img class="tpl tpl-logo" data-tpl="{_esc(img.get("name", "logo"))}" src="{src}" alt="" style="{box}">')
     for t in chrome["texts"]:
         parts.append(f'<div class="tpl tpl-text" data-tpl="{_esc(t.get("name", "footer"))}" style="left:{t["x"]:g}px;top:{t["y"]:g}px;width:{t["w"]:g}px;height:{t["h"]:g}px;font-size:{t["size_pt"]:g}px;color:{_esc(t["color"])};text-align:{_esc(t.get("align", "left"))}">{_esc(t["text"])}</div>')
     for el in _reading_order(slide.get("elements", [])):

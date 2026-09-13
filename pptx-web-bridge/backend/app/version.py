@@ -15,7 +15,7 @@ from pathlib import Path
 from .config import ROOT_DIR, resource_path
 from .model import SCHEMA_VERSION
 
-APP_VERSION = "0.5.1"
+APP_VERSION = "0.5.2"
 
 # 画面に出す「この版に入っている機能」。増えた機能はここに足す（UI はこれをそのまま並べる）
 FEATURES: list[dict[str, str]] = [
@@ -30,6 +30,7 @@ FEATURES: list[dict[str, str]] = [
     {"id": "template_detect", "phase": "I", "name": "テンプレート推定の精度", "hint": "帯は形で判定、色見本・装飾は部品にしない、役割を画面で変えられる"},
     {"id": "template_restyle", "phase": "J", "name": "テンプレートの着せ替え", "hint": "色・フォント・題名・背景をテンプレートにそろえる（元に戻せる）"},
     {"id": "color_fidelity", "phase": "K", "name": "色の再現", "hint": "「明るく / 暗く」や shade / tint を PowerPoint と同じ色で取り込む"},
+    {"id": "template_compare", "phase": "L", "name": "元と見比べる", "hint": "テンプレート推定の隣に元のスライドを出し、落ちた部品と理由を必ず表示する"},
 ]
 
 _BUILD_INFO_NAME = "build_info.json"

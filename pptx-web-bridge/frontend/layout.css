@@ -181,7 +181,21 @@ dialog > article.modal-box.small { width: min(600px, 100%); }
 .modal-body.two-col { display: grid; grid-template-columns: minmax(16rem, 24%) minmax(0, 1fr); gap: 0; padding: 0; overflow: hidden; }
 .tpl-side { border-right: 1px solid var(--line); padding: 0.6rem 0.75rem; overflow: auto; display: flex; flex-direction: column; gap: 0.6rem; min-height: 0; }
 .tpl-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 0.6rem 0.75rem; gap: 0.5rem; overflow: auto; }
-.tpl-main .canvas-area { flex: 1 1 45%; min-height: 10rem; }
+.tpl-main .canvas-area { flex: 1 1 auto; min-height: 8rem; }
+/* 元のスライドと解釈を並べる。狭い画面では縦に積む（ノート PC 125〜150% 表示で横スクロールを出さない） */
+/* 元は参照用なので狭め。縦に積むとキャンバスの高さが半分になり編集しづらいので、狭い画面でも横並びのままにする */
+.tpl-compare { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 0.5rem; flex: 1 1 45%; min-height: 10rem; min-width: 0; }
+.tpl-compare.single { grid-template-columns: minmax(0, 1fr); }
+.tpl-compare.single .tpl-pane:first-child { display: none; }
+.tpl-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 0.15rem; }
+.tpl-pane-label { font-size: 0.78rem; color: var(--muted); }
+.tpl-origin { flex: 1 1 auto; min-height: 8rem; background: #1e2228; border: 1px solid var(--line); border-radius: 0.3rem; overflow: auto; display: flex; align-items: center; justify-content: center; }
+.tpl-origin-frame { position: relative; width: 100%; overflow: hidden; }
+.tpl-origin-inner { transform-origin: top left; position: absolute; left: 0; top: 0; }
+.tpl-origin .slide-wrap { margin: 0; }
+.tpl-origin .slide { box-shadow: none; }
+.tpl-origin .notes { display: none; }
+@media (max-width: 700px) { .tpl-compare { grid-template-columns: minmax(0, 1fr); } }
 .tpl-slides { display: flex; flex-direction: column; gap: 0.4rem; }
 .tpl-slide { display: grid; grid-template-columns: 6rem minmax(0, 1fr); gap: 0.5rem; align-items: center; font-size: 0.85rem; }
 .tpl-slide .thumb { width: 6rem; height: 3.375rem; }

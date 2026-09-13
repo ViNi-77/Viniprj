@@ -321,6 +321,20 @@ def main() -> int:
             n_parts = page.evaluate("() => PWB.templateEditor.state().parts.length")
             n_all = page.evaluate("() => document.querySelectorAll('#tpl-canvas .sel-box.all').length")
             record("テンプレート推定（部品の一覧と番号付き枠）", n_parts >= 8 and n_all >= 3, f"parts={n_parts} boxes(cover)={n_all}")
+            # 解釈だけを見せると「読み取れていない」のか「元がそうなのか」が分からない。元スライドを並べる
+            origin = page.evaluate("() => { const e = document.querySelector('#tpl-origin .slide-wrap'); return e ? 1 : 0; }")
+            side_by_side = page.evaluate(
+                "() => { const a = document.querySelector('#tpl-origin'), b = document.querySelector('#tpl-canvas');"
+                " if (!a || !b) return 0; const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();"
+                " return (ra.width > 40 && rb.width > 40) ? 1 : 0; }"
+            )
+            record("元のスライドと解釈が並んで見える", origin == 1 and side_by_side == 1, f"origin={origin} panes={side_by_side}")
+            page.uncheck("#tpl-compare")
+            page.wait_for_timeout(200)
+            hidden = page.evaluate("() => document.querySelector('#tpl-compare-box').classList.contains('single') ? 1 : 0")
+            page.check("#tpl-compare")
+            page.wait_for_timeout(200)
+            record("見比べの表示は切り替えられる", hidden == 1, f"single={hidden}")
             if shots:
                 page.screenshot(path=str(shots / "ui_04_template_cover.png"))
             page.click("button[data-tpl-tab='content']")

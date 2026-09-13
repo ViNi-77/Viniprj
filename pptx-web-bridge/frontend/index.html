@@ -189,8 +189,18 @@
             <button class="tab" data-tpl-tab="content">中身</button>
             <button class="tab" data-tpl-tab="closing">最終ページ</button>
           </div>
+          <label class="check" title="元の PowerPoint の見た目と、このアプリが読み取った結果を見比べます"><input type="checkbox" id="tpl-compare" checked> 元のスライドと見比べる</label>
         </div>
-        <div id="tpl-canvas" class="canvas-area" tabindex="0" aria-label="テンプレート部品の確認"></div>
+        <div class="tpl-compare" id="tpl-compare-box">
+          <div class="tpl-pane">
+            <span class="tpl-pane-label">元のスライド</span>
+            <div id="tpl-origin" class="tpl-origin"></div>
+          </div>
+          <div class="tpl-pane">
+            <span class="tpl-pane-label">このアプリの解釈</span>
+            <div id="tpl-canvas" class="canvas-area" tabindex="0" aria-label="テンプレート部品の確認"></div>
+          </div>
+        </div>
         <div id="tpl-parts" class="tpl-parts"></div>
       </section>
     </div>

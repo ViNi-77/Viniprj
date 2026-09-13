@@ -84,18 +84,34 @@ def image_data(rel_path: str | None) -> tuple[str, str] | None:
     return _image_cache[key]
 
 
+#: PIL で開けない形式（EMF/WMF はブラウザも描けない）。寸法だけは既定値で返し、枠が消えないようにする。
+UNRENDERABLE_EXT = {".emf", ".wmf"}
+_FALLBACK_ASPECT = (300, 100)  # 横長のロゴを想定した既定の縦横比
+
+
 def image_size(rel_path: str | None) -> tuple[int, int] | None:
-    """画像の画素寸法（縦横比の維持に使う）。"""
+    """画像の画素寸法（縦横比の維持に使う）。
+
+    EMF/WMF は PIL が開けずブラウザも描けないが、None を返すと呼び出し元で枠ごと消えて
+    「ロゴが無かった」ように見えてしまう。既定の縦横比を返し、枠は残す。
+    """
     if not rel_path:
         return None
     p = resource_path(rel_path)
+    if Path(str(rel_path)).suffix.lower() in UNRENDERABLE_EXT:
+        return _FALLBACK_ASPECT
     try:
         from PIL import Image
 
         with Image.open(p) as im:
             return im.size
     except Exception:  # noqa: BLE001
-        return None
+        return _FALLBACK_ASPECT if Path(str(p)).exists() else None
+
+
+def is_unrenderable(rel_path: str | None) -> bool:
+    """画面に描けない画像形式か（EMF/WMF）。描けない旨を出すために使う。"""
+    return bool(rel_path) and Path(str(rel_path)).suffix.lower() in UNRENDERABLE_EXT
 
 
 def logo_box(part: dict, canvas: dict) -> dict | None:
@@ -294,13 +310,13 @@ def chrome_spec(slide: dict, presentation: dict) -> dict[str, Any]:
         spec["background_source"] = part.get("background_source") or "slide"
     lb = logo_box(part, canvas)
     if lb and image_data(lb["image"]):
-        spec["images"].append({**lb, "name": "logo", "source": (part.get("logo") or {}).get("source", "slide")})
+        spec["images"].append({**lb, "name": "logo", "source": (part.get("logo") or {}).get("source", "slide"), "unrenderable": is_unrenderable(lb["image"])})
     # 追加の装飾画像（PPTX から作ったテンプレートで複数の画像がある場合）
     for i, img in enumerate(part.get("images") or []):
         if not isinstance(img, dict) or not img.get("image") or not image_data(img["image"]):
             continue
         b = scale(img, canvas)
-        spec["images"].append({"image": img["image"], "x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"], "name": f"decor{i + 1}", "source": img.get("source", "slide")})
+        spec["images"].append({"image": img["image"], "x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"], "name": f"decor{i + 1}", "source": img.get("source", "slide"), "unrenderable": is_unrenderable(img["image"])})
     sx = float(canvas.get("width_pt", _BASE_W)) / _BASE_W
     bars = [part["bar"]] if isinstance(part.get("bar"), dict) else []
     bars += [b for b in (part.get("bars") or []) if isinstance(b, dict)]

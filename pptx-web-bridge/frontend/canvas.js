@@ -13,6 +13,7 @@ window.PWB = window.PWB || {};
 PWB.canvas = (function () {
   "use strict";
   var HANDLE_DIRS = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+  var HANDLE_PX = 10;  // layout.css の .sel-handle と合わせる
   var MIN_SIZE = 8;
   var instanceSeq = 0;
 
@@ -139,7 +140,7 @@ PWB.canvas = (function () {
         box.setAttribute("data-el", id);
         placeBox(box, it.bbox);
         if (selection.length === 1) {
-          HANDLE_DIRS.forEach(function (d) { var hd = document.createElement("div"); hd.className = "sel-handle h-" + d; hd.setAttribute("data-dir", d); box.appendChild(hd); });
+          handlesFor(it.bbox).forEach(function (d) { var hd = document.createElement("div"); hd.className = "sel-handle h-" + d; hd.setAttribute("data-dir", d); box.appendChild(hd); });
           var label = document.createElement("div");
           label.className = "sel-label";
           label.textContent = labelFor(it.bbox);
@@ -151,6 +152,17 @@ PWB.canvas = (function () {
       if (adapter.onSelectionChanged) adapter.onSelectionChanged(selection.slice());
     }
     function placeBox(box, b) { box.style.left = (b.x * scale) + "px"; box.style.top = (b.y * scale) + "px"; box.style.width = (b.w * scale) + "px"; box.style.height = (b.h * scale) + "px"; }
+    // 帯のように薄い枠では上下（または左右）のハンドルが枠の内側を覆い尽くし、掴んで動かせなくなる。
+    // 画面上の寸法がハンドル 2 つ分に満たない向きのハンドルは出さない。
+    function handlesFor(b) {
+      var thin = (b.h * scale) < HANDLE_PX * 2.2, narrow = (b.w * scale) < HANDLE_PX * 2.2;
+      return HANDLE_DIRS.filter(function (d) {
+        if (thin && (d === "n" || d === "s")) return false;
+        if (narrow && (d === "e" || d === "w")) return false;
+        if (thin && narrow && d.length === 2) return false;  // 極小の枠は移動だけ
+        return true;
+      });
+    }
     function labelFor(b) { return "x " + Math.round(b.x) + "  y " + Math.round(b.y) + "   " + Math.round(b.w) + " × " + Math.round(b.h) + " pt"; }
 
     function setSelection(ids) { selection = (ids || []).slice(); renderSelection(); }

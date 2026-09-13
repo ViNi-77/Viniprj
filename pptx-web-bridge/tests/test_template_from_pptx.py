@@ -315,3 +315,116 @@ def test_api_part_role(client: TestClient, analyzed_ext: dict):
     d = r.json()
     assert len(d["template"]["content"]["bars"]) == 1 and any(x["key"] == "bars.0" for x in d["parts"]) and "content" in d["previews"]
     assert client.post("/api/templates/part-role", json={"template": analyzed_ext["proposal"], "kind": "content", "key": "bar", "role": "nope"}).status_code == 400
+
+
+# ---------------------------------------------------------------- Phase A: 黙って失敗しない
+def _png(w: int = 300, h: int = 100, color: str = "#003087") -> bytes:
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (w, h), color).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _user_like_deck() -> bytes:
+    """利用者が投入したものに近い 1 枚テンプレート: 下部の紺帯 + 帯に乗る幅広ロゴ + 左端に並ぶ色見本。"""
+    from pptx.util import Pt
+
+    prs = Presentation()
+    prs.slide_width, prs.slide_height = Pt(960), Pt(540)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank
+    bar = slide.shapes.add_shape(1, Pt(0), Pt(490), Pt(960), Pt(50))
+    bar.fill.solid()
+    bar.fill.fore_color.rgb = __import__("pptx.dml.color", fromlist=["RGBColor"]).RGBColor(0x00, 0x30, 0x87)
+    bar.line.fill.background()
+    for i, c in enumerate((0x001A72, 0x3355A0, 0x6688C0, 0x99AADD, 0xCCDDEE, 0x00B0F0, 0xFF0044, 0x333333, 0x000000, 0x808080, 0xC0C0C0)):
+        chip = slide.shapes.add_shape(1, Pt(20), Pt(30 + i * 38), Pt(50), Pt(30))
+        chip.fill.solid()
+        chip.fill.fore_color.rgb = __import__("pptx.dml.color", fromlist=["RGBColor"]).RGBColor(c >> 16, (c >> 8) & 0xFF, c & 0xFF)
+        chip.line.fill.background()
+    # ロゴ + タグラインのロックアップ: 幅 300pt = キャンバスの 31%（旧しきい値 25% では拾えなかった）
+    slide.shapes.add_picture(io.BytesIO(_png()), Pt(30), Pt(500), width=Pt(300), height=Pt(30))
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+@pytest.fixture(scope="module")
+def user_like() -> dict:
+    return analyze(_user_like_deck(), "user_like.pptx", template_id="phase_a_user_like")
+
+
+def test_wide_logo_lockup_is_detected(user_like: dict):
+    """ロゴ + タグラインの横長ロックアップ（幅 31%）を拾う。旧しきい値 25% では images 送りで無名だった。"""
+    cover = user_like["proposal"]["cover"]
+    assert "logo" in cover, "幅 25% 超のロックアップがロゴとして検出されていない"
+    assert abs(cover["logo"]["w"] - 300) < 2
+
+
+def test_footer_bar_survives_the_swatch_column(user_like: dict):
+    """左端に並ぶ色見本を色見本と判定しつつ、下部の帯は消さない。"""
+    cover = user_like["proposal"]["cover"]
+    assert "bar" in cover, "色見本の判定が下部の帯まで巻き込んでいる"
+    assert abs(cover["bar"]["y"] - 490) < 3
+    assert user_like["proposal"].get("palette_candidates"), "色見本の色がテーマ候補に入っていない"
+
+
+def test_single_slide_deck_keeps_warnings_and_parts(user_like: dict):
+    """1 枚だけの PPTX でも中身の部品が作られ、その解析で出た警告が呼び出し元へ届く。"""
+    assert "content" in user_like["proposal"]
+    text = " ".join(user_like["warnings"])
+    assert "中身のスライドが無いため" in text
+    # 中身として解析したときの警告（色見本など）が捨てられていない
+    assert text.count("色見本") >= 1
+
+
+def test_scattered_same_size_shapes_are_not_swatches():
+    """同じ大きさでも散らばっている図形は色見本にしない（整列を条件にする）。"""
+    from app.template_from_pptx import _find_swatches
+
+    aligned = [{"x": 20, "y": 30 + i * 38, "w": 50, "h": 30, "_w": 50, "_h": 30, "color": c} for i, c in enumerate(("#111111", "#222222", "#333333"))]
+    scattered = [{"x": x, "y": y, "w": 50, "h": 30, "_w": 50, "_h": 30, "color": c} for (x, y, c) in ((20, 30, "#111111"), (500, 300, "#222222"), (880, 90, "#333333"))]
+    assert _find_swatches(aligned) == {0, 1, 2}
+    assert _find_swatches(scattered) == set()
+
+
+def test_bars_are_excluded_from_swatch_detection():
+    from app.template_from_pptx import _find_swatches
+
+    fills = [{"x": 0, "y": y, "w": 960, "h": 20, "_w": 960, "_h": 20, "color": c, "_kind": "bar"} for y, c in ((0, "#111111"), (260, "#222222"), (520, "#333333"))]
+    assert _find_swatches(fills) == set()
+
+
+def test_gradient_shape_is_reported_not_dropped():
+    """色を取れない図形（グラデーション）を黙って捨てず、装飾として残して警告を出す。"""
+    from pptx.util import Pt
+
+    prs = Presentation()
+    prs.slide_width, prs.slide_height = Pt(960), Pt(540)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    grad = slide.shapes.add_shape(1, Pt(100), Pt(100), Pt(300), Pt(200))
+    grad.fill.gradient()
+    grad.line.fill.background()
+    buf = io.BytesIO()
+    prs.save(buf)
+    result = analyze(buf.getvalue(), "gradient.pptx", template_id="phase_a_gradient")
+    assert any("色を取れない図形" in w for w in result["warnings"])
+    decor = result["proposal"]["cover"].get("decor") or []
+    assert any(d.get("unresolved_fill") for d in decor), "グラデーション図形が装飾として残っていない"
+
+
+def test_emf_logo_is_kept_as_a_labelled_box(tmp_path):
+    """EMF/WMF は画面に描けないが、枠ごと消すと「ロゴが無かった」ように見えるので枠と理由を出す。"""
+    from app.web_renderer import slide_html
+
+    assert template_kit.is_unrenderable("x/logo.emf") and not template_kit.is_unrenderable("x/logo.png")
+    assert template_kit.image_size("does/not/exist.emf") is not None, "EMF で None を返すとロゴ枠ごと消える"
+
+    emf = template_store.assets_dir("phase_a_emf") / "logo.emf"
+    emf.write_bytes(b"\x01\x00\x00\x00" + b"\x00" * 64)  # PIL が開けない中身で十分
+    t = {"id": "emf", "name": "emf", "colors": {}, "fonts": {},
+         "content": {"logo": {"image": template_store.rel_path(emf), "x": 30, "y": 480, "w": 200}}}
+    with template_kit.use_template(t):
+        pres, _e, _f = pipeline.prepare(sample_presentation(t))
+        html = slide_html(pres["slides"][1], pres, inline_assets=True, template=t, with_notes=False)
+    assert "tpl-unrenderable" in html and "画面では表示できない形式" in html
