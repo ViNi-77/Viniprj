@@ -14,6 +14,7 @@ M365 Copilot エージェント用コンテキスト生成ツール
 
 | フォルダ | 内容 |
 |---|---|
+| `analysis/` | exe 解析データ（逆アセンブル・文字列・アーカイブ一覧）の退避 |
 | `work1_improvement/` | **ワーク1**: 復元ソース (`restored/`) + 改善版 `contextgen` パッケージ |
 | `work2_cross_ai/` | **ワーク2**: AIサービス別パッケージャ + folder-context MCP サーバ + ガイド |
 
@@ -38,6 +39,11 @@ claude mcp add folder-context -- .venv/bin/folder-context-mcp --root <資料フ�
 # テスト（work1: 46件 / work2: 16件）
 cd work1_improvement && ../.venv/bin/python -m pytest tests -q; cd ..
 cd work2_cross_ai && ../.venv/bin/python -m pytest tests -q; cd ..
+
+# 復元の正当性検証（bytecode照合）
+.venv/bin/python work1_improvement/restored/verify_restoration.py \
+    analysis/box_copy_gui_direct_context_mode_fixed_base64.txt \
+    work1_improvement/restored/box_copy_gui_direct_context_mode_fixed.py
 ```
 
 ## ドキュメント
@@ -47,6 +53,7 @@ cd work2_cross_ai && ../.venv/bin/python -m pytest tests -q; cd ..
 - Windows exe ビルド: [work1_improvement/docs/BUILD_WINDOWS.md](work1_improvement/docs/BUILD_WINDOWS.md)
 - 変更履歴: [work1_improvement/docs/CHANGELOG.md](work1_improvement/docs/CHANGELOG.md)
 - 横展開ガイド（Claude/GPT/NotebookLM/MCP）: [work2_cross_ai/guides/README.md](work2_cross_ai/guides/README.md)
+- 特許候補の整理: [work1_improvement/docs/PATENT_CANDIDATES.md](work1_improvement/docs/PATENT_CANDIDATES.md)
 
 ## 重要な不変条件
 
