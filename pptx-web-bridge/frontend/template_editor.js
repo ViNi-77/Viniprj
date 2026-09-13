@@ -8,7 +8,8 @@ window.PWB = window.PWB || {};
 PWB.templateEditor = (function () {
   "use strict";
   var modal = null, canvas = null;
-  var st = { file: null, proposal: null, parts: [], slides: [], previews: {}, thumbs: [], canvas: { width_pt: 960, height_pt: 540 }, themeCss: "", tab: "cover", warnings: [], previousId: null, roles: {} };
+  var st = { file: null, proposal: null, parts: [], slides: [], previews: {}, thumbs: [], canvas: { width_pt: 960, height_pt: 540 }, themeCss: "", tab: "cover", warnings: [], previousId: null, roles: {},
+    mode: "parts", layouts: null, layoutMap: {}, layoutThumbs: {}, sourceId: null };
   var previewTimer = null;
   var ROLE_LABELS = [["cover", "表紙"], ["content", "中身"], ["closing", "最終ページ"], ["skip", "使わない"]];
   var TAB_LABELS = { cover: "表紙", content: "中身", closing: "最終ページ" };
@@ -116,11 +117,130 @@ PWB.templateEditor = (function () {
       st.proposal = r.proposal; st.parts = r.parts; st.slides = r.slides; st.previews = r.previews; st.canvas = r.canvas; st.themeCss = r.theme_css; st.warnings = r.warnings || [];
       if (r.thumbs && r.thumbs.length) st.thumbs = r.thumbs;
       st.previousId = r.proposal.id;
+      st.sourceId = r.proposal.id;
+      st.layouts = r.layouts || null;
+      st.layoutThumbs = {};
+      // レイアウトに装飾があるファイルは、推測せずレイアウトから読む方を既定にする
+      st.mode = (st.layouts && st.layouts.available) ? "layout" : "parts";
       $("tpl-name").value = r.proposal.name || "";
       $("tpl-id").value = r.proposal.id || "";
-      renderSlides(); renderSwatches(); renderWarnings(); renderTab();
-      setStatus("解釈を確認してください（" + st.parts.length + " 個の部品）");
+      renderMode(); renderLayouts(); renderSlides(); renderSwatches(); renderWarnings(); renderTab();
+      setStatus(st.mode === "layout" ? "レイアウトを選んでください。" : "解釈を確認してください（" + st.parts.length + " 個の部品）");
     }).catch(function (e) { setStatus("解析失敗: " + e.message, true); });
+  }
+
+  // ---------------------------------------------------------------- レイアウト方式
+  function renderMode() {
+    var box = $("tpl-mode-box");
+    if (!st.layouts) { box.hidden = true; return; }
+    box.hidden = false;
+    $("tpl-mode-layout").checked = st.mode === "layout";
+    $("tpl-mode-parts").checked = st.mode !== "layout";
+    $("tpl-mode-layout").disabled = !st.layouts.available;
+    var n = (st.layouts.layouts || []).length;
+    // 使えない理由を必ず出す。黙って推測へ落とすと「認識されていない」に見える
+    $("tpl-mode-note").textContent = st.layouts.available
+      ? "このファイルはロゴや帯がレイアウトに入っています。推測せずそのまま使えます（レイアウト " + n + " 件）。"
+      : "このファイルのスライドマスター / レイアウトには、ロゴや帯などの図形がありませんでした（レイアウト " + n + " 件を確認）。スライド上の図形から推測します。";
+    $("tpl-layout-pane").hidden = st.mode !== "layout";
+    $("tpl-parts-note").hidden = st.mode === "layout";
+    $("tpl-slides").hidden = st.mode === "layout";
+  }
+
+  function visibleLayouts() {
+    var all = (st.layouts && st.layouts.layouts) || [];
+    var q = ($("tpl-layout-filter").value || "").trim().toLowerCase();
+    var onlyChrome = $("tpl-layout-only-chrome").checked;
+    return all.filter(function (l) {
+      // 絞り込みはマスターの装飾も数える（マスターにしか無いレイアウトを隠さない）
+      if (onlyChrome && (l.chrome_count + l.chrome_from_master) < 1) return false;
+      return !q || l.name.toLowerCase().indexOf(q) >= 0;
+    });
+  }
+
+  function layoutKey(l) { return l.master + ":" + l.index; }
+
+  function renderLayouts() {
+    var box = $("tpl-layout-list");
+    if (!box) return;
+    if (!st.layouts) { box.innerHTML = ""; return; }
+    var list = visibleLayouts();
+    if (!list.length) { box.innerHTML = '<p class="muted">該当するレイアウトがありません。絞り込みを外してください。</p>'; return; }
+    box.innerHTML = list.map(function (l) {
+      var key = layoutKey(l);
+      var chips = ROLE_LABELS.slice(0, 3).map(function (r) {
+        var on = st.layoutMap[r[0]] === key;
+        return '<button type="button" class="tpl-chip' + (on ? " on" : "") + '" data-tpl-lrole="' + r[0] + '" data-tpl-lkey="' + key + '">' + r[1] + "</button>";
+      }).join("");
+      var badge = (l.ph_types || []).slice(0, 3).join(" / ") || "枠なし";
+      var chrome = l.chrome_count + (l.chrome_from_master ? "＋マスター " + l.chrome_from_master : "");
+      return '<div class="tpl-layout" data-tpl-lkey="' + key + '">'
+        + '<div class="tpl-layout-thumb" data-tpl-lthumb="' + key + '"></div>'
+        + '<div class="col"><span class="tpl-layout-name" title="' + esc(l.name) + '">' + esc(l.name) + "</span>"
+        + '<span class="muted tpl-layout-meta">' + esc(badge) + " ／ 図形 " + esc(String(chrome)) + "</span>"
+        + '<div class="row wrap tpl-chips">' + chips + "</div></div></div>";
+    }).join("");
+    lazyThumbs();
+  }
+
+  // サムネイルは見えたものだけ描く（40 本を一気に描くと画面が固まる）
+  var thumbObserver = null;
+  function lazyThumbs() {
+    if (thumbObserver) thumbObserver.disconnect();
+    if (!window.IntersectionObserver) { visibleLayouts().slice(0, 6).forEach(function (l) { loadThumb(layoutKey(l)); }); return; }
+    thumbObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) { loadThumb(en.target.getAttribute("data-tpl-lthumb")); thumbObserver.unobserve(en.target); }
+      });
+    }, { root: $("tpl-layout-list"), rootMargin: "120px" });
+    modal.querySelectorAll("[data-tpl-lthumb]").forEach(function (el) { thumbObserver.observe(el); });
+  }
+
+  function loadThumb(key) {
+    if (!key || !st.sourceId) return;
+    var slot = modal.querySelector('[data-tpl-lthumb="' + key + '"]');
+    if (!slot) return;
+    if (st.layoutThumbs[key]) { paintThumb(slot, st.layoutThumbs[key]); return; }
+    var parts = key.split(":");
+    core().apiJson("/api/templates/layout-preview", { template_id: st.sourceId, master: parseInt(parts[0], 10), index: parseInt(parts[1], 10) })
+      .then(function (r) { st.layoutThumbs[key] = r; paintThumb(slot, r); })
+      .catch(function (e) { slot.innerHTML = '<span class="muted">描けません</span>'; core().log("レイアウトの描画に失敗: " + e.message, "WARN"); });
+  }
+
+  function paintThumb(slot, r) {
+    var cw = (r.canvas && r.canvas.width_pt) || 960, ch = (r.canvas && r.canvas.height_pt) || 540;
+    var scale = Math.max(0.02, (slot.clientWidth || 120) / cw);
+    slot.innerHTML = '<div class="thumb" style="height:' + Math.round(ch * scale) + 'px"><style>' + (r.theme_css || "") + "</style>"
+      + '<div class="thumb-inner" style="transform:scale(' + scale + ')">' + r.html + "</div></div>";
+  }
+
+  function pickLayout(role, key) {
+    if (st.layoutMap[role] === key) delete st.layoutMap[role];
+    else {
+      Object.keys(st.layoutMap).forEach(function (k) { if (st.layoutMap[k] === key && k !== role) delete st.layoutMap[k]; });
+      st.layoutMap[role] = key;
+    }
+    renderLayouts();
+    buildFromLayouts();
+  }
+
+  function buildFromLayouts() {
+    var map = {};
+    Object.keys(st.layoutMap).forEach(function (role) {
+      var p = st.layoutMap[role].split(":");
+      map[role] = { master: parseInt(p[0], 10), index: parseInt(p[1], 10) };
+    });
+    var ul = $("tpl-layout-warnings");
+    if (!Object.keys(map).length) { ul.innerHTML = ""; setStatus("レイアウトを選んでください。"); return; }
+    setStatus("レイアウトから作成中 …");
+    core().apiJson("/api/templates/from-layout", { template_id: st.sourceId, filename: st.file ? st.file.name : null, layout_map: map, name: $("tpl-name").value.trim() || null })
+      .then(function (r) {
+        st.proposal = r.proposal; st.parts = r.parts || []; st.previews = r.previews; st.themeCss = r.theme_css;
+        ul.innerHTML = (r.warnings || []).map(function (w) { return "<li>" + esc(w.message || w) + "</li>"; }).join("");
+        $("tpl-id").value = r.proposal.id || "";
+        renderSwatches(); renderTab();
+        setStatus("レイアウトの見た目がそのまま入ります（" + Object.keys(map).length + " 件を割り当て）");
+      }).catch(function (e) { setStatus("作成失敗: " + e.message, true); });
   }
 
   function schedulePreview() { clearTimeout(previewTimer); previewTimer = setTimeout(refreshPreview, 250); }
@@ -234,6 +354,8 @@ PWB.templateEditor = (function () {
     var t = e.target;
     var act = t.closest("[data-tpl-act]");
     if (act) { var a = act.getAttribute("data-tpl-act"); if (a === "close") close(); else if (a === "save") save(); return; }
+    var chip = t.closest("[data-tpl-lrole]");
+    if (chip) { pickLayout(chip.getAttribute("data-tpl-lrole"), chip.getAttribute("data-tpl-lkey")); return; }
     var tab = t.closest("[data-tpl-tab]");
     if (tab) { st.tab = tab.getAttribute("data-tpl-tab"); canvas.setSelection([]); renderTab(); return; }
     var rm = t.closest("[data-tpl-remove]");
@@ -244,8 +366,10 @@ PWB.templateEditor = (function () {
   }
   function onChange(e) {
     var t = e.target;
-    if (t.id === "tpl-file") { if (t.files[0]) { st.roles = {}; st.thumbs = []; st.proposal = null; analyze(t.files[0]); } return; }
+    if (t.id === "tpl-file") { if (t.files[0]) { st.roles = {}; st.thumbs = []; st.proposal = null; st.layoutMap = {}; analyze(t.files[0]); } return; }
     if (t.id === "tpl-compare") { renderOrigin(); canvas.fit && canvas.fit(); return; }
+    if (t.name === "tpl-mode") { st.mode = t.value; renderMode(); if (st.mode === "layout") renderLayouts(); else if (st.file) analyze(st.file); return; }
+    if (t.id === "tpl-layout-filter" || t.id === "tpl-layout-only-chrome") { renderLayouts(); return; }
     if (t.hasAttribute("data-tpl-role")) { st.roles[t.getAttribute("data-tpl-role")] = t.value; if (st.file) analyze(st.file); return; }
     if (t.hasAttribute("data-tpl-role-of")) { var rid = t.getAttribute("data-tpl-role-of"); changeRole(st.tab, rid.split(":").slice(1).join(":"), t.value); return; }
     if (t.hasAttribute("data-tpl-decor")) { var did = t.getAttribute("data-tpl-decor"); toggleDecor(st.tab, did.split(":").slice(1).join(":"), t.checked); return; }

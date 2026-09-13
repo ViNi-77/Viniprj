@@ -377,6 +377,13 @@ class _Gen:
     def add_template_chrome(self, slide: Any, slide_dict: dict) -> None:
         """テンプレート部品: 帯・ロゴ・フッター・ページ番号・機密表示。図形名で識別し再読込時に除外する。"""
         chrome = template_kit.chrome_spec(slide_dict, self.p)
+        if chrome.get("elements"):
+            # レイアウト方式。土台 PPTX を使うなら PowerPoint がレイアウトから装飾を継承するので描かない
+            # （描くとロゴと帯が二重になる）。土台が無いときだけ図形として置く。
+            if self.skip_inherited_chrome:
+                return
+            self._add_layout_chrome(slide, chrome)
+            return
         for bar in chrome["bars"]:
             if self._inherited(bar):
                 continue
@@ -448,6 +455,29 @@ class _Gen:
             if score < best_n:
                 best, best_n = lay, score
         return best if best is not None else prs.slide_layouts[len(prs.slide_layouts) - 1]
+
+    def _mapped_layouts(self, prs: Any) -> dict[str, Any]:
+        """テンプレートが `layout_map` を持つとき、そのレイアウトを実体で返す（推測しない）。
+
+        番号が範囲外のときは警告を出して推測へ戻す（利用者が土台 PPTX を差し替えるとずれるため）。
+        """
+        template = template_kit.template_for(self.p)
+        if template.get("mode") != "layout":
+            return {}
+        out: dict[str, Any] = {}
+        masters = list(prs.slide_masters)
+        for kind, ref in (template.get("layout_map") or {}).items():
+            if not isinstance(ref, dict):
+                continue
+            mi, li = int(ref.get("master", 0)), int(ref.get("index", 0))
+            layouts = list(masters[mi].slide_layouts) if 0 <= mi < len(masters) else []
+            if 0 <= li < len(layouts):
+                out[kind] = layouts[li]
+            else:
+                self.warn("LAYOUT_MAP_OUT_OF_RANGE",
+                          f"テンプレートが指すレイアウト（マスター {mi} / レイアウト {li}）が土台 PowerPoint にありません。"
+                          f"{kind} は自動選択に戻します。", fallback="レイアウトを選び直して保存してください。")
+        return out
 
     @staticmethod
     def _layout_for(prs: Any, kind: str) -> Any | None:
@@ -547,6 +577,10 @@ class _Gen:
         use_master_layouts = self.base_path is not None and self.skip_inherited_chrome
         blank = self._blank_layout(prs) if use_master_layouts else prs.slide_layouts[6]
         layout_for_kind = {k: (self._layout_for(prs, k) if use_master_layouts else None) for k in ("cover", "content", "closing")}
+        if use_master_layouts:
+            # レイアウト方式のテンプレートは推測せず、保存したレイアウト番号をそのまま使う
+            for kind, picked in self._mapped_layouts(prs).items():
+                layout_for_kind[kind] = picked
         prs.core_properties.title = self.p.get("meta", {}).get("title", "")
         self._set_office_metadata(prs, self.p.get("meta", {}).get("author", "") or "")
 
@@ -627,6 +661,31 @@ class _Gen:
                 continue
             if len(slide.shapes._spTree) > before:
                 slide.shapes[-1].name = f"diagram:{dtype}:{el.get('id', 'd')}:{i}"
+
+    def _add_layout_chrome(self, slide: Any, chrome: dict) -> None:
+        """レイアウト方式の装飾を図形として置く（土台 PPTX を使わないときだけ）。
+
+        資産はテンプレート側に外出ししてあるので、一時的に資料の assets へ載せて既存の出力器に渡す。
+        """
+        assets = chrome.get("element_assets") or {}
+        saved = self.p.get("assets") or {}
+        self.p["assets"] = {**saved, **assets}
+        try:
+            for el in chrome["elements"]:
+                if not el.get("bbox"):
+                    continue
+                try:
+                    t = el.get("type")
+                    if t == "shape":
+                        self.add_shape(slide, el)
+                    elif t == "image":
+                        self.add_image(slide, el, {})
+                    elif t == "line":
+                        self.add_line(slide, el)
+                except Exception as e:  # noqa: BLE001 - 1 部品の失敗で出力を止めない
+                    self.warn("TEMPLATE_CHROME_FAILED", f"テンプレートの装飾を置けませんでした: {e}", fallback="その部品だけ省略")
+        finally:
+            self.p["assets"] = saved
 
     def _add_native_elements(self, slide: Any, sd: dict, si: int) -> None:
         elements = sorted(sd.get("elements", []), key=lambda e: int(e.get("z", 0) or 0))

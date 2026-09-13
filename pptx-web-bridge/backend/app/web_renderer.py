@@ -128,6 +128,12 @@ def element_html(el: dict, presentation: dict, inline_assets: bool) -> str:
         jc = {"top": "flex-start", "bottom": "flex-end"}.get(va, "center")
         return f'<div class="el el-shape shape-{_esc(shape)}" id="{eid}" style="{style};font-size:{size:g}px;{fill}{stroke}{radius}justify-content:{jc};">{paragraphs_html(el.get("paragraphs", []), el)}</div>'
     if t == "image":
+        asset = presentation.get("assets", {}).get(el.get("asset_id") or "") or {}
+        if asset.get("unrenderable"):
+            # EMF / WMF はブラウザが描けない。黙って空にすると「無かった」ように見えるので枠と理由を出す
+            return (f'<div class="el el-image placeholder unrenderable" id="{eid}" style="{style}"'
+                    f' title="この画像は EMF / WMF 形式のため画面には出せません。PowerPoint 出力では正しく出ます。">'
+                    f'<span>{_esc(el.get("alt") or "画像")}（画面では表示できない形式）</span></div>')
         src = _asset_src(presentation, el.get("asset_id"), inline_assets)
         fit = {"cover": "cover", "stretch": "fill"}.get(el.get("fit") or "contain", "contain")
         if not src:
@@ -270,6 +276,11 @@ def slide_html(slide: dict, presentation: dict, inline_assets: bool, template: d
             parts.append(f'<img class="tpl tpl-logo" data-tpl="{_esc(img.get("name", "logo"))}" src="{src}" alt="" style="{box}">')
     for t in chrome["texts"]:
         parts.append(f'<div class="tpl tpl-text" data-tpl="{_esc(t.get("name", "footer"))}" style="left:{t["x"]:g}px;top:{t["y"]:g}px;width:{t["w"]:g}px;height:{t["h"]:g}px;font-size:{t["size_pt"]:g}px;color:{_esc(t["color"])};text-align:{_esc(t.get("align", "left"))}">{_esc(t["text"])}</div>')
+    if chrome.get("elements"):
+        # レイアウト方式: 装飾はレイアウトから読んだ要素そのもの。資料の要素には混ぜず、背面に敷くだけ
+        chrome_pres = {**presentation, "assets": {**presentation.get("assets", {}), **(chrome.get("element_assets") or {})}}
+        for i, el in enumerate(chrome["elements"]):
+            parts.append(f'<div class="tpl tpl-el" data-tpl="layout{i + 1}">' + element_html(el, chrome_pres, inline_assets) + "</div>")
     for el in _reading_order(slide.get("elements", [])):
         parts.append(element_html(el, presentation, inline_assets))
     parts.append("</section>")
@@ -349,6 +360,12 @@ def build_bundle(presentation: dict) -> dict[str, bytes]:
             data = template_kit.image_data(rel) if rel else None
             if data:
                 files[f"assets/{template_asset_filename(rel)}"] = base64.b64decode(data[1])
+        # レイアウト方式の装飾画像。入れないと file:// で開いたときロゴが欠ける
+        for asset_id, asset in template_kit.chrome_assets(part).items():
+            try:
+                files[f"assets/{asset_filename(asset_id, asset)}"] = base64.b64decode(asset.get("data_base64", ""))
+            except (ValueError, TypeError):
+                continue
     slim = dict(presentation)
     slim["assets"] = {k: {kk: vv for kk, vv in v.items() if kk != "data_base64"} | {"path": f"assets/{asset_filename(k, v)}"} for k, v in presentation.get("assets", {}).items()}
     files["presentation.json"] = json.dumps(slim, ensure_ascii=False, indent=2).encode("utf-8")
