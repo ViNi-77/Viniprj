@@ -196,6 +196,17 @@ dialog > article.modal-box.small { width: min(600px, 100%); }
 .tpl-origin .slide { box-shadow: none; }
 .tpl-origin .notes { display: none; }
 @media (max-width: 700px) { .tpl-compare { grid-template-columns: minmax(0, 1fr); } }
+/* レイアウト方式の選択。名前が似た 20〜40 本から選ぶので、サムネイル + 絞り込みが要る */
+.tpl-mode { border: 1px solid var(--line); border-radius: 0.3rem; padding: 0.4rem 0.5rem; display: flex; flex-direction: column; gap: 0.3rem; }
+.tpl-mode-note { margin: 0; font-size: 0.82rem; }
+.tpl-layouts { display: flex; flex-direction: column; gap: 0.4rem; max-height: 22rem; overflow: auto; }
+.tpl-layout { display: grid; grid-template-columns: minmax(5rem, 7rem) minmax(0, 1fr); gap: 0.5rem; align-items: start; padding: 0.3rem; border: 1px solid var(--line); border-radius: 0.3rem; }
+.tpl-layout-thumb { min-height: 3rem; background: #eef1f4; border-radius: 2px; overflow: hidden; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; }
+.tpl-layout-name { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpl-layout-meta { font-size: 0.75rem; }
+.tpl-chips { gap: 0.25rem; margin-top: 0.15rem; }
+.tpl-chip { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: inherit; width: auto; margin: 0; }
+.tpl-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .tpl-slides { display: flex; flex-direction: column; gap: 0.4rem; }
 .tpl-slide { display: grid; grid-template-columns: 6rem minmax(0, 1fr); gap: 0.5rem; align-items: center; font-size: 0.85rem; }
 .tpl-slide .thumb { width: 6rem; height: 3.375rem; }

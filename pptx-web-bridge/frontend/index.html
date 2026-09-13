@@ -175,7 +175,23 @@
         <label>PowerPoint ファイル（表紙・中身・最終ページの 1〜3 枚程度）
           <input type="file" id="tpl-file" accept=".pptx">
         </label>
-        <p class="muted">読み込んだスライドの役割を確認し、右の画面で「この解釈で入ります」の枠を直してから保存します。</p>
+        <div id="tpl-mode-box" class="tpl-mode" hidden>
+          <p class="tpl-mode-note" id="tpl-mode-note"></p>
+          <div class="row wrap">
+            <label class="check"><input type="radio" name="tpl-mode" value="layout" id="tpl-mode-layout"> レイアウトから読む（推測しない）</label>
+            <label class="check"><input type="radio" name="tpl-mode" value="parts" id="tpl-mode-parts" checked> スライドから推測する</label>
+          </div>
+        </div>
+        <div id="tpl-layout-pane" hidden>
+          <p class="muted">表紙 / 中身 / 最終ページに使うレイアウトを選びます。ロゴや帯はレイアウトのものがそのまま入ります。</p>
+          <div class="row wrap">
+            <input type="search" id="tpl-layout-filter" placeholder="レイアウト名で絞り込む">
+            <label class="check"><input type="checkbox" id="tpl-layout-only-chrome" checked> 図形があるものだけ</label>
+          </div>
+          <div id="tpl-layout-list" class="tpl-layouts"></div>
+          <ul id="tpl-layout-warnings" class="tpl-warnings"></ul>
+        </div>
+        <p class="muted" id="tpl-parts-note">読み込んだスライドの役割を確認し、右の画面で「この解釈で入ります」の枠を直してから保存します。</p>
         <div id="tpl-slides" class="tpl-slides"></div>
         <label>テンプレート名 <input type="text" id="tpl-name" placeholder="例: 当社標準（青）"></label>
         <label>ID（英小文字・数字・下線） <input type="text" id="tpl-id" placeholder="例: company_blue"></label>

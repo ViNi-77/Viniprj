@@ -99,7 +99,7 @@ def _clickable(page, selector: str) -> tuple[bool, str]:
     return inside and hit, f"{selector}: {'画面内' if inside else '画面外'} / {'押せる' if hit else '別の要素に隠れる'} ({box['x']:.0f},{box['y']:.0f} {box['width']:.0f}×{box['height']:.0f})"
 
 
-def laptop_checks(browser, base: str, brand: Path, record, shots) -> None:
+def laptop_checks(browser, base: str, brand: Path, record, shots, layout_pptx: Path) -> None:
     """ノート PC の画面でも、切れずに押せることを確かめる（Phase H の受入）。"""
     for label, viewport, dsf in LAPTOPS:
         ctx = browser.new_context(viewport=viewport, device_scale_factor=dsf)
@@ -152,6 +152,16 @@ def laptop_checks(browser, base: str, brand: Path, record, shots) -> None:
                 page.screenshot(path=str(shots / f"laptop_{label.replace('%', '')}_template.png"))
             page.click("button[data-tpl-act='close']")
             page.wait_for_function("() => document.getElementById('tpl-modal').hidden", timeout=10000)
+            # レイアウト方式の選択 UI もノート PC で押せる
+            page.click("button[data-action='template-from-pptx']")
+            page.wait_for_selector("#tpl-modal:not([hidden])")
+            page.set_input_files("#tpl-file", str(layout_pptx))
+            page.wait_for_function("() => { var s = PWB.templateEditor.state(); return s.layouts && s.layouts.available; }", timeout=60000)
+            page.wait_for_timeout(400)
+            ok3, why3 = _clickable(page, "#tpl-layout-list .tpl-chip")
+            record(f"[{label}] レイアウトの選択チップが押せる", ok3, why3)
+            page.click("button[data-tpl-act='close']")
+            page.wait_for_function("() => document.getElementById('tpl-modal').hidden", timeout=10000)
             # Copilot モーダル
             page.click("button[data-action='copilot']")
             page.wait_for_selector("#copilot-modal:not([hidden])")
@@ -192,6 +202,12 @@ def main() -> int:
     (tmp_store / "app_config.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
     env = dict(os.environ, PWB_PORT=str(port), PPTX_WEB_BRIDGE_CONFIG=str(tmp_store / "app_config.json"))
     brand = ROOT / "samples" / "brand_template.pptx"
+    # レイアウト方式（Phase N）の確認には、装飾がレイアウトに入った資料が要る
+    sys.path.insert(0, str(ROOT / "samples"))
+    from make_template_matrix import chrome_on_layout  # type: ignore
+
+    layout_pptx = tmp_layout = Path(tempfile.mkdtemp(prefix="pwb_layout_")) / "chrome_on_layout.pptx"
+    chrome_on_layout(layout_pptx)
     if not brand.exists():
         sys.path.insert(0, str(ROOT / "samples"))
         from make_brand_template_pptx import build as build_brand  # type: ignore
@@ -401,6 +417,37 @@ def main() -> int:
             page.wait_for_function("() => Array.prototype.every.call(document.getElementById('template-select').options, function (o) { return o.value !== 'ui_brand'; })", timeout=20000)
             record("ユーザーテンプレートの削除", True)
 
+            # --- レイアウト方式（Phase N）: 推測せず、実在レイアウトを選ぶ ---
+            page.click("button[data-action='template-from-pptx']")
+            page.wait_for_selector("#tpl-modal:not([hidden])")
+            page.set_input_files("#tpl-file", str(layout_pptx))
+            page.wait_for_function("() => { var s = PWB.templateEditor.state(); return s.layouts !== null; }", timeout=60000)
+            page.wait_for_timeout(500)
+            avail = page.evaluate("() => PWB.templateEditor.state().layouts.available")
+            mode = page.evaluate("() => PWB.templateEditor.state().mode")
+            note = page.inner_text("#tpl-mode-note")
+            record("レイアウトに図形があれば、レイアウト方式が既定になる", avail is True and mode == "layout" and "レイアウト" in note, f"available={avail} mode={mode}")
+            n_rows = page.evaluate("() => document.querySelectorAll('#tpl-layout-list .tpl-layout').length")
+            page.wait_for_function("() => document.querySelector('#tpl-layout-list .tpl-layout-thumb .slide-wrap') !== null", timeout=30000)
+            record("レイアウトの一覧とサムネイルが出る（絞り込み後）", n_rows >= 1, f"rows={n_rows}")
+            page.click("#tpl-layout-list .tpl-chip[data-tpl-lrole='content']")
+            page.wait_for_function("() => { var s = PWB.templateEditor.state(); return s.proposal && s.proposal.mode === 'layout'; }", timeout=30000)
+            page.wait_for_timeout(400)
+            lm = page.evaluate("() => PWB.templateEditor.state().proposal.layout_map")
+            chrome_n = page.evaluate("() => document.querySelectorAll('#tpl-canvas .tpl-el').length")
+            record("レイアウトを割り当てると、その装飾がプレビューに出る", bool(lm.get("content")) and chrome_n >= 2, f"map={lm} 装飾={chrome_n}")
+            if shots:
+                page.screenshot(path=str(shots / "ui_07_layout_mode.png"))
+            # 装飾がスライド側のファイルでは理由を出して推測方式に落ちる
+            page.set_input_files("#tpl-file", str(ROOT / "samples" / "brand_template.pptx"))
+            page.wait_for_function("() => { var s = PWB.templateEditor.state(); return s.layouts && s.layouts.available === false; }", timeout=60000)
+            page.wait_for_timeout(300)
+            mode2 = page.evaluate("() => PWB.templateEditor.state().mode")
+            note2 = page.inner_text("#tpl-mode-note")
+            record("レイアウトに図形が無ければ理由を出して推測方式に落ちる", mode2 == "parts" and "ありませんでした" in note2, note2[:50])
+            page.click("button[data-tpl-act='close']")
+            page.wait_for_function("() => document.getElementById('tpl-modal').hidden", timeout=10000)
+
             # --- Copilot で下書きを作る（API 不使用）: プロンプト作成 → 回答の貼り付け → 反映 ---
             page.click("button[data-action='copilot']")
             page.wait_for_selector("#copilot-modal:not([hidden])")
@@ -514,7 +561,7 @@ def main() -> int:
             record("版の表示と機能一覧（キャッシュ無効化の印つき）", badge.startswith("版 ") and feature_rows >= 7 and bool(build) and tagged, f"badge={badge} features={feature_rows} tagged={tagged}")
 
             record("JavaScript エラーなし", not errors, "; ".join(errors)[:200])
-            laptop_checks(browser, base, brand, record, shots)
+            laptop_checks(browser, base, brand, record, shots, layout_pptx)
             browser.close()
     finally:
         proc.terminate()
