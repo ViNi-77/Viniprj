@@ -32,6 +32,8 @@
 .tpl { position: absolute; pointer-events: none; z-index: 0; }
 .tpl-text { white-space: normal; overflow: visible; line-height: 1.2; overflow-wrap: anywhere; }
 .tpl-logo { object-fit: contain; }
+/* EMF / WMF はブラウザが描けない。消さずに「ここにロゴがある」と分かる枠を出す */
+.tpl-unrenderable { display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 2px; border: 1px dashed #9AA0A6; border-radius: 2px; background: rgba(154,160,166,.08); color: #5F6368; font-size: 9px; line-height: 1.1; text-align: center; overflow: hidden; }
 .slide-footer { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; padding: 6px 24px; font-size: 10px; color: var(--muted, #666666); pointer-events: none; }
 .confidential { position: absolute; top: 8px; right: 16px; font-size: 10px; color: #c0392b; border: 1px solid #c0392b; padding: 1px 6px; pointer-events: none; }
 .notes { display: none; }

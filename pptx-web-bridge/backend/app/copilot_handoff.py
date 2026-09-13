@@ -22,7 +22,7 @@ from xml.sax.saxutils import escape as _xml_escape
 
 from . import diagrams
 from .config import get_config
-from .model import slide_title
+from .model import slide_title, warning
 from .web_renderer import asset_filename
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*$")
@@ -34,6 +34,8 @@ _NOTE_RE = re.compile(r"^\s*(?:>\s*)?(?:ノート|Notes?|発表者ノート|ス�
 _KIND_RE = re.compile(r"^\s*(?:型|レイアウト|Layout|Type)\s*[:：]\s*(.*)$", re.I)
 _SLIDE_NO_RE = re.compile(r"^\s*(?:スライド\s*)?\d+\s*[.．:：)]\s*")
 _LAYOUT_WORDS = {"フロー": "title_body", "手順": "title_body", "カード": "three_column", "3分割": "three_column", "比較": "two_column", "Before": "two_column", "数値": "title_body", "画像": "image", "表": "table"}
+# 「**ノート**:」「- ノート:」のように飾りが付いて _NOTE_RE に一致しなかった行を拾う（黙って本文に混ぜないため）
+_NOTE_LIKE_RE = re.compile(r"(ノート|発表者ノート|スピーカーノート|Notes?)\s*\**\s*[:：]", re.I)
 
 
 # ---------------------------------------------------------------- 渡す側
@@ -413,6 +415,9 @@ def markdown_to_html(md: str) -> tuple[str, list[dict]]:
             flush_all()
             cur["notes"] = (cur["notes"] + "\n" + nm.group(1).strip()).strip()
             continue
+        if _NOTE_LIKE_RE.search(line):
+            # 「**ノート**:」のような飾り付きはノートにならず本文へ流れる。黙って混ぜず、後で警告に出す
+            cur.setdefault("note_like", []).append(line.strip())
         km = _KIND_RE.match(line)
         if km:
             flush_para()
@@ -478,7 +483,7 @@ def markdown_to_html(md: str) -> tuple[str, list[dict]]:
                     cls = f' class="kind-{lay}"'
                     break
         parts.append(f"<section{cls}><{tag}>{_inline_html(sec['title'])}</{tag}>{body_html}</section>")
-        meta.append({"index": i, "notes": sec["notes"], "kind": sec["kind"]})
+        meta.append({"index": i, "notes": sec["notes"], "kind": sec["kind"], "note_like": sec.get("note_like") or []})
     parts.append("</body></html>")
     return "".join(parts), meta
 
@@ -499,20 +504,48 @@ def import_markdown(md: str, template_id: str | None = None, filename: str = "co
     pres["meta"]["source"] = {"type": "html", "filename": filename, "via": "copilot"}
     # html_parser は section ごとに 1 スライドを作る（表紙の h1 を除く）。順に対応付ける
     body_slides = [s for s in pres.get("slides", []) if s.get("layout") != "title" or s.get("index", 0) > 0]
-    if len(body_slides) == len(meta):
+    warnings: list[dict] = pres.setdefault("warnings", [])
+    asked_kind = sum(1 for m in meta if m["kind"])
+    applied_kind = 0
+    unknown_kinds: list[str] = []
+    note_like: list[str] = []
+    if len(body_slides) != len(meta):
+        warnings.append(warning(
+            "copilot_handoff", "COPILOT_SECTION_MISMATCH",
+            f"見出しの数（{len(meta)}）と作られたスライドの数（{len(body_slides)}）が合わないため、型とノートを割り当てませんでした。"
+            "回答の前置きや余分な見出しが原因のことが多いです。",
+            fallback="見出しと箇条書きだけを貼り直すと割り当てられます。"))
+    else:
         for s, m in zip(body_slides, meta):
             if m["notes"]:
                 s["notes"] = m["notes"]
+            note_like.extend(m.get("note_like") or [])
             dtype = diagrams.type_from_word(m["kind"]) if m["kind"] else None
             if dtype and _make_diagram(s, dtype):
+                applied_kind += 1
                 continue
             lay = _layout_from_kind(m["kind"]) if m["kind"] else None
             if lay and not any(e.get("layout_hint") for e in s.get("elements", [])):
                 s["layout"] = lay
+                applied_kind += 1
                 if lay in ("two_column", "three_column"):
                     cols = 2 if lay == "two_column" else 3
                     texts = [e for e in s["elements"] if e.get("type") == "text" and e.get("role") != "title"]
                     _split_bullets_into_columns(s, texts, cols)
+            elif m["kind"]:
+                unknown_kinds.append(m["kind"])
+    if unknown_kinds:
+        known = "、".join(sorted(set(_LAYOUT_WORDS) | {w for spec in diagrams.TYPES.values() for w in spec["words"] if w}))
+        warnings.append(warning(
+            "copilot_handoff", "COPILOT_KIND_UNKNOWN",
+            f"「型: {'」「型: '.join(dict.fromkeys(unknown_kinds))}」は分からなかったので、ふつうのスライドにしました"
+            f"（{asked_kind} 枚中 {applied_kind} 枚だけ型が付きました）。使える型: {known}",
+            fallback="ツールバーの「図解」から後で足せます。"))
+    if note_like:
+        warnings.append(warning(
+            "copilot_handoff", "COPILOT_NOTE_NOT_MATCHED",
+            f"ノートに見える行が {len(note_like)} 行ありましたが、行頭が「ノート:」ではないため本文に入りました（例: {note_like[0][:40]}）。",
+            fallback="行頭を「ノート:」にすると発表者ノートに入ります。"))
     return pres
 
 
@@ -612,8 +645,12 @@ def parse_copilot_reply(text: str) -> tuple[str, Any]:
     return "markdown", text
 
 
-def apply_notes(presentation: dict, reply: str) -> tuple[dict, int]:
-    """「発表者ノートを作る」の回答を、番号（## n.）または順番で既存スライドのノートへ入れる。返り値: (資料, 反映件数)"""
+def apply_notes(presentation: dict, reply: str) -> tuple[dict, int, list[dict]]:
+    """「発表者ノートを作る」の回答を、番号（## n.）または順番で既存スライドのノートへ入れる。
+
+    返り値: (資料, 反映件数, 警告)。番号で合わせられず順番に落ちたときは黙って入れない
+    （前置きが 1 つあるだけで全ノートが 1 枚ずつずれるため）。
+    """
     kind, data = parse_copilot_reply(reply)
     notes: list[tuple[int | None, str]] = []
     if kind == "json":
@@ -633,12 +670,28 @@ def apply_notes(presentation: dict, reply: str) -> tuple[dict, int]:
             notes.append((numbers[i] if i < len(numbers) else None, m["notes"]))
     slides = presentation.get("slides", [])
     count = 0
+    by_position = 0
+    with_note = sum(1 for _n, note in notes if note)
     for pos, (n, note) in enumerate(notes):
         if not note:
             continue
         idx = n if n is not None and 0 <= n < len(slides) else (pos if pos < len(slides) else None)
         if idx is None:
             continue
+        if n is None or not (0 <= n < len(slides)):
+            by_position += 1
         slides[idx]["notes"] = note
         count += 1
-    return presentation, count
+    warnings: list[dict] = []
+    if with_note > count:
+        warnings.append(warning(
+            "copilot_handoff", "COPILOT_NOTES_PARTIAL",
+            f"ノート {with_note} 件のうち {count} 件だけ入りました（資料は {len(slides)} 枚）。",
+            fallback="回答の見出しを「## 1. 題名」の形にすると番号で合わせられます。"))
+    if by_position:
+        warnings.append(warning(
+            "copilot_handoff", "COPILOT_NOTES_BY_POSITION",
+            f"{by_position} 件は見出しに番号が無かったため、貼り付けた順にそのまま入れました。"
+            "回答に前置きが 1 行でもあると 1 枚ずつずれます。",
+            fallback="入った位置が違う場合は Ctrl+Z で戻せます。"))
+    return presentation, count, warnings

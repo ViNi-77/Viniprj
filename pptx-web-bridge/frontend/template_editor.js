@@ -165,8 +165,31 @@ PWB.templateEditor = (function () {
     var html = st.previews[st.tab];
     if (html) canvas.mount(html, st.canvas.width_pt, st.canvas.height_pt, st.themeCss);
     else { canvas.clear(); }
+    renderOrigin();
     renderParts();
     canvas.setSelection(keepSelection || []);
+  }
+
+  // 元のスライドをそのまま出す。解釈だけを見せると「読み取れていない」のか「元がそうなのか」が分からない。
+  function renderOrigin() {
+    var box = $("tpl-origin");
+    if (!box) return;
+    var on = $("tpl-compare") ? $("tpl-compare").checked : true;
+    var wrap = $("tpl-compare-box");
+    if (wrap) wrap.classList.toggle("single", !on);
+    if (!on) { box.innerHTML = ""; return; }
+    var slide = null;
+    for (var i = 0; i < st.slides.length; i++) { if (st.slides[i].role === st.tab) { slide = st.slides[i]; break; } }
+    var thumb = slide ? st.thumbs[slide.index] : null;
+    if (!thumb) {
+      box.innerHTML = '<p class="muted">' + (slide ? "元のスライドを描けませんでした。" : TAB_LABELS[st.tab] + "に割り当てたスライドがありません。左の役割で選べます。") + "</p>";
+      return;
+    }
+    var cw = st.canvas.width_pt || 960, ch = st.canvas.height_pt || 540;
+    var scale = Math.max(0.05, (box.clientWidth || 360) / cw);
+    box.innerHTML = '<div class="tpl-origin-frame" style="height:' + Math.round(ch * scale) + 'px">'
+      + '<style>' + (st.themeCss || "") + '</style>'
+      + '<div class="tpl-origin-inner" style="width:' + cw + "px;height:" + ch + "px;transform:scale(" + scale + ')">' + thumb + "</div></div>";
   }
   function renderParts() {
     var box = $("tpl-parts");
@@ -222,6 +245,7 @@ PWB.templateEditor = (function () {
   function onChange(e) {
     var t = e.target;
     if (t.id === "tpl-file") { if (t.files[0]) { st.roles = {}; st.thumbs = []; st.proposal = null; analyze(t.files[0]); } return; }
+    if (t.id === "tpl-compare") { renderOrigin(); canvas.fit && canvas.fit(); return; }
     if (t.hasAttribute("data-tpl-role")) { st.roles[t.getAttribute("data-tpl-role")] = t.value; if (st.file) analyze(st.file); return; }
     if (t.hasAttribute("data-tpl-role-of")) { var rid = t.getAttribute("data-tpl-role-of"); changeRole(st.tab, rid.split(":").slice(1).join(":"), t.value); return; }
     if (t.hasAttribute("data-tpl-decor")) { var did = t.getAttribute("data-tpl-decor"); toggleDecor(st.tab, did.split(":").slice(1).join(":"), t.checked); return; }

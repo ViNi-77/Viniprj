@@ -59,6 +59,7 @@ _PAGE_TOTAL_RE = re.compile(r"^\s*(?:[‹<]#[›>]|\d{1,3})\s*/\s*\d{1,3}\s*$")
 PART_LABELS = {"background_image": "背景画像", "logo": "ロゴ", "images": "画像", "bar": "帯", "bars": "帯", "decor": "装飾", "title": "題名", "subtitle": "副題", "body": "本文領域", "message": "一言", "footer": "フッター", "page_number": "ページ番号", "candidates": "文字候補"}
 MAX_BARS = 3
 SWATCH_MIN = 3
+LOGO_MAX_W_RATIO = 0.4
 SOURCE_LABELS = {"slide": "スライド", "layout": "レイアウト", "master": "マスター"}
 
 
@@ -157,7 +158,9 @@ def collect_shapes(slide: Any, slide_no: int) -> list[_Shape]:
                 # プレースホルダは本体のものを使う。レイアウトの題名・副題・本文は位置の手がかりとして本体に無いときだけ使う。
                 # フッター・日付・ページ番号はスライド本体に置かれたときだけ表示されるため、レイアウト・マスターのものは見ない。
                 key = s.ph if s.ph in _TITLE_TYPES | _BODY_TYPES | {PP_PLACEHOLDER.SUBTITLE} else None
-                if src == "master" or (src == "layout" and key is None):
+                # 会社テンプレートはロゴをレイアウト・マスターの図プレースホルダに置くことが多い。画像が入っていれば装飾として使う。
+                keep_picture = key is None and s.is_picture and src in ("layout", "master")
+                if not keep_picture and (src == "master" or (src == "layout" and key is None)):
                     continue
                 if key is not None:
                     if key in seen_ph:
@@ -382,9 +385,15 @@ def _classify_fill(b: dict, cw: float, ch: float) -> str:
 
 
 def _find_swatches(fills: list[dict]) -> set[int]:
-    """同じ大きさ（±10%）の塗り図形が SWATCH_MIN 個以上あれば色見本と見なし、その index を返す。"""
+    """色見本（同じ大きさで一列に並ぶ色チップ）の index を返す。
+
+    帯と判定済みの図形は対象外にする（会社テンプレートの帯が色見本に巻き込まれて消えるため）。
+    同じ大きさなだけでは足りず、縦か横に整列していることを条件にする。
+    """
+    idx = [i for i, f in enumerate(fills) if f.get("_kind") != "bar"]
     groups: list[list[int]] = []
-    for i, f in enumerate(fills):
+    for i in idx:
+        f = fills[i]
         placed = False
         for g in groups:
             r = fills[g[0]]
@@ -396,9 +405,18 @@ def _find_swatches(fills: list[dict]) -> set[int]:
             groups.append([i])
     out: set[int] = set()
     for g in groups:
-        if len(g) >= SWATCH_MIN and len({fills[i]["color"] for i in g}) >= 2:
+        if len(g) < SWATCH_MIN or len({fills[i]["color"] for i in g}) < 2:
+            continue
+        if _is_aligned([fills[i] for i in g]):
             out.update(g)
     return out
+
+
+def _is_aligned(group: list[dict]) -> bool:
+    """色見本らしく縦（x が揃う）か横（y が揃う）に並んでいるか。ずれの許容は 1 個分の幅・高さの半分。"""
+    xs = [float(f["x"]) for f in group]
+    ys = [float(f["y"]) for f in group]
+    return (max(xs) - min(xs) <= max(2.0, float(group[0]["w"]) * 0.5)) or (max(ys) - min(ys) <= max(2.0, float(group[0]["h"]) * 0.5))
 
 
 def _hsl(hex_color: str) -> tuple[float, float, float]:
@@ -515,6 +533,7 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
         images: list[dict] = []
         bars: list[dict] = []
         fills: list[dict] = []
+        unfilled: list[dict] = []  # 色を取れなかった図形（グラデーション等）。装飾として残し、警告に出す
         texts: list[tuple[_Shape, dict]] = []
         for s in shapes:
             b = s.box
@@ -533,7 +552,8 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
                         part["background_source"] = s.source
                     continue
                 entry = {**_to_base(b, sx, sy), "source": s.source, "_desc": s.describe(), "_blob": blob, "_ext": ext}
-                entry["_logo"] = b["w"] <= cw * 0.25 and near_edge
+                # ロゴ + タグライン（「社名 We Touch the Future」等）の横長ロックアップは 25% を超えるので 40% まで見る
+                entry["_logo"] = b["w"] <= cw * LOGO_MAX_W_RATIO and near_edge
                 if kind == "closing" and not entry["_logo"] and b["w"] <= cw * 0.5:
                     entry["_logo"] = True  # 最終ページ中央の大きめロゴ
                 images.append(entry)
@@ -551,12 +571,16 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
                 if b["w"] >= b["h"] and b["w"] >= cw * 0.3:
                     bars.append({**_to_base({"x": b["x"], "y": b["y"] - width / 2, "w": b["w"], "h": max(width, 1.0)}, sx, sy), "color": color or "#666666", "slant_pt": 0, "source": s.source, "_desc": s.describe(), "confidence": "high" if s.source == "slide" else "low"})
                 continue
+            # 空の題名・本文プレースホルダは塗りの有無に関わらず位置の手がかりとして使う
+            if s.ph is not None and s.ph in _TITLE_TYPES | _BODY_TYPES | {PP_PLACEHOLDER.SUBTITLE}:
+                texts.append((s, b))
+                continue
             # 文字の無い図形: 塗りがあれば帯、面積 80% 以上なら背景色
             fill = _rgb_of(s.shape.fill.fore_color) if _fill_is_solid(s.shape) else None
             if not fill:
-                continue
-            if s.ph is not None and s.ph in _TITLE_TYPES | _BODY_TYPES | {PP_PLACEHOLDER.SUBTITLE}:
-                texts.append((s, b))  # 塗り付きの空プレースホルダは位置として使う
+                # グラデーション・パターン・図形塗り・塗り無し。色は取れないが、あった事実は残す（黙って消さない）
+                if ratio >= 0.0005:
+                    unfilled.append({**_to_base(b, sx, sy), "color": None, "slant_pt": 0, "source": s.source, "_desc": s.describe()})
                 continue
             if ratio >= 0.8:
                 part.setdefault("background_color", fill)
@@ -591,6 +615,10 @@ def _analyze_part(kind: str, slide: Any, slide_no: int, theme: ThemeInfo, cw: fl
             else:
                 entry["confidence"] = "low"
                 decor.append(entry)
+        if unfilled:
+            warnings.append(f"{kind}: 色を取れない図形（グラデーション・模様・図形の塗りなど）が {len(unfilled)} 個ありました。装飾として一覧に出しますが、画面には色が付きません。")
+            for u in unfilled:
+                decor.append({**u, "color": part.get("background_color") or "#CCCCCC", "confidence": "low", "unresolved_fill": True})
 
         # --- 画像: ロゴ（最初の 1 つ）と装飾画像
         logo_done = False
@@ -785,10 +813,10 @@ def analyze(data: bytes, filename: str, template_id: str | None = None, roles: d
         idx = next((i for i, r in enumerate(role_list) if r == kind), None)
         if idx is None:
             if kind == "content" and n >= 1:
-                # 中身スライドが無い場合は表紙のレイアウトのマスターから題名・本文の位置だけ取る
-                warnings.append("中身のスライドが無いため、マスターの題名・本文プレースホルダから中身の部品を推定しました。")
-                part = _analyze_part("content", prs.slides[0], 1, theme, cw, ch, assets, [])
-                part = {k: v for k, v in part.items() if k in ("title", "body", "background_color", "logo", "bar", "bars", "footer", "page_number", "images", "background_image", "background_source")}
+                # 中身スライドが無い場合は 1 枚目を中身としても解析する。
+                # 警告は捨てずに本体へ流す（捨てると「部品が足りない理由」が利用者に出なくなる）。
+                warnings.append("中身のスライドが無いため、1 枚目を中身としても解析しました。部品が足りない場合は下の表で役割を直してください。")
+                part = _analyze_part("content", prs.slides[0], 1, theme, cw, ch, assets, warnings)
                 if part:
                     proposal["content"] = part
             continue
@@ -837,7 +865,7 @@ def _palette_from_slide(slide: Any, cw: float, ch: float) -> list[str]:
         fill = _rgb_of(sh.fill.fore_color) if _fill_is_solid(sh) else None
         if not fill:
             continue
-        fills.append({"color": fill, "_w": box["w"], "_h": box["h"]})
+        fills.append({"color": fill, "x": box["x"], "y": box["y"], "w": box["w"], "h": box["h"], "_w": box["w"], "_h": box["h"]})
     idx = _find_swatches(fills)
     out: list[str] = []
     for i in sorted(idx):

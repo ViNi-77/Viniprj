@@ -3,7 +3,7 @@
 - Playwright / Chromium（または Edge/Chrome）が無い環境では skip（終了コード 0）。
 - 実行: python scripts/ui_smoke.py [--screenshots DIR]
 確認項目: キャンバス描画、サムネイル、ドラッグで bbox が変わる、Undo で戻る、インスペクタの数値入力、要素追加・削除、スライド並べ替え、
-          PPTX からテンプレート作成（解析 → 枠のドラッグ → 部品の除外 → 保存 → 適用 → 削除）、Copilot に頼む（指示作成 → 回答の貼り付け → 反映）、
+          PPTX からテンプレート作成（解析 → 枠のドラッグ → 部品の除外 → 保存 → 適用 → 削除）、Copilot で下書きを作る（指示作成 → 回答の貼り付け → 反映）、
           ノート PC の実寸（1366×768@125% / 1920×1080@150%）で切れずに押せること。
 ユーザーテンプレートの保存先は一時ディレクトリ（リポジトリの config/ を汚さない）。
 """
@@ -126,7 +126,7 @@ def laptop_checks(browser, base: str, brand: Path, record, shots) -> None:
             # 左ペインの一番下のボタンはペイン内スクロールで届く
             page.locator("#btn-copilot").scroll_into_view_if_needed()
             ok, why = _clickable(page, "#btn-copilot")
-            record(f"[{label}] 「Copilot に頼む」までスクロールして押せる", ok, why)
+            record(f"[{label}] 「Copilot で下書きを作る」までスクロールして押せる", ok, why)
             # ログを増やしても他のカードを押し出さない
             page.evaluate("() => { for (var i = 0; i < 200; i++) PWB.core.log('ノート PC 試験の行 ' + i, 'INFO'); }")
             page.click(".inspector-card .tab[data-tab='log']")
@@ -321,6 +321,20 @@ def main() -> int:
             n_parts = page.evaluate("() => PWB.templateEditor.state().parts.length")
             n_all = page.evaluate("() => document.querySelectorAll('#tpl-canvas .sel-box.all').length")
             record("テンプレート推定（部品の一覧と番号付き枠）", n_parts >= 8 and n_all >= 3, f"parts={n_parts} boxes(cover)={n_all}")
+            # 解釈だけを見せると「読み取れていない」のか「元がそうなのか」が分からない。元スライドを並べる
+            origin = page.evaluate("() => { const e = document.querySelector('#tpl-origin .slide-wrap'); return e ? 1 : 0; }")
+            side_by_side = page.evaluate(
+                "() => { const a = document.querySelector('#tpl-origin'), b = document.querySelector('#tpl-canvas');"
+                " if (!a || !b) return 0; const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();"
+                " return (ra.width > 40 && rb.width > 40) ? 1 : 0; }"
+            )
+            record("元のスライドと解釈が並んで見える", origin == 1 and side_by_side == 1, f"origin={origin} panes={side_by_side}")
+            page.uncheck("#tpl-compare")
+            page.wait_for_timeout(200)
+            hidden = page.evaluate("() => document.querySelector('#tpl-compare-box').classList.contains('single') ? 1 : 0")
+            page.check("#tpl-compare")
+            page.wait_for_timeout(200)
+            record("見比べの表示は切り替えられる", hidden == 1, f"single={hidden}")
             if shots:
                 page.screenshot(path=str(shots / "ui_04_template_cover.png"))
             page.click("button[data-tpl-tab='content']")
@@ -387,13 +401,22 @@ def main() -> int:
             page.wait_for_function("() => Array.prototype.every.call(document.getElementById('template-select').options, function (o) { return o.value !== 'ui_brand'; })", timeout=20000)
             record("ユーザーテンプレートの削除", True)
 
-            # --- Copilot に頼む（API 不使用）: プロンプト作成 → 回答の貼り付け → 反映 ---
+            # --- Copilot で下書きを作る（API 不使用）: プロンプト作成 → 回答の貼り付け → 反映 ---
             page.click("button[data-action='copilot']")
             page.wait_for_selector("#copilot-modal:not([hidden])")
             page.wait_for_function("() => document.getElementById('copilot-content').value.length > 100", timeout=20000)
             instr = page.evaluate("() => document.getElementById('copilot-instruction').value")
             content = page.evaluate("() => document.getElementById('copilot-content').value")
             record("Copilot 向けの指示と内容が作られる", "Markdown" in instr and content.startswith("# ") and "## 2." in content, f"chars={len(instr) + len(content)}")
+            # 何のための機能かが、用途を選ぶ前に読める（利用者の「なんの役に立つか分からん」への対処）
+            lede = page.inner_text(".copilot-lede")
+            steps = page.evaluate("() => document.querySelectorAll('#copilot-steps li').length")
+            now = page.evaluate("() => document.querySelectorAll('#copilot-steps li.now').length")
+            outcome = page.inner_text("#copilot-purpose-outcome")
+            example = page.evaluate("() => { var e = document.getElementById('copilot-purpose-example'); return e.hidden ? '' : e.textContent; }")
+            record("何が出来上がるかが画面に出ている（目的・手順・実例）",
+                   len(lede) > 10 and steps == 3 and now >= 1 and len(outcome) > 5 and example.startswith("例:"),
+                   f"steps={steps} now={now} outcome={outcome[:24]} example={bool(example)}")
             page.select_option("#copilot-purpose", "summarize")
             page.wait_for_function("() => document.getElementById('copilot-instruction').value.indexOf('枚のスライド') >= 0", timeout=20000)
             page.fill("#copilot-options input[data-copilot-opt='count']", "5")
@@ -412,6 +435,18 @@ def main() -> int:
             if shots:
                 page.screenshot(path=str(shots / "ui_06_copilot_reply.png"))
 
+            # 読み取れなかった型・ノートを黙って通さない（従来は無言で普通のスライドになっていた）
+            page.click("button[data-action='copilot-reply']")
+            page.wait_for_selector("#copilot-modal:not([hidden])")
+            page.fill("#copilot-reply", "# 壊れた回答\n\n## 1. 現状\n型: プロセス図\n- あ\n**ノート**: 行頭ではない\n\n## 2. 対策\n- い\n")
+            page.click("button[data-copilot-act='apply']")
+            page.wait_for_function("() => document.getElementById('copilot-status').classList.contains('err')", timeout=20000)
+            status = page.inner_text("#copilot-status")
+            record("読み取れなかった型・ノートが画面に出る", "プロセス図" in status and "ノート" in status, status[:80])
+            if not page.is_hidden("#copilot-modal"):
+                page.click("button[data-copilot-act='close']")
+                page.wait_for_function("() => document.getElementById('copilot-modal').hidden", timeout=10000)
+
             # --- 図解部品（Phase F）: 図解を追加 → 項目を足す ---
             if not page.is_hidden("#copilot-modal"):
                 page.click("button[data-copilot-act='close']")
@@ -426,10 +461,13 @@ def main() -> int:
             children = page.evaluate("() => document.querySelectorAll('.canvas-stage .el-diagram .el').length")
             record("図解を追加して項目を編集できる（キャンバスに展開される）", dia["type"] == "flow" and len(dia["items"]) == 4 and children >= 4, f"items={len(dia['items'])} children={children}")
 
-            # --- Copilot エージェント一式の書き出し ---
+            # --- Copilot エージェント一式の書き出し（下書き作成とは別の入口） ---
             page.click("button[data-action='copilot']")
             page.wait_for_selector("#copilot-modal:not([hidden])")
-            page.click("button[data-copilot-tab='agent']")
+            page.evaluate("() => document.querySelector('.copilot-more').open = true")
+            page.click("button[data-copilot-act='open-agent']")
+            page.wait_for_selector("#copilot-agent-modal:not([hidden])")
+            record("エージェントは下書き作成と別の入口になっている", page.is_visible("#copilot-agent-modal"))
             page.wait_for_function("() => document.getElementById('copilot-agent-instructions').value.length > 100", timeout=20000)
             files = page.evaluate("() => PWB.copilot.state().agent.files.length")
             name = page.evaluate("() => document.getElementById('copilot-agent-name').value")
@@ -438,6 +476,8 @@ def main() -> int:
             path = dl.value.path()
             size = os.path.getsize(path) if path else 0
             record("Copilot エージェント一式の書き出し（指示文・ナレッジ・ZIP）", files >= 3 and bool(name) and size > 1000, f"knowledge={files} name={name} bytes={size}")
+            page.click("button[data-copilot-act='agent-close']")
+            page.wait_for_function("() => document.getElementById('copilot-agent-modal').hidden", timeout=10000)
 
             # --- 差分マージ再取込（Phase G）: 同じ HTML を直して投入 → 差分を選ぶ ---
             if not page.is_hidden("#copilot-modal"):

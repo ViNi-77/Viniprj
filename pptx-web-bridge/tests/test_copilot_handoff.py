@@ -93,9 +93,9 @@ def test_json_reply_and_notes_apply(deck: dict):
     assert len(p["slides"]) == 2 and p["slides"][0]["layout"] == "three_column" and p["slides"][0]["notes"] == "n1"
     assert p["slides"][1]["elements"][1]["type"] == "table" and p["slides"][1]["elements"][1]["rows"][1][1]["text"] == "2"
     assert ch.parse_copilot_reply("## 1. a\n- b")[0] == "markdown"
-    d2, n = ch.apply_notes(dict(deck), "## 2. 背景と課題\nノート: 二番目\n## 1. 表紙\nノート: 一番目\n")
+    d2, n, _w = ch.apply_notes(dict(deck), "## 2. 背景と課題\nノート: 二番目\n## 1. 表紙\nノート: 一番目\n")
     assert n == 2 and d2["slides"][0]["notes"] == "一番目" and d2["slides"][1]["notes"] == "二番目"
-    d3, n3 = ch.apply_notes(dict(deck), '{"slides": [{"n": 3, "notes": "三番目"}]}')
+    d3, n3, _w3 = ch.apply_notes(dict(deck), '{"slides": [{"n": 3, "notes": "三番目"}]}')
     assert n3 == 1 and d3["slides"][2]["notes"] == "三番目"
 
 
@@ -119,3 +119,46 @@ def test_api_prompts_handoff_zip_docx_import(client: TestClient, deck: dict):
     assert notes.status_code == 200 and notes.json()["applied"] == 2 and notes.json()["presentation"]["slides"][1]["notes"] == "二"
     assert client.post("/api/copilot/import", json={"text": "ノートだけ", "apply": "notes"}).status_code == 400
     assert client.post("/api/copilot/import", json={"text": "   \n", "apply": "new"}).status_code in (422, 400)
+
+
+# ---------------------------------------------------------------- Phase M: 解析の失敗を黙らせない
+def _codes(warnings: list[dict]) -> set[str]:
+    return {w.get("code") for w in warnings}
+
+
+def test_unknown_kind_is_reported_not_silently_dropped():
+    """`型:` が知らない語のとき、黙って普通のスライドにせず「何枚中何枚」を出す。"""
+    pres = ch.import_markdown("# 提案\n\n## 1. 現状\n型: プロセス図\n- あ\n\n## 2. 対策\n型: カード\n- い\n- う\n")
+    w = next(x for x in pres["warnings"] if x["code"] == "COPILOT_KIND_UNKNOWN")
+    assert "プロセス図" in w["message"] and "2 枚中 1 枚" in w["message"]
+    assert "カード" in w["message"]  # 使える型の一覧を出す
+
+
+def test_note_like_line_is_reported():
+    """`**ノート**:` のように行頭が「ノート:」でない行は本文に流れる。黙って混ぜない。"""
+    pres = ch.import_markdown("# 提案\n\n## 1. 現状\n- あ\n**ノート**: 行頭ではない\n")
+    w = next(x for x in pres["warnings"] if x["code"] == "COPILOT_NOTE_NOT_MATCHED")
+    assert "行頭が「ノート:」ではない" in w["message"]
+
+
+def test_section_count_mismatch_is_reported():
+    """見出しの数とスライドの数が合わないときは型・ノートを当てずに理由を出す。"""
+    pres = ch.import_markdown("前置きの文章\n\n## 1. 現状\n型: カード\n- あ\n")
+    assert "COPILOT_SECTION_MISMATCH" in _codes(pres["warnings"]) or "COPILOT_KIND_UNKNOWN" not in _codes(pres["warnings"])
+
+
+def test_notes_by_position_is_reported():
+    """番号の無い見出しは貼った順に入れるが、ずれ得ることを伝える（前置き 1 行で全部ずれる）。"""
+    deck = {"meta": {}, "canvas": {"width_pt": 960, "height_pt": 540},
+            "slides": [{"id": f"s{i}", "index": i, "elements": [], "notes": ""} for i in range(3)]}
+    _d, n, warns = ch.apply_notes(dict(deck), "## 表紙\nノート: 一番目\n## 背景\nノート: 二番目\n")
+    assert n == 2 and "COPILOT_NOTES_BY_POSITION" in _codes(warns)
+    # 番号付きなら警告は出ない
+    _d2, n2, warns2 = ch.apply_notes(dict(deck), "## 1. 表紙\nノート: 一番目\n## 2. 背景\nノート: 二番目\n")
+    assert n2 == 2 and "COPILOT_NOTES_BY_POSITION" not in _codes(warns2)
+
+
+def test_good_reply_has_no_copilot_warnings():
+    """正しい形式の回答では余計な警告を出さない（出しすぎると読まれなくなる）。"""
+    pres = ch.import_markdown("# 提案\n\n## 1. 現状\n型: カード\n- あ\n- い\nノート: 補足\n")
+    assert not [w for w in pres["warnings"] if str(w.get("code", "")).startswith("COPILOT_")]

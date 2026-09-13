@@ -429,18 +429,21 @@ def _template_previews(template: dict) -> dict:
         return {"previews": html, "canvas": pres["canvas"], "theme_css": theme_css(pres), "sample": pres}
 
 
-def _slide_thumbs(data: bytes, filename: str, limit: int = 12) -> list[str]:
-    """投入した PPTX の各スライドを（テンプレート部品を描かずに）縮小表示用の断片にする。"""
+def _slide_thumbs(data: bytes, filename: str, limit: int = 12) -> tuple[list[str], str | None]:
+    """投入した PPTX の各スライドを（テンプレート部品を描かずに）縮小表示用の断片にする。
+
+    返り値: (断片一覧, 失敗理由 or None)。失敗を握り潰すと「元スライドと見比べる」手段が黙って消えるため理由を返す。
+    """
     try:
         from .pptx_parser import parse_pptx
 
         pres = parse_pptx(data, filename)
         pres, _e, _f = pipeline.prepare(pres)
         with template_kit.use_template({}):
-            return [slide_html(s, pres, inline_assets=True, template={}, with_notes=False) for s in pres["slides"][:limit]]
+            return [slide_html(s, pres, inline_assets=True, template={}, with_notes=False) for s in pres["slides"][:limit]], None
     except Exception as e:  # noqa: BLE001
         log.warning("テンプレート元 PPTX のサムネイル描画に失敗: %s", e)
-        return []
+        return [], f"元のスライドを描けませんでした（{e}）。「このアプリの解釈」だけの表示になります。"
 
 
 @app.get("/api/templates")
@@ -471,7 +474,9 @@ async def api_template_from_pptx(file: UploadFile = File(...), roles: str | None
     result.update(await run_in_threadpool(_template_previews, result["proposal"]))
     result.pop("sample", None)
     if thumbs:
-        result["thumbs"] = await run_in_threadpool(_slide_thumbs, data, file.filename or "template.pptx")
+        result["thumbs"], thumb_error = await run_in_threadpool(_slide_thumbs, data, file.filename or "template.pptx")
+        if thumb_error:
+            result.setdefault("warnings", []).append(thumb_error)
     return result
 
 
@@ -619,8 +624,8 @@ def api_copilot_import(body: CopilotReplyBody) -> dict:
         if not body.presentation:
             raise HTTPException(400, "ノートを反映する資料がありません。")
         pres, _e, _f = validate_and_repair(body.presentation)
-        pres, count = copilot_handoff.apply_notes(pres, body.text)
-        return {"presentation": pres, "applied": count, "mode": "notes", "warnings": [], "schema_errors": [], "quality": pipeline.quality(pres)}
+        pres, count, note_warnings = copilot_handoff.apply_notes(pres, body.text)
+        return {"presentation": pres, "applied": count, "mode": "notes", "warnings": note_warnings, "schema_errors": [], "quality": pipeline.quality(pres)}
     kind, data = copilot_handoff.parse_copilot_reply(body.text)
     if body.apply == "merge" and not body.presentation:
         raise HTTPException(400, "差分を反映する資料がありません。")

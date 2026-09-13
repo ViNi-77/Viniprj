@@ -74,10 +74,10 @@
     </section>
 
     <section class="card">
-      <h2>4. Copilot 連携</h2>
-      <p class="muted">API は使いません。資料を Copilot に貼る形（Markdown / Word）にして渡し、回答を貼り付けて戻します。</p>
+      <h2>4. Copilot で下書きを作る</h2>
+      <p class="muted">要約・翻訳・図解風への組み替え・発表者ノートを Copilot に作らせて、この資料に取り込みます。API は使わず、コピーと貼り付けで受け渡します。</p>
       <div class="row wrap">
-        <button id="btn-copilot" data-action="copilot" title="用途を選んでプロンプトと資料の内容をコピーし、Copilot に貼る">Copilot に頼む</button>
+        <button id="btn-copilot" data-action="copilot" title="何を作るか選び、指示と資料の内容をコピーして Copilot に貼る">Copilot で下書きを作る</button>
         <button id="btn-copilot-reply" class="secondary" data-action="copilot-reply" title="Copilot の回答（Markdown）を貼り付けて資料にする">回答を貼り付けて反映</button>
       </div>
     </section>
@@ -189,15 +189,25 @@
             <button class="tab" data-tpl-tab="content">中身</button>
             <button class="tab" data-tpl-tab="closing">最終ページ</button>
           </div>
+          <label class="check" title="元の PowerPoint の見た目と、このアプリが読み取った結果を見比べます"><input type="checkbox" id="tpl-compare" checked> 元のスライドと見比べる</label>
         </div>
-        <div id="tpl-canvas" class="canvas-area" tabindex="0" aria-label="テンプレート部品の確認"></div>
+        <div class="tpl-compare" id="tpl-compare-box">
+          <div class="tpl-pane">
+            <span class="tpl-pane-label">元のスライド</span>
+            <div id="tpl-origin" class="tpl-origin"></div>
+          </div>
+          <div class="tpl-pane">
+            <span class="tpl-pane-label">このアプリの解釈</span>
+            <div id="tpl-canvas" class="canvas-area" tabindex="0" aria-label="テンプレート部品の確認"></div>
+          </div>
+        </div>
         <div id="tpl-parts" class="tpl-parts"></div>
       </section>
     </div>
     <footer class="modal-foot"><button data-tpl-act="save" id="tpl-save">保存してこのテンプレートを使う</button><button class="secondary" data-tpl-act="close">キャンセル</button><span class="muted">枠をドラッグして位置・大きさを直す。Delete で部品を外す。</span></footer>
   </article>
 </dialog>
-<!-- Copilot に頼む -->
+<!-- Copilot で下書きを作る -->
 <dialog id="version-modal" hidden aria-label="版と機能">
   <article class="modal-box small">
     <header class="modal-head"><h2>この版に入っているもの</h2><button class="secondary small" data-action="version-close">閉じる</button></header>
@@ -233,32 +243,46 @@
     <div class="modal-body col" id="merge-report"></div>
   </article>
 </dialog>
-<dialog id="copilot-modal" hidden aria-label="Copilot に頼む">
+<dialog id="copilot-modal" hidden aria-label="Copilot で下書きを作る">
   <article class="modal-box wide copilot-box">
-    <header class="modal-head"><h2>Copilot に頼む</h2><span class="tpl-status" id="copilot-status"></span><button class="secondary small" data-copilot-act="close">閉じる</button></header>
+    <header class="modal-head"><h2>Copilot で下書きを作る</h2><span class="tpl-status" id="copilot-status"></span><button class="secondary small" data-copilot-act="close">閉じる</button></header>
+    <p class="copilot-lede">Copilot に資料の下書きを作らせて、この資料に取り込みます。<strong>Copilot の API は使いません</strong>（コピーと貼り付けで受け渡します）。</p>
+    <ol class="copilot-steps" id="copilot-steps">
+      <li data-step="ask"><span class="n">1</span> 何を作るか選ぶ</li>
+      <li data-step="ask"><span class="n">2</span> Copilot に貼る</li>
+      <li data-step="reply"><span class="n">3</span> 回答を貼り戻す</li>
+    </ol>
     <div class="modal-body two-col copilot-body">
       <aside class="tpl-side">
         <div class="tabs">
-          <button class="tab active" data-copilot-tab="ask">1. 渡す</button>
-          <button class="tab" data-copilot-tab="reply">2. 回答を反映</button>
-          <button class="tab" data-copilot-tab="agent">3. エージェント</button>
+          <button class="tab active" data-copilot-tab="ask">1〜2. 渡す</button>
+          <button class="tab" data-copilot-tab="reply">3. 回答を反映</button>
         </div>
         <div id="copilot-ask-side">
-          <label>用途 <select id="copilot-purpose"></select></label>
+          <label>何を作るか <select id="copilot-purpose"></select></label>
+          <p class="copilot-outcome" id="copilot-purpose-outcome"></p>
           <p class="muted" id="copilot-purpose-desc"></p>
+          <p class="copilot-example" id="copilot-purpose-example" hidden></p>
           <div id="copilot-options" class="col"></div>
           <div class="row wrap">
             <button data-copilot-act="copy-all" title="指示と資料の内容をまとめてクリップボードへ">全部コピー</button>
-            <button class="secondary" data-copilot-act="copy-instruction">指示だけコピー</button>
-            <button class="secondary" data-copilot-act="copy-content">内容だけコピー</button>
-          </div>
-          <div class="row wrap">
-            <button class="secondary" data-copilot-act="download-docx" title="Copilot in PowerPoint の「ファイルから作成」に使う Word 文書">Word 文書を保存</button>
-            <button class="secondary" data-copilot-act="download-zip" title="prompt.txt / outline.md / outline.docx / 画像 の一式">一式を ZIP で保存</button>
             <button class="secondary" data-copilot-act="open-chat">Copilot を開く</button>
           </div>
-          <p class="muted" id="copilot-attach-hint"></p>
-          <p class="muted">手順: 「全部コピー」→ Copilot チャットに貼る → 回答をコピー → 「2. 回答を反映」タブに貼る。PowerPoint で作らせるときは Word 文書を「ファイルから作成」に使い、ブランドキットを適用する。</p>
+          <p class="muted">コピーしたら Copilot のチャットに貼り、回答をコピーして「3. 回答を反映」へ。</p>
+          <details class="copilot-more">
+            <summary>その他の渡し方</summary>
+            <div class="row wrap">
+              <button class="secondary" data-copilot-act="copy-instruction">指示だけコピー</button>
+              <button class="secondary" data-copilot-act="copy-content">内容だけコピー</button>
+            </div>
+            <div class="row wrap">
+              <button class="secondary" data-copilot-act="download-docx" title="Copilot in PowerPoint の「ファイルから作成」に使う Word 文書">Word 文書を保存</button>
+              <button class="secondary" data-copilot-act="download-zip" title="prompt.txt / outline.md / outline.docx / 画像 の一式">一式を ZIP で保存</button>
+            </div>
+            <p class="muted">PowerPoint で作らせるときは Word 文書を「ファイルから作成」に使い、ブランドキットを適用します。</p>
+            <p class="muted" id="copilot-attach-hint"></p>
+            <div class="row wrap"><button class="secondary" data-copilot-act="open-agent">Copilot 側に書式を覚えさせる（エージェント）…</button></div>
+          </details>
         </div>
         <div id="copilot-reply-side" hidden>
           <label>反映の仕方
@@ -271,16 +295,6 @@
           <p class="muted">Markdown（# 題名 / ## 1. スライド題名 / - 箇条書き / 型: カード / ノート: …）か、簡易 JSON を貼り付けます。Copilot が作った PowerPoint は左の「ファイル投入」からそのまま取り込めます。</p>
           <div class="row wrap"><button data-copilot-act="apply">反映する</button><button class="secondary" data-copilot-act="clear-reply">消す</button></div>
         </div>
-        <div id="copilot-agent-side" hidden>
-          <label>エージェント名 <input type="text" id="copilot-agent-name"></label>
-          <label>説明 <input type="text" id="copilot-agent-desc"></label>
-          <div class="row wrap">
-            <button data-copilot-act="download-agent" title="declarativeAgent.json / instructions.md / ナレッジ の一式">一式を ZIP で保存</button>
-            <button class="secondary" data-copilot-act="copy-instructions">指示文をコピー</button>
-          </div>
-          <p class="muted">Copilot Studio でエージェントを作り、指示文を貼り、knowledge/ のテキストをナレッジとして添付すると、このアプリの書式のまま回答してくれます。</p>
-          <div id="copilot-agent-files" class="col"></div>
-        </div>
       </aside>
       <section class="tpl-main">
         <div id="copilot-ask-main" class="col grow">
@@ -290,11 +304,31 @@
         <div id="copilot-reply-main" class="col grow" hidden>
           <label class="grow">Copilot の回答を貼り付け<textarea id="copilot-reply" spellcheck="false" placeholder="# 資料題名&#10;&#10;## 1. スライド題名&#10;- 箇条書き&#10;ノート: 発表者向けの補足"></textarea></label>
         </div>
-        <div id="copilot-agent-main" class="col grow" hidden>
-          <label class="grow">エージェントへの指示文（instructions.md）<textarea id="copilot-agent-instructions" spellcheck="false" readonly></textarea></label>
-        </div>
       </section>
     </div>
+  </article>
+</dialog>
+<!-- Copilot 側に書式を覚えさせる（Copilot Studio に手で登録する別作業なので、下書き作成とは入口を分ける） -->
+<dialog id="copilot-agent-modal" hidden aria-label="Copilot 側に書式を覚えさせる">
+  <article class="modal-box wide">
+    <header class="modal-head"><h2>Copilot 側に書式を覚えさせる</h2><span class="tpl-status" id="copilot-agent-status"></span><button class="secondary small" data-copilot-act="agent-close">閉じる</button></header>
+    <p class="copilot-lede">一度 Copilot Studio にエージェントを登録しておくと、以後は<strong>前置き無しでこのアプリの書式のまま</strong>返ってきます。毎回の下書き作成には必要ありません。</p>
+    <div class="modal-body two-col copilot-body">
+      <aside class="tpl-side">
+        <label>エージェント名 <input type="text" id="copilot-agent-name"></label>
+        <label>説明 <input type="text" id="copilot-agent-desc"></label>
+        <div class="row wrap">
+          <button data-copilot-act="download-agent" title="declarativeAgent.json / instructions.md / ナレッジ の一式">一式を ZIP で保存</button>
+          <button class="secondary" data-copilot-act="copy-instructions">指示文をコピー</button>
+        </div>
+        <p class="muted">Copilot Studio でエージェントを作り、指示文を貼り、knowledge/ のテキストをナレッジとして添付します。</p>
+        <div id="copilot-agent-files" class="col"></div>
+      </aside>
+      <section class="tpl-main">
+        <label class="grow">エージェントへの指示文（instructions.md）<textarea id="copilot-agent-instructions" spellcheck="false" readonly></textarea></label>
+      </section>
+    </div>
+    <footer class="modal-foot"><button class="secondary" data-copilot-act="agent-close">閉じる</button></footer>
   </article>
 </dialog>
 <script src="/static/vendor/split.min.js"></script>

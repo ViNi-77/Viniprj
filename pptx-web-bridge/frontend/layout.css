@@ -181,7 +181,21 @@ dialog > article.modal-box.small { width: min(600px, 100%); }
 .modal-body.two-col { display: grid; grid-template-columns: minmax(16rem, 24%) minmax(0, 1fr); gap: 0; padding: 0; overflow: hidden; }
 .tpl-side { border-right: 1px solid var(--line); padding: 0.6rem 0.75rem; overflow: auto; display: flex; flex-direction: column; gap: 0.6rem; min-height: 0; }
 .tpl-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 0.6rem 0.75rem; gap: 0.5rem; overflow: auto; }
-.tpl-main .canvas-area { flex: 1 1 45%; min-height: 10rem; }
+.tpl-main .canvas-area { flex: 1 1 auto; min-height: 8rem; }
+/* 元のスライドと解釈を並べる。狭い画面では縦に積む（ノート PC 125〜150% 表示で横スクロールを出さない） */
+/* 元は参照用なので狭め。縦に積むとキャンバスの高さが半分になり編集しづらいので、狭い画面でも横並びのままにする */
+.tpl-compare { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 0.5rem; flex: 1 1 45%; min-height: 10rem; min-width: 0; }
+.tpl-compare.single { grid-template-columns: minmax(0, 1fr); }
+.tpl-compare.single .tpl-pane:first-child { display: none; }
+.tpl-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 0.15rem; }
+.tpl-pane-label { font-size: 0.78rem; color: var(--muted); }
+.tpl-origin { flex: 1 1 auto; min-height: 8rem; background: #1e2228; border: 1px solid var(--line); border-radius: 0.3rem; overflow: auto; display: flex; align-items: center; justify-content: center; }
+.tpl-origin-frame { position: relative; width: 100%; overflow: hidden; }
+.tpl-origin-inner { transform-origin: top left; position: absolute; left: 0; top: 0; }
+.tpl-origin .slide-wrap { margin: 0; }
+.tpl-origin .slide { box-shadow: none; }
+.tpl-origin .notes { display: none; }
+@media (max-width: 700px) { .tpl-compare { grid-template-columns: minmax(0, 1fr); } }
 .tpl-slides { display: flex; flex-direction: column; gap: 0.4rem; }
 .tpl-slide { display: grid; grid-template-columns: 6rem minmax(0, 1fr); gap: 0.5rem; align-items: center; font-size: 0.85rem; }
 .tpl-slide .thumb { width: 6rem; height: 3.375rem; }
@@ -212,12 +226,23 @@ dialog > article.modal-box.small { width: min(600px, 100%); }
 .tpl-status.err { color: var(--danger); }
 @media (max-width: 900px) { .modal-body.two-col { grid-template-columns: 1fr; overflow: auto; } .tpl-side { border-right: none; border-bottom: 1px solid var(--line); max-height: none; overflow: visible; } .tpl-main { overflow: visible; } }
 
-/* Copilot に頼む */
+/* Copilot で下書きを作る */
 dialog > article.copilot-box { width: min(1200px, 100%); }
 .copilot-body .tpl-side { gap: 0.5rem; }
 .copilot-body .col.grow { flex: 1 1 auto; min-height: 0; gap: 0.5rem; }
 .copilot-body label.grow { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .copilot-body textarea { flex: 1 1 auto; min-height: 6rem; font-family: Menlo, Consolas, monospace; font-size: 0.85rem; resize: none; }
+/* 何のための機能かを先に読ませる。用途の選択より前に置く */
+.copilot-lede { margin: 0 0.9rem 0.4rem; font-size: 0.9rem; }
+.copilot-steps { display: flex; flex-wrap: wrap; gap: 0.4rem; list-style: none; margin: 0 0.9rem 0.6rem; padding: 0; }
+.copilot-steps li { display: flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.55rem 0.15rem 0.25rem; border: 1px solid var(--line); border-radius: 999px; font-size: 0.82rem; color: var(--muted); }
+.copilot-steps li.now { color: inherit; border-color: var(--accent); background: rgba(224,122,31,.08); }
+.copilot-steps .n { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; border-radius: 50%; background: var(--line); font-size: 0.75rem; }
+.copilot-steps li.now .n { background: var(--accent); color: #fff; }
+.copilot-outcome { margin: 0.1rem 0 0.2rem; font-size: 0.9rem; }
+.copilot-example { margin: 0.1rem 0 0.3rem; padding: 0.35rem 0.5rem; border-left: 2px solid var(--line); background: rgba(0,0,0,.03); font-size: 0.82rem; color: var(--muted); }
+.copilot-more > summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); padding: 0.2rem 0; }
+.copilot-more[open] > summary { margin-bottom: 0.3rem; }
 #copilot-instruction { flex: 0 0 auto; min-height: 8rem; }
 
 .diagram-items { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.4rem 0; }
