@@ -15,14 +15,14 @@ from pathlib import Path
 from .config import ROOT_DIR, resource_path
 from .model import SCHEMA_VERSION
 
-APP_VERSION = "0.5.2"
+APP_VERSION = "0.5.3"
 
 # 画面に出す「この版に入っている機能」。増えた機能はここに足す（UI はこれをそのまま並べる）
 FEATURES: list[dict[str, str]] = [
     {"id": "layout_quality", "phase": "A", "name": "レイアウト品質", "hint": "文字サイズの帯域・画像の横並び・分割の抑制"},
     {"id": "edit_ui", "phase": "B", "name": "編集 UI", "hint": "プレビュー上でドラッグ・リサイズ・取り消し"},
     {"id": "template_from_pptx", "phase": "C", "name": "PPTX からテンプレート作成", "hint": "表紙・中身・最終ページの 3 枚を読んで部品を推定"},
-    {"id": "copilot_handoff", "phase": "D", "name": "Copilot に頼む", "hint": "Markdown / Word / 一式を渡し、回答を資料に戻す"},
+    {"id": "copilot_handoff", "phase": "D", "name": "Copilot で下書きを作る", "hint": "Markdown / Word / 一式を渡し、回答を資料に戻す"},
     {"id": "copilot_agent_kit", "phase": "E", "name": "Copilot エージェント一式", "hint": "定義・指示文・ナレッジを ZIP で書き出す"},
     {"id": "diagrams", "phase": "F", "name": "図解部品", "hint": "フロー / カード / 比較 / 数値 / 年表"},
     {"id": "merge_import", "phase": "G", "name": "差分マージ再取込", "hint": "編集を残して変わったところだけ反映"},
@@ -31,6 +31,7 @@ FEATURES: list[dict[str, str]] = [
     {"id": "template_restyle", "phase": "J", "name": "テンプレートの着せ替え", "hint": "色・フォント・題名・背景をテンプレートにそろえる（元に戻せる）"},
     {"id": "color_fidelity", "phase": "K", "name": "色の再現", "hint": "「明るく / 暗く」や shade / tint を PowerPoint と同じ色で取り込む"},
     {"id": "template_compare", "phase": "L", "name": "元と見比べる", "hint": "テンプレート推定の隣に元のスライドを出し、落ちた部品と理由を必ず表示する"},
+    {"id": "copilot_clarity", "phase": "M", "name": "Copilot の用途を明示", "hint": "何が出来上がるかを先に出し、読み取れなかった型・ノートを黙って通さない"},
 ]
 
 _BUILD_INFO_NAME = "build_info.json"

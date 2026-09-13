@@ -624,8 +624,8 @@ def api_copilot_import(body: CopilotReplyBody) -> dict:
         if not body.presentation:
             raise HTTPException(400, "ノートを反映する資料がありません。")
         pres, _e, _f = validate_and_repair(body.presentation)
-        pres, count = copilot_handoff.apply_notes(pres, body.text)
-        return {"presentation": pres, "applied": count, "mode": "notes", "warnings": [], "schema_errors": [], "quality": pipeline.quality(pres)}
+        pres, count, note_warnings = copilot_handoff.apply_notes(pres, body.text)
+        return {"presentation": pres, "applied": count, "mode": "notes", "warnings": note_warnings, "schema_errors": [], "quality": pipeline.quality(pres)}
     kind, data = copilot_handoff.parse_copilot_reply(body.text)
     if body.apply == "merge" and not body.presentation:
         raise HTTPException(400, "差分を反映する資料がありません。")

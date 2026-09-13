@@ -1,5 +1,5 @@
 /**
- * 「Copilot に頼む」モーダル（API は使わない）。
+ * 「Copilot で下書きを作る」モーダル（API は使わない）。
  * 1. 渡す: 用途プリセットを選び、/api/copilot/handoff で指示と資料の内容（Markdown / JSON）を受け取り、コピー・Word 保存・ZIP 保存・Copilot を開く
  * 2. 回答を反映: Copilot の回答（Markdown / 簡易 JSON）を貼り付け、/api/copilot/import で新しい資料にするか、ノートへ入れる
  */
@@ -7,6 +7,7 @@ window.PWB = window.PWB || {};
 PWB.copilot = (function () {
   "use strict";
   var modal = null;
+  var agentModal = null;
   var st = { purposes: [], chatUrl: "", built: null, tab: "ask", agent: null };
   var $ = function (id) { return document.getElementById(id); };
   var core = function () { return PWB.core; };
@@ -19,6 +20,8 @@ PWB.copilot = (function () {
     modal.addEventListener("change", onChange);
     modal.addEventListener("input", function (e) { if (e.target.id === "copilot-instruction" && st.built) st.built.instruction = e.target.value; });
     PWB.ui.bindModal(modal, {});
+    agentModal = $("copilot-agent-modal");
+    if (agentModal) { agentModal.addEventListener("click", onClick); PWB.ui.bindModal(agentModal, {}); }
     core().apiJson("/api/copilot/prompts").then(function (r) {
       st.purposes = r.purposes || []; st.chatUrl = r.chat_url || "";
       var sel = $("copilot-purpose");
@@ -35,13 +38,25 @@ PWB.copilot = (function () {
   function close() { PWB.ui.closeModal(modal); }
   function setStatus(msg, isErr) { var s = $("copilot-status"); s.textContent = msg || ""; s.classList.toggle("err", !!isErr); if (isErr) core().log("Copilot 連携: " + msg, "ERROR"); }
   function setTab(tab) {
+    if (tab === "agent") { openAgent(); return; }
     st.tab = tab;
     modal.querySelectorAll("[data-copilot-tab]").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-copilot-tab") === tab); });
     $("copilot-ask-side").hidden = tab !== "ask"; $("copilot-ask-main").hidden = tab !== "ask";
     $("copilot-reply-side").hidden = tab !== "reply"; $("copilot-reply-main").hidden = tab !== "reply";
-    $("copilot-agent-side").hidden = tab !== "agent"; $("copilot-agent-main").hidden = tab !== "agent";
+    // 「今どの手順にいるか」を上の 1・2・3 に出す
+    modal.querySelectorAll("#copilot-steps li").forEach(function (li) { li.classList.toggle("now", li.getAttribute("data-step") === tab); });
     if (tab === "reply") setTimeout(function () { $("copilot-reply").focus(); }, 0);
-    if (tab === "agent" && !st.agent) loadAgent();
+  }
+  function openAgent() {
+    if (!agentModal) return;
+    PWB.ui.openModal(agentModal);
+    if (!st.agent) loadAgent();
+  }
+  function closeAgent() { if (agentModal) PWB.ui.closeModal(agentModal); }
+  function agentStatus(msg, isErr) {
+    var s = $("copilot-agent-status");
+    if (s) { s.textContent = msg || ""; s.classList.toggle("err", !!isErr); }
+    if (isErr) core().log("Copilot エージェント: " + msg, "ERROR");
   }
   function currentPurpose() { var id = $("copilot-purpose").value; for (var i = 0; i < st.purposes.length; i++) if (st.purposes[i].id === id) return st.purposes[i]; return st.purposes[0] || null; }
   function options() {
@@ -53,7 +68,11 @@ PWB.copilot = (function () {
     var p = currentPurpose();
     var box = $("copilot-options");
     box.innerHTML = "";
+    $("copilot-purpose-outcome").textContent = p ? (p.outcome || "") : "";
     $("copilot-purpose-desc").textContent = p ? (p.description || "") : "";
+    var ex = $("copilot-purpose-example");
+    ex.textContent = p && p.example ? "例: " + p.example : "";
+    ex.hidden = !(p && p.example);
     $("copilot-attach-hint").textContent = p && p.attach_hint ? p.attach_hint : "";
     if (!p || !p.options) return;
     Object.keys(p.options).forEach(function (k) {
@@ -102,7 +121,7 @@ PWB.copilot = (function () {
   function templateId() { var el = document.getElementById("template-select"); return el ? el.value : null; }
 
   function loadAgent() {
-    setStatus("エージェント一式を作成中 …");
+    agentStatus("エージェント一式を作成中 …");
     core().apiJson("/api/copilot/agent-kit/preview?template_id=" + encodeURIComponent(templateId() || "")).then(function (r) {
       st.agent = r;
       $("copilot-agent-instructions").value = r.instructions || "";
@@ -110,16 +129,16 @@ PWB.copilot = (function () {
       if (!$("copilot-agent-desc").value) $("copilot-agent-desc").value = r.agent.description || "";
       var box = $("copilot-agent-files");
       box.innerHTML = "<p class=\"muted\">ナレッジ " + r.files.length + " ファイル</p>" + r.files.map(function (f) { return '<p class="muted">' + esc(f.name) + "（" + f.chars.toLocaleString() + " 文字）</p>"; }).join("");
-      setStatus("「一式を ZIP で保存」で書き出せます。");
-    }).catch(function (e) { setStatus("作成失敗: " + e.message, true); });
+      agentStatus("「一式を ZIP で保存」で書き出せます。");
+    }).catch(function (e) { agentStatus("作成失敗: " + e.message, true); });
   }
 
   function downloadAgent() {
     var body = { template_id: templateId(), agent_name: $("copilot-agent-name").value || null, description: $("copilot-agent-desc").value || null };
     core().api("/api/copilot/agent-kit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(function (r) { return r.blob(); })
-      .then(function (blob) { var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "copilot_agent.zip"; document.body.appendChild(a); a.click(); a.remove(); setStatus("copilot_agent.zip を保存しました。"); })
-      .catch(function (e) { setStatus("保存失敗: " + e.message, true); });
+      .then(function (blob) { var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "copilot_agent.zip"; document.body.appendChild(a); a.click(); a.remove(); agentStatus("copilot_agent.zip を保存しました。"); })
+      .catch(function (e) { agentStatus("保存失敗: " + e.message, true); });
   }
 
   function applyReply() {
@@ -143,8 +162,17 @@ PWB.copilot = (function () {
       } else {
         core().applyImport(r, "Copilot の回答");
       }
-      setStatus(mode === "notes" ? "ノートを " + r.applied + " 件入れました。" : (mode === "merge" ? "差分を反映しました（" + (r.summary || "") + "）。" : "新しい資料として取り込みました（" + r.presentation.slides.length + " 枚）。"));
-      close();
+      var msg = mode === "notes" ? "ノートを " + r.applied + " 件入れました。" : (mode === "merge" ? "差分を反映しました（" + (r.summary || "") + "）。" : "新しい資料として取り込みました（" + r.presentation.slides.length + " 枚）。");
+      // 型が付かなかった・ノートがずれた等は黙って通さず、その場で伝える（警告タブに埋もれさせない）
+      var mine = (r.warnings || []).filter(function (w) { return w && String(w.code || "").indexOf("COPILOT_") === 0; });
+      if (mine.length) {
+        setStatus(msg + " " + mine.map(function (w) { return w.message; }).join(" "), true);
+        mine.forEach(function (w) { core().log("Copilot の回答: " + w.message + (w.fallback ? "（" + w.fallback + "）" : ""), "WARN"); });
+      } else {
+        setStatus(msg);
+        close();
+        return;
+      }
     }).catch(function (e) { setStatus("反映失敗: " + e.message, true); });
   }
 
@@ -160,6 +188,8 @@ PWB.copilot = (function () {
       else if (a === "download-docx") download("/api/copilot/docx", "outline.docx");
       else if (a === "download-zip") download("/api/copilot/handoff.zip", "copilot.zip");
       else if (a === "open-chat") { if (st.chatUrl) window.open(st.chatUrl, "_blank", "noopener"); }
+      else if (a === "open-agent") openAgent();
+      else if (a === "agent-close") closeAgent();
       else if (a === "download-agent") downloadAgent();
       else if (a === "copy-instructions") copyText($("copilot-agent-instructions").value, "指示文");
       else if (a === "apply") applyReply();
@@ -168,6 +198,7 @@ PWB.copilot = (function () {
     }
     var tab = t.closest("[data-copilot-tab]");
     if (tab) { setTab(tab.getAttribute("data-copilot-tab")); if (st.tab === "ask" && !st.built) build(); return; }
+    if (t === agentModal) { closeAgent(); return; }
     if (t === modal) close();
   }
   function onChange(e) {
@@ -175,5 +206,5 @@ PWB.copilot = (function () {
     if (e.target.hasAttribute("data-copilot-opt")) build();
   }
 
-  return { init: init, open: open, close: close, state: function () { return st; }, build: build, fullPrompt: fullPrompt, loadAgent: loadAgent };
+  return { init: init, open: open, close: close, openAgent: openAgent, closeAgent: closeAgent, state: function () { return st; }, build: build, fullPrompt: fullPrompt, loadAgent: loadAgent };
 })();
