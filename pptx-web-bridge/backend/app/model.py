@@ -8,15 +8,18 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .config import get_config
 
 SCHEMA_VERSION = "1.1"
 GENERATOR_NAME = "pptx-web-bridge/0.3.0"
 
 
-def new_presentation(title: str = "", source_type: str = "manual", filename: str = "", template_id: str | None = None) -> dict:
-    cfg = get_config()
-    template = cfg.template(template_id)
+def new_presentation(title: str = "", source_type: str = "manual", filename: str = "") -> dict:
+    """空の資料。
+
+    **配色やフォントは持たせない。** かつてはアプリ既定のテンプレート色を入れていたが、
+    それは読み込んだファイルの色ではないので、渡すと嘘になる（`docs/99`）。
+    実ファイルの見た目は `theme_from_html` / `theme_from_pptx` が別に読む。
+    """
     return {
         "schema_version": SCHEMA_VERSION,
         "meta": {
@@ -26,16 +29,8 @@ def new_presentation(title: str = "", source_type: str = "manual", filename: str
             "generator": GENERATOR_NAME,
             "source": {"type": source_type, "filename": filename},
         },
-        "canvas": {
-            "width_pt": float(cfg.get("canvas.default_width_pt", 960)),
-            "height_pt": float(cfg.get("canvas.default_height_pt", 540)),
-            "aspect": str(cfg.get("canvas.aspect", "16:9")),
-        },
-        "theme": {
-            "template_id": template.get("id", "plain"),
-            "fonts": dict(template.get("fonts", {})),
-            "colors": dict(template.get("colors", {})),
-        },
+        # スライドの実寸。PPTX なら解析時に実際の値へ差し替える（役割の推定に使う）。
+        "canvas": {"width_pt": 960.0, "height_pt": 540.0, "aspect": "16:9"},
         "assets": {},
         "slides": [],
         "warnings": [],

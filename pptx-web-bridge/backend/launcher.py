@@ -63,9 +63,9 @@ def main() -> int:
     no_browser = "--no-browser" in sys.argv or not cfg.get("server.open_browser", True)
 
     print("=" * 60)
-    print(" PPTX <-> Web図解 変換アプリ")
+    print(" 図解プロンプト作成（PowerPoint <-> Web 図解）")
     print(f" URL: {url}")
-    print(f" 保存先: {ROOT_DIR / 'projects'}  出力: {ROOT_DIR / 'output'}  ログ: {ROOT_DIR / 'logs'}")
+    print(f" ログ: {ROOT_DIR / 'logs'}")
     print(" 終了するには この窓を閉じるか Ctrl+C を押してください")
     print("=" * 60, flush=True)
     log.info("起動: %s (frozen=%s, root=%s)", url, getattr(sys, "frozen", False), ROOT_DIR)

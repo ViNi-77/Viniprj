@@ -40,10 +40,6 @@ if "%NEED_INSTALL%"=="1" (
   "%VPY%" -m pip install --upgrade pip >nul
   "%VPY%" -m pip install -r requirements.txt || (echo 依存パッケージの導入に失敗しました。ネットワーク（プロキシ）設定を確認してください。 & pause & exit /b 1)
   type nul > "%VENV%\.deps_installed"
-  if not "%SKIP_PLAYWRIGHT_INSTALL%"=="1" (
-    echo 見た目優先モード用のブラウザを導入します（失敗しても編集性優先モードで動作します）
-    "%VPY%" -m playwright install chromium || echo Playwright のブラウザ導入に失敗しました。見た目優先モードは編集性優先へ代替されます。
-  )
 )
 
 if "%~1"=="--setup-only" (echo セットアップ完了 & exit /b 0)

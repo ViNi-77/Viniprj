@@ -1,7 +1,7 @@
 """ループエンジニアリング用の一括検査コマンド。
 
 1 回の反復（Issue → 実装 → 検査 → レビュー → 記録）のうち「検査」と「記録」を 1 コマンドで行う。
-  python scripts/loop.py                 # 全工程（サンプル生成 → 単体・API → 模擬PPTX検査 → E2E → 要約）
+  python scripts/loop.py                 # 全工程（資料生成 → 単体・API → 通し検査 → 画面検査 → 要約）
   python scripts/loop.py --quick         # 単体・API のみ（実装中の高速反復）
   python scripts/loop.py --issue 12      # 記録に Issue 番号を残す
 結果は docs/ループ実行記録.md に追記し、終了コードで合否を返す（CI と共用）。
@@ -76,12 +76,10 @@ def main() -> int:
     results: list[tuple[str, bool, str]] = []
     if not (ROOT / "samples" / "sample_deck.pptx").exists():
         results.append(run("サンプル PPTX 生成", [py, "samples/make_sample_pptx.py"]))
+    results.append(run("HTML 図解テーマ生成", [py, "samples/make_html_themes.py"]))
     results.append(run("単体・API 試験 (pytest)", [py, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--override-ini=addopts=", "tests"]))
     if not args.quick:
-        results.append(run("模擬 12 枚 PPTX 生成", [py, "mock-pptx/src/generate_mock_pptx.py"]))
-        results.append(run("模擬 12 枚 自動検査", [py, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--override-ini=addopts=", "mock-pptx/tests"]))
-        results.append(run("模擬 12 枚 検査記録・プレビュー", [py, "mock-pptx/src/validate_mock_pptx.py"]))
-        results.append(run("往復 E2E", [py, "scripts/run_e2e.py"]))
+        results.append(run("通し検査 E2E（投入 → 仕様 → プロンプト → 一式）", [py, "scripts/run_e2e.py"]))
         results.append(run("UI スモーク (Playwright、無ければ skip)", [py, "scripts/ui_smoke.py"], timeout=600))
     ok_all = all(ok for _n, ok, _s in results)
     line = f"| {datetime.now().isoformat(timespec='minutes')} | {git_head()} | {('#' + args.issue) if args.issue else ''} | {'quick' if args.quick else 'full'} | {'合格' if ok_all else '不合格'} | " + " / ".join(f"{n}: {s}" for n, _ok, s in results) + " |"

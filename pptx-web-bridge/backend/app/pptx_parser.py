@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import contextvars
 import hashlib
+import re
 import io
 from contextlib import contextmanager
 from typing import Any, Iterator
@@ -100,7 +101,12 @@ def _placeholder_type(shape: Any) -> Any:
 
 
 _NAME_ROLE_PREFIXES = ("title", "subtitle", "body", "caption", "card", "footer", "header")
-from .template_kit import is_chrome_name as _is_chrome_name
+# このアプリが過去に出力した PPTX のテンプレート部品名。再読込時に中身として拾わない。
+_CHROME_NAME_RE = re.compile(r"^(footer|page_number|confidential|logo|bar|cover_background|decor)\d*$")
+
+
+def _is_chrome_name(name: str | None) -> bool:
+    return bool(name) and bool(_CHROME_NAME_RE.match(str(name)))
 
 
 def _role_from_name(shape: Any) -> str | None:
@@ -749,7 +755,7 @@ def _parse_slide_shapes(slide: Any, sd: dict, ctx: "_Ctx", presentation: dict, i
     sd["_has_title_ph"], sd["_has_subtitle"] = has_title_ph, has_subtitle
 
 
-def parse_pptx(data: bytes, filename: str = "input.pptx", template_id: str | None = None) -> dict:
+def parse_pptx(data: bytes, filename: str = "input.pptx") -> dict:
     """PPTX バイト列を Presentation JSON へ変換する。"""
     prs = Presentation(io.BytesIO(data))
     title = ""
@@ -757,7 +763,7 @@ def parse_pptx(data: bytes, filename: str = "input.pptx", template_id: str | Non
         title = prs.core_properties.title or ""
     except Exception:  # noqa: BLE001
         title = ""
-    presentation = new_presentation(title=title, source_type="pptx", filename=filename, template_id=template_id)
+    presentation = new_presentation(title=title, source_type="pptx", filename=filename)
     presentation["canvas"]["width_pt"] = round(emu_to_pt(prs.slide_width), 2)
     presentation["canvas"]["height_pt"] = round(emu_to_pt(prs.slide_height), 2)
     ratio = presentation["canvas"]["width_pt"] / presentation["canvas"]["height_pt"]

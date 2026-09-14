@@ -1,84 +1,23 @@
 {
-  "_comment": "アプリ全体設定。コードへ値を固定せず、ここを書き換えて挙動を変える。",
+  "_comment": "このアプリの既定値。描画はしないので、寸法・レイアウトの設定は持たない（読み取りと受け渡しだけ）。",
   "server": {
     "host": "127.0.0.1",
     "port": 8765,
     "open_browser": true
   },
   "paths": {
-    "projects_dir": "projects",
-    "output_dir": "output",
-    "logs_dir": "logs",
-    "templates_file": "config/templates.json",
-    "font_fallback_file": "config/font_fallback.json",
-    "schema_file": "schema/presentation.schema.json",
-    "user_templates_file": "config/user_templates.json",
-    "user_template_assets_dir": "config/template_assets/user",
-    "copilot_prompts_file": "config/copilot_prompts.json"
+    "logs_dir": "logs"
   },
   "limits": {
     "max_upload_mb": 50,
-    "max_slides": 300,
-    "max_elements_per_slide": 200
-  },
-  "canvas": {
-    "default_width_pt": 960,
-    "default_height_pt": 540,
-    "aspect": "16:9"
-  },
-  "layout": {
-    "margin_pt": 36,
-    "gutter_pt": 18,
-    "title_height_pt": 64,
-    "title_font_pt": 28,
-    "body_font_pt": 16,
-    "caption_font_pt": 12,
-    "line_height_ratio": 1.35,
-    "cjk_char_width_ratio": 1.0,
-    "latin_char_width_ratio": 0.55,
-    "max_columns": 3,
-    "_comment_sizes": "size_bands: 役割ごとの許容サイズ帯（pt）。継承値だけをこの帯へ丸める。autofit_steps: 分割前に試す縮小率。",
-    "size_bands": {"title": [24, 36], "subtitle": [16, 24], "body": [12, 20], "caption": [9, 14], "card": [11, 18]},
-    "image_max_height_ratio": 0.45,
-    "image_min_height_pt": 120,
-    "image_side_weight": 0.4,
-    "autofit_steps": [1.0, 0.95, 0.9, 0.85],
-    "autofit_min_scale": 0.85,
-    "split_min_remaining_ratio": 0.25,
-    "diagram_min_height_pt": 140,
-    "diagram_max_height_ratio": 0.55,
-    "band_max_chars": 80,
-    "keep_with_next_max_chars": 40
-  },
-  "rasterize": {
-    "_comment": "同梱 Chromium が無い場合に使う OS 標準ブラウザ（Playwright の channel 名）。exe 配布版は msedge を使う。",
-    "channels": ["msedge", "chrome"]
-  },
-  "pptx_export": {
-    "default_mode": "editable",
-    "modes": ["editable", "visual", "hybrid"],
-    "visual_render_scale": 2
+    "max_slides": 300
   },
   "html_import": {
-    "use_computed_style": true,
-    "viewport_width": 1280,
-    "viewport_height": 900,
-    "render_timeout_ms": 10000
-  },
-  "web_export": {
-    "bundle_dir_name": "web",
-    "viewer_title_suffix": " | Web図解",
-    "flow_breakpoint_px": 720
-  },
-  "quality": {
-    "text_overflow_ratio_warn": 1.0,
-    "overlap_area_ratio_warn": 0.15,
-    "image_aspect_tolerance": 0.03
+    "max_columns": 3
   },
   "copilot": {
     "chat_url": "https://m365.cloud.microsoft/chat",
-    "max_chars": 60000,
-    "image_note": true
+    "max_prompt_chars": 12000
   },
   "logging": {
     "level": "INFO",

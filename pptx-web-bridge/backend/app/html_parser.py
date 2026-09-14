@@ -22,11 +22,19 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 
 from .config import get_config
 from .ids import IdFactory
-from .layout import make_title_slide
 from .logging_setup import get_logger
 from .model import add_warning, cell, image_element, new_presentation, new_slide, paragraph, run, shape_element, table_element, text_element, warning
 
+
 log = get_logger("html_parser")
+
+def make_title_slide(slide_id: str, index: int, title: str, subtitle: str | None = None) -> dict:
+    """表紙スライドの雛形（先頭の h1 を表紙として扱うときに使う）。"""
+    s = new_slide(slide_id, index, layout="title", title=title)
+    s["elements"].append(text_element(f"{slide_id}_title", [paragraph([run(title, bold=True)], align="center")], role="title"))
+    if subtitle:
+        s["elements"].append(text_element(f"{slide_id}_sub", [paragraph([run(subtitle)], align="center")], role="subtitle"))
+    return s
 
 _SKIP_TAGS = {"script", "style", "noscript", "nav", "header", "footer", "template", "svg", "iframe", "button", "form", "input"}
 _CARD_CLASS = re.compile(r"(^|[\s_-])(card|panel|box|tile|item)([\s_-]|$)", re.I)
@@ -35,6 +43,12 @@ _SLIDE_CLASS = re.compile(r"(^|[\s_-])(slide|page)([\s_-]|$)", re.I)
 _SUBTITLE_CLASS = re.compile(r"(^|[\s_-])(lead|subtitle|sub|tagline|caption)([\s_-]|$)", re.I)
 _WS = re.compile(r"\s+")
 _PX_PER_PT = 96 / 72
+
+# 「横に並ぶか」「短い見出しか」を判断するためだけの目安。描画はしないので、
+# 画面寸法ではなく固定の物差しで足りる（16:9 の 960×540pt から余白 36pt を引いた幅）。
+_CONTENT_W_PT = 888.0
+_BAND_MAX_CHARS = 80
+_KEEP_WITH_NEXT_MAX_CHARS = 40
 
 
 def css_color_to_hex(value: str | None) -> str | None:
@@ -348,17 +362,16 @@ def _card_element(ctx: _Ctx, card: Tag, column: int, columns: int, slide: dict) 
         text = _clean(card.get_text(" "))
         if text:
             paras.append(paragraph([run(text)]))
-    colors = ctx.presentation["theme"].get("colors", {})
     out: list[dict] = []
     if paras:
         cs = ctx.style_of(card)
-        fill = css_color_to_hex(cs.get("background-color")) or colors.get("surface", "#F4F6F9")
+        fill = css_color_to_hex(cs.get("background-color"))
         stroke = css_color_to_hex(cs.get("border-top-color")) if css_px_to_pt(cs.get("border-top-width")) else None
         hint: dict[str, Any] = {"column": column, "columns": columns}
         chars = sum(len(r.get("text", "")) for p in paras for r in p.get("runs", []))
-        if columns == 1 and chars < int(get_config().get("layout.band_max_chars", 80)):
+        if columns == 1 and chars < _BAND_MAX_CHARS:
             hint["band"] = True  # 短文の帯（見出し帯など）: 最小高さを抑える
-        out.append(shape_element(ctx.ids.next("el"), "rounded_rect", None, fill=fill, stroke=stroke or colors.get("line", "#C9D1DB"), stroke_width_pt=1.0, paragraphs=paras, role="card", layout_hint=hint, vertical_align="top"))
+        out.append(shape_element(ctx.ids.next("el"), "rounded_rect", None, fill=fill, stroke=stroke, stroke_width_pt=1.0, paragraphs=paras, role="card", layout_hint=hint, vertical_align="top"))
     out.extend(extra)
     return out
 
@@ -464,7 +477,7 @@ def _walk_block(node: Tag, ctx: _Ctx, slide: dict, max_columns: int) -> list[dic
             if p:
                 for r in p["runs"]:
                     r["bold"] = True
-                short = sum(len(r.get("text", "")) for r in p["runs"]) <= int(get_config().get("layout.keep_with_next_max_chars", 40))
+                short = sum(len(r.get("text", "")) for r in p["runs"]) <= _KEEP_WITH_NEXT_MAX_CHARS
                 out.append(text_element(ctx.ids.next("el"), [p], role="body", layout_hint={"keep_with_next": True} if short else None))
         elif name == "p":
             p = ctx.styled(_para_from(child), child)
@@ -493,8 +506,7 @@ def _walk_block(node: Tag, ctx: _Ctx, slide: dict, max_columns: int) -> list[dic
         elif name == "blockquote":
             paras = [p for p in (_para_from(x) for x in child.find_all("p")) if p] or ([_para_from(child)] if _para_from(child) else [])
             if paras:
-                colors = ctx.presentation["theme"].get("colors", {})
-                out.append(shape_element(ctx.ids.next("el"), "rect", None, fill=colors.get("surface"), stroke=colors.get("accent"), stroke_width_pt=2.0, paragraphs=paras, role="body"))
+                out.append(shape_element(ctx.ids.next("el"), "rect", None, paragraphs=paras, role="body"))
         elif name in ("pre", "code"):
             text = child.get_text("\n").rstrip()
             if text:
@@ -511,8 +523,7 @@ def _walk_block(node: Tag, ctx: _Ctx, slide: dict, max_columns: int) -> list[dic
         elif name in ("div", "section", "article", "main", "body", "aside", "details", "summary", "span", "li", "dl", "dd", "dt", "small"):
             out.extend(_walk_block(child, ctx, slide, max_columns))
         elif name in ("hr",):
-            colors = ctx.presentation["theme"].get("colors", {})
-            out.append({"id": ctx.ids.next("el"), "type": "line", "role": None, "bbox": None, "points": None, "stroke": colors.get("line", "#C9D1DB"), "stroke_width_pt": 1.0, "editable": True})
+            out.append({"id": ctx.ids.next("el"), "type": "line", "role": None, "bbox": None, "points": None, "stroke": None, "stroke_width_pt": 1.0, "editable": True})
         else:
             # 未知タグは中身をたどる（テキストを失わない）
             out.extend(_walk_block(child, ctx, slide, max_columns))
@@ -541,29 +552,22 @@ def _split_by_headings(body: Tag) -> list[list[Tag | NavigableString]]:
     return [g for g in groups if any(isinstance(c, Tag) or _clean(str(c)) for c in g)]
 
 
-def parse_html(data: bytes | str, filename: str = "input.html", files: dict[str, bytes] | None = None, template_id: str | None = None, max_columns: int | None = None, computed_style: bool | None = None) -> dict:
-    """HTML を Presentation JSON へ変換する。bbox は付けず、layout_presentation で確定させる。
+def parse_html(data: bytes | str, filename: str = "input.html", files: dict[str, bytes] | None = None, max_columns: int | None = None, computed_style: bool | None = None) -> dict:
+    """HTML を Presentation JSON へ変換する。座標は持たせない（このアプリは描画しないため）。
 
-    computed_style: True なら Playwright で Computed Style（色・サイズ・太字）を取得して補う（Issue #6）。
-    None なら設定 html_import.use_computed_style に従う。取得できない環境では静的解析のみで続行する。
+    `computed_style` は受け取るだけで使わない。以前はブラウザ（Playwright）で Computed Style を
+    取り、色やサイズを補っていたが、見た目は `theme_from_html` が CSS を直接読んで
+    プロンプトに書くようになったので、ブラウザを起動する理由が無くなった。
+    引数は呼び出し側の互換のために残している。
     """
     cfg = get_config()
-    max_columns = int(max_columns or cfg.get("layout.max_columns", 3))
+    max_columns = int(max_columns or cfg.get("html_import.max_columns", 3))
     html_text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
     soup = BeautifulSoup(html_text, "lxml")
     tag_elements(soup)
     doc_title = _clean(soup.title.get_text()) if soup.title else ""
-    presentation = new_presentation(title=doc_title, source_type="html", filename=filename, template_id=template_id)
+    presentation = new_presentation(title=doc_title, source_type="html", filename=filename)
     ctx = _Ctx(presentation, files or {}, filename.replace("\\", "/"))
-    use_cs = bool(cfg.get("html_import.use_computed_style", True)) if computed_style is None else bool(computed_style)
-    if use_cs:
-        from .rasterize import collect_computed_styles
-
-        ctx.styles, reason = collect_computed_styles(str(soup), files or {}, filename.replace("\\", "/"))
-        if not ctx.styles:
-            add_warning(presentation, warning("html_parser", "COMPUTED_STYLE_UNAVAILABLE", f"ブラウザによるスタイル取得ができないため、HTML 内の色・サイズは反映されません（{reason or '要素なし'}）。", None, None, "静的解析のみ"))
-        elif soup.body is not None:
-            ctx.default_style = ctx.style_of(soup.body)
     body = soup.body or soup
 
     containers = _find_slide_containers(soup)
@@ -585,7 +589,7 @@ def parse_html(data: bytes | str, filename: str = "input.html", files: dict[str,
         if not groups:
             add_warning(presentation, warning("html_parser", "NO_CONTENT", "本文を見つけられませんでした。", None, None, "空の資料"))
 
-    content_w = float(presentation["canvas"]["width_pt"]) - 2 * float(cfg.get("layout.margin_pt", 36))
+    content_w = _CONTENT_W_PT
     body_bg = css_color_to_hex(ctx.default_style.get("background-color")) if ctx.default_style else None
     for gi, group in enumerate(groups):
         slide = new_slide(ctx.ids.next("s"), len(presentation["slides"]))

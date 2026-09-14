@@ -22,7 +22,7 @@ def test_version_api_reports_build_and_features(client: TestClient):
     assert v["schema_version"] == SCHEMA_VERSION
     assert v["commit"]
     ids = [f["id"] for f in v["features"]]
-    assert {"diagrams", "merge_import", "copilot_agent_kit"} <= set(ids)
+    assert {"read_spec", "prompt_to_pptx", "prompt_to_html"} <= set(ids)
     for f in v["features"]:
         assert f["phase"] and f["name"] and f["hint"]
 
@@ -35,7 +35,7 @@ def test_config_also_carries_the_build(client: TestClient):
 def test_page_marks_assets_with_the_build_tag(client: TestClient):
     r = client.get("/")
     assert r.headers["cache-control"] == "no-store, must-revalidate"
-    refs = re.findall(r'(?:src|href)="(/(?:static|viewer)/[^"]+)"', r.text)
+    refs = [x for x in re.findall(r'(?:src|href)="(/static/[^"]+)"', r.text)]
     assert refs, "画面ファイルの参照が見つからない"
     tag = version_mod.asset_tag()
     assert all(ref.endswith(f"?v={tag}") for ref in refs), refs[:3]

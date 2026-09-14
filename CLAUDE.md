@@ -4,7 +4,7 @@
 
 | フォルダ | 中身 | 主な入口 |
 |---|---|---|
-| `pptx-web-bridge/` | PowerPoint ⇄ Web図解 双方向変換アプリ（FastAPI + 素の JS、ローカル起動） | `start_windows.bat` / `./start.sh` / exe 版 |
+| `pptx-web-bridge/` | **図解プロンプト作成**アプリ（FastAPI + 素の JS、ローカル起動）。PowerPoint / HTML 図解を読み取り、Copilot に貼る指示文を作る。**図解を描くのは Copilot で、このアプリではない** | `start_windows.bat` / `./start.sh` / exe 版 |
 | `copilot-context-generator/` | M365 Copilot 用ナレッジ生成ツール（contextgen） | `work1_improvement/` が本体、`work2_cross_ai/` が横展開 |
 
 現在地・完了範囲・未実施の手動確認は **[`pptx-web-bridge/docs/11_引き継ぎ.md`](pptx-web-bridge/docs/11_引き継ぎ.md)** を先に読む。
@@ -17,7 +17,7 @@
 cd pptx-web-bridge && python scripts/loop.py
 ```
 
-pytest → 模擬 12 枚 PPTX の生成と検査 → 往復 E2E → UI スモーク（Playwright）を順に回し、1 つでも落ちたら `=== 不合格: 修正して再実行 ===` で止まる。**全部緑になるまでコミットしない。** 実装中の高速反復は `--quick`（pytest だけ）、記録に Issue を残すなら `--issue X`。
+試験資料の生成 → pytest → 通し検査（投入 → 図解仕様 → プロンプト → 一式）→ 画面検査（Playwright）を順に回し、1 つでも落ちたら `=== 不合格: 修正して再実行 ===` で止まる。**全部緑になるまでコミットしない。** 実装中の高速反復は `--quick`（pytest だけ）、記録に Issue を残すなら `--issue X`。
 
 「試験が落ちたから試験を飛ばす／無効にする」は禁止。落ちた理由を直す。
 
@@ -53,9 +53,9 @@ git -c user.name="ViNi-77" -c user.email="103969841+ViNi-77@users.noreply.github
 
 ## 5. この環境の制約（引っかかりやすい順）
 
-- **CDN が塞がれている。** `cdn.jsdelivr.net` / `unpkg` / `cdnjs` は proxy が 403 を返す。フロントの外部ライブラリは `registry.npmjs.org` の tarball から取って **`frontend/vendor/` に同梱**する（現在: Pico.css 2.0.6 / Split.js 1.6.5。ライセンスは同フォルダの README に）。
-- **Playwright のブラウザは `/opt/pw-browsers` に入っている。`playwright install` を実行しない**（`PLAYWRIGHT_BROWSERS_PATH` が設定済み）。
-- **exe には Playwright を同梱しない**（`packaging/pptx-web-bridge.spec` の `excludes`）。Node.js ドライバが約 120MB あり、配布物が肥大化して展開先のパス長・ウイルス対策の誤検知を招く。無ければ `rasterize.is_available()` が False を返して編集性優先モードへ自動代替されるので機能は落ちない。
+- **CDN が塞がれている。** `cdn.jsdelivr.net` / `unpkg` / `cdnjs` は proxy が 403 を返す。フロントの外部ライブラリは `registry.npmjs.org` の tarball から取って **`frontend/vendor/` に同梱**する（現在: Pico.css 2.0.6。ライセンスは同フォルダの README に）。
+- **Playwright のブラウザは `/opt/pw-browsers` に入っている。`playwright install` を実行しない**（`PLAYWRIGHT_BROWSERS_PATH` が設定済み）。Playwright の版とブラウザの版がずれていることがあるので、`scripts/ui_smoke.py` は実行ファイルを自分で探して `executable_path` で起動する。
+- **exe には Playwright を同梱しない**（`packaging/pptx-web-bridge.spec`）。Node.js ドライバが約 120MB あり、配布物が肥大化して展開先のパス長・ウイルス対策の誤検知を招く。そもそもアプリ本体（読み取りとプロンプト生成）はブラウザを使わない。要るのは開発時の画面検査だけ。
 - タグの push と `workflow_dispatch` は権限が足りず 403 になることがある。exe は `build-windows` が `main` への push で自動実行し、`dist/windows` ブランチに最新 1 件が置かれるので、そこから取る。
 
 ## 6. 画面の受入ライン
@@ -64,8 +64,8 @@ git -c user.name="ViNi-77" -c user.email="103969841+ViNi-77@users.noreply.github
 
 - 文字・ボタンが切れないこと、横スクロールが出ないことが受入条件。`scripts/ui_smoke.py` の `laptop_checks` が 1366×768@125%（1093×614 CSS px）と 1920×1080@150%（1280×720 CSS px）の 2 構成で守っている。
 - CSS は px 固定にしない。`rem` / `clamp()` / `dvh` を使い、寸法の土台は Pico.css の CSS 変数に乗せる。
-- モーダルは `<dialog>`。**保存・キャンセルは `<footer>` に固定**し、スクロールするのは本文だけ（`frontend/ui.js` の `openModal` / `bindModal`）。過去に「保存ボタンが見切れてスクロールもできない」で使えなくなっている。
-- キャンバスの拡縮は `ResizeObserver` に任せる（手で `fit()` を呼ぶ設計にしない）。
+- モーダルは `<dialog>`。**閉じるボタンは見出し行に固定**し、スクロールするのは本文だけ。過去に「保存ボタンが見切れてスクロールもできない」で使えなくなっている。
+- 画面は 1 本道（投入 → 確かめる → 見た目 → 渡す）。段を増やしたくなったら、まず既存の段に入らないか考える。
 
 ## 7. 機密の扱い
 
@@ -79,8 +79,8 @@ git -c user.name="ViNi-77" -c user.email="103969841+ViNi-77@users.noreply.github
 | 番号 | 中身 | 更新するとき |
 |---|---|---|
 | 00–01 | 初回レビュー / 要件定義 | 要件が変わったとき |
-| 02 | Presentation JSON 仕様 | スキーマにフィールドを足したとき |
-| 03 | 変換マッピング仕様 | 取込・出力・着せ替えの規則を変えたとき |
+| 02 | Presentation JSON 仕様（解析器の内部形式） | 解析器の出力にフィールドを足したとき |
+| 03 | 読み取りとプロンプト生成の仕様 | 型の当て方・テーマの読み方・プロンプトの文面を変えたとき |
 | 04 | 受入試験仕様 | 試験を足したとき（自動化欄に試験名を書く） |
 | 05 | AI 開発指示書 | 役割・禁止事項を変えたとき |
 | 06 | 起動方式比較 | 配布・起動の方式を変えたとき |
@@ -91,12 +91,24 @@ git -c user.name="ViNi-77" -c user.email="103969841+ViNi-77@users.noreply.github
 | 11 | 引き継ぎ | 現在地が変わったとき（版・完了範囲・残り） |
 | 99 | 意思決定ログ | **判断したら必ず 1 行足す**（日付・版・決めたこと・理由・却下案・裏付けの試験） |
 
-`docs/ループ実行記録.md` と `docs/試験結果.md` は `scripts/loop.py` が自動で追記するので手で書かない。
+`docs/ループ実行記録.md` と `docs/試験結果.md` は `scripts/loop.py` / `scripts/run_e2e.py` が自動で書くので手で書かない。
+
+`docs/00` と `docs/08` は当時の記録。Phase P で消えた機能の説明が残っているが、履歴として触らない。
 
 ## 9. 設計の土台（変えるときは 99 に理由を残す）
 
-- **描画器は 1 つだけ**。`backend/app/web_renderer.slide_html` が出した HTML 断片を、そのままキャンバス・サムネイル・ビューアで使う。JS 側に描画を持たない（二重実装を避けるため）。
-- **文字サイズの決め方は `typography.py` に一本化**。役割ごとの帯域にクランプし、明示値は触らない。ここを迂回して個別に既定値を持たない。
-- **図解は要素を増やさない**。`kind: "diagram"` 1 つに `{type, items[]}` を持たせ、描画・出力時に `diagrams.expand_diagram()` でプリミティブへ展開する。
-- **着せ替えは必ず元に戻せる**（`restyle.py` の `meta.original_style` → `unstyle()`）。冪等（`meta.restyled_with`）。
-- **テンプレート推定は必ず外れる前提**。UI の表で役割を変えられるようにしておく（`set_part_role`）。推定規則を増やし続けて精度で殴らない。
+- **このアプリは図解を描かない。** 描くのは Copilot。アプリの仕事は、読み取って「何をどう作ってほしいか」を
+  漏れなく言葉にすることだけ。描画・レイアウト・着せ替えを作り直したくなったら、まず `docs/99` の
+  2026-09-14 を読む（一度その方向で作り、丸ごと畳んでいる）。
+- **見た目を語る場所は 1 つだけ。** プロンプトのテーマ欄に書き、図解仕様（YAML）には書かない。
+  2 か所に書くと必ず食い違う。
+- **実ファイルから読めない色は書かない。** アプリ既定のテンプレート色を渡すのは、外れるより悪い（嘘になる）。
+  `presentation["theme"]` は廃止済み。色は `theme_from_html` / `theme_from_pptx` が実ファイルから読む。
+- **文言は一字も変えない。** 要約・言い換え・並べ替えは Copilot の仕事。解析側でやらない。
+- **型の推定は必ず外れる前提。** 判定理由（`kind_reason`）を必ず添え、画面の表で直せるようにする。
+  推定規則を増やし続けて精度で殴らない。型の語彙は `diagrams.TYPES` が正で、画面もプロンプトもそこだけを見る。
+- **黙って失敗しない。** 落とした要素・読めなかった CSS・切り詰めたプロンプトは、必ず警告として画面に出す。
+  「部品が 5 個しか出ない」で信頼を失った原因は精度ではなく無言の失敗だった。
+- **型ごとの作り方をプロンプトに必ず書く。** 「いい感じに」では毎回違うものが出る。
+  ただしその資料に出てくる型だけ書く（使わない型の説明で薄めない）。
+- **画像はプロンプトに埋め込まない。** ファイル名で参照させ、実体は一式 ZIP に入れて利用者に添付してもらう。

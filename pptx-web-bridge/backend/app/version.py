@@ -15,24 +15,16 @@ from pathlib import Path
 from .config import ROOT_DIR, resource_path
 from .model import SCHEMA_VERSION
 
-APP_VERSION = "0.5.4"
+APP_VERSION = "0.6.0"
 
 # 画面に出す「この版に入っている機能」。増えた機能はここに足す（UI はこれをそのまま並べる）
 FEATURES: list[dict[str, str]] = [
-    {"id": "layout_quality", "phase": "A", "name": "レイアウト品質", "hint": "文字サイズの帯域・画像の横並び・分割の抑制"},
-    {"id": "edit_ui", "phase": "B", "name": "編集 UI", "hint": "プレビュー上でドラッグ・リサイズ・取り消し"},
-    {"id": "template_from_pptx", "phase": "C", "name": "PPTX からテンプレート作成", "hint": "表紙・中身・最終ページの 3 枚を読んで部品を推定"},
-    {"id": "copilot_handoff", "phase": "D", "name": "Copilot で下書きを作る", "hint": "Markdown / Word / 一式を渡し、回答を資料に戻す"},
-    {"id": "copilot_agent_kit", "phase": "E", "name": "Copilot エージェント一式", "hint": "定義・指示文・ナレッジを ZIP で書き出す"},
-    {"id": "diagrams", "phase": "F", "name": "図解部品", "hint": "フロー / カード / 比較 / 数値 / 年表"},
-    {"id": "merge_import", "phase": "G", "name": "差分マージ再取込", "hint": "編集を残して変わったところだけ反映"},
-    {"id": "ui_foundation", "phase": "H", "name": "画面基盤（ノート PC 対応）", "hint": "Pico.css / <dialog> / Split.js。125〜150% 表示でも切れない"},
-    {"id": "template_detect", "phase": "I", "name": "テンプレート推定の精度", "hint": "帯は形で判定、色見本・装飾は部品にしない、役割を画面で変えられる"},
-    {"id": "template_restyle", "phase": "J", "name": "テンプレートの着せ替え", "hint": "色・フォント・題名・背景をテンプレートにそろえる（元に戻せる）"},
-    {"id": "color_fidelity", "phase": "K", "name": "色の再現", "hint": "「明るく / 暗く」や shade / tint を PowerPoint と同じ色で取り込む"},
-    {"id": "template_compare", "phase": "L", "name": "元と見比べる", "hint": "テンプレート推定の隣に元のスライドを出し、落ちた部品と理由を必ず表示する"},
-    {"id": "copilot_clarity", "phase": "M", "name": "Copilot の用途を明示", "hint": "何が出来上がるかを先に出し、読み取れなかった型・ノートを黙って通さない"},
-    {"id": "template_from_layout", "phase": "N", "name": "レイアウトを直接読む", "hint": "スライドマスター / レイアウトの装飾をそのまま使う（推測しない）。無ければ理由を出して推測方式へ"},
+    {"id": "read_spec", "phase": "P", "name": "中身を読み取る", "hint": "PowerPoint / HTML 図解から、文章と構造を分けた「図解仕様」を作る"},
+    {"id": "kind_override", "phase": "P", "name": "型を直せる", "hint": "推定した型（フロー / カード / 比較 / 数値 / 年表…）と判定理由を出し、画面で変えられる"},
+    {"id": "theme_read", "phase": "P", "name": "見た目を読み取る", "hint": "PowerPoint のテーマ色と、HTML 図解テーマの配色・フォント・角丸を取り出す"},
+    {"id": "prompt_to_pptx", "phase": "P", "name": "PowerPoint 化のプロンプト", "hint": "HTML 図解 → Copilot in PowerPoint に貼る指示文"},
+    {"id": "prompt_to_html", "phase": "P", "name": "HTML 図解化のプロンプト", "hint": "PowerPoint → ふつうの Copilot チャットに貼る指示文"},
+    {"id": "handoff_pack", "phase": "P", "name": "受け渡し一式", "hint": "プロンプト・図解仕様・Word 構成・画像を ZIP にまとめる"},
 ]
 
 _BUILD_INFO_NAME = "build_info.json"

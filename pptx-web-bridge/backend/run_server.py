@@ -86,7 +86,7 @@ def main() -> None:
     port = pick_port(host, int(cfg.get("server.port", 8765)), log)
     url = f"http://{host}:{port}/"
     log.info("起動: %s %s (config=%s)", url, version.label(), cfg.config_path)
-    print(f"\n  PPTX ⇄ Web図解 変換アプリ {version.label()}\n  {url}\n", flush=True)
+    print(f"\n  図解プロンプト作成（PowerPoint ⇄ Web 図解） {version.label()}\n  {url}\n", flush=True)
     if cfg.get("server.open_browser", True) and "--no-browser" not in sys.argv:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     uvicorn.run("app.main:app", host=host, port=port, log_level="info", reload="--reload" in sys.argv)
