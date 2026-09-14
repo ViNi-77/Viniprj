@@ -40,7 +40,7 @@ jobs:
           pip install pyinstaller
       - name: exe ビルド
         run: python packaging/build_exe.py
-      - name: 起動スモークテスト（exe を起動して /api/health を確認）
+      - name: 起動スモークテスト（exe を起動し、読み取り → プロンプト生成まで通す）
         shell: pwsh
         run: |
           $p = Start-Process -FilePath "dist\pptx-web-bridge\pptx-web-bridge.exe" -ArgumentList "--no-browser" -PassThru -NoNewWindow
@@ -52,10 +52,14 @@ jobs:
           if ($ok) {
             $cfg = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/api/config
             Write-Host $cfg.Content
-            # サンプル PPTX を取込→PPTX 出力まで通す
+            # サンプル PPTX を読み取り → 図解仕様 → プロンプトまで通す
             $f = Get-Item "dist\pptx-web-bridge\samples\sample_deck.pptx"
-            $resp = curl.exe -s -F "file=@$($f.FullName)" http://127.0.0.1:8765/api/import/pptx
-            if (-not $resp.Contains('"slides"')) { Write-Error "取込に失敗: $resp" }
+            $resp = curl.exe -s -F "file=@$($f.FullName)" http://127.0.0.1:8765/api/analyze
+            if (-not $resp.Contains('"spec"')) { Write-Error "読み取りに失敗: $resp" }
+            $sid = ($resp | ConvertFrom-Json).session_id
+            $body = @{ session_id = $sid; direction = "to_html" } | ConvertTo-Json -Compress
+            $pr = curl.exe -s -H "Content-Type: application/json" -d $body http://127.0.0.1:8765/api/prompt
+            if (-not $pr.Contains('"prompt"')) { Write-Error "プロンプト生成に失敗: $pr" }
           }
           Stop-Process -Id $p.Id -Force
           if (-not $ok) { Get-Content dist\pptx-web-bridge\logs\app.log -ErrorAction SilentlyContinue; Write-Error "exe が起動しませんでした" }
