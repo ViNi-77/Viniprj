@@ -26,10 +26,6 @@ if [ ! -f "$VENV_DIR/.deps_installed" ] || [ requirements.txt -nt "$VENV_DIR/.de
   pip install --upgrade pip >/dev/null
   pip install -r requirements.txt
   touch "$VENV_DIR/.deps_installed"
-  # 見た目優先モード用のブラウザ。失敗しても編集性優先モードで動作する。
-  if [ "${SKIP_PLAYWRIGHT_INSTALL:-0}" != "1" ]; then
-    python -m playwright install chromium || echo "Playwright のブラウザ導入に失敗しました。見た目優先モードは編集性優先へ代替されます。"
-  fi
 fi
 
 if [ "${1:-}" = "--setup-only" ]; then

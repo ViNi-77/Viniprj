@@ -1,831 +1,361 @@
-/**
- * アプリ UI ロジック（素の JavaScript）。司令塔として、状態・API・各モジュール（ui / canvas / inspector / slidelist / history）をつなぐ。
+/* 図解プロンプト作成 — 画面。
  *
- * 設計基準の反映:
- * - 状態は state.presentation（Presentation JSON）1 つに集約し、編集は必ずここを書き換えてから描画する。
- * - 座標計算・ファイル生成・スライドの描画はローカル API に任せる（描画器は web_renderer の 1 つだけ）。
- *   キャンバスはサーバが描いた断片を差し込み、ドラッグ中だけ DOM を直接動かす。
- * - ボタン操作はドキュメントレベルのイベント委譲（data-action 属性）で受ける（設計基準 3.3）。
- * - 進捗バーは大ステップ表記 + 累積％ + タイマー補間 + 完了時サクセス表示（設計基準 3.1）。
- * - デバッグ用に window.qcDebug を常備し、ログレベルを実行時に切り替えられる（設計基準 7）。
+ * このアプリは図解を描かないので、画面も「投入 → 確かめる → 見た目 → 渡す」の 1 本道。
+ * キャンバスもテンプレート編集も持たない。
+ *
+ * 寸法は px 固定にしない（CSS 側で rem / clamp を使う）。ノート PC の 125〜150% 表示で
+ * 文字やボタンが切れないことが受入条件（CLAUDE.md 6 章）。
  */
-window.PWB = window.PWB || {};
-(function () {
-  "use strict";
+'use strict';
 
-  /** @type {{presentation: object|null, selectedSlide: number, config: object|null, warnings: object[], quality: object|null, report: object|null}} グローバル状態 */
-  var state = { presentation: null, selectedSlide: 0, config: null, warnings: [], quality: null, report: null, mergeReport: null };
-  var LS_KEY = "pptx_web_bridge.autosave";
-  var LOG_LEVELS = { DEBUG: 10, INFO: 20, WARNING: 30, ERROR: 40 };
-  var logLevel = "INFO";
-  var $ = function (id) { return document.getElementById(id); };
-  var lastCoalesce = { key: null, at: 0 };
+const PWB = {};
+window.PWB = PWB;
 
-  // ---------------------------------------------------------------------
-  // ログ・状態表示
-  // ---------------------------------------------------------------------
-  function log(msg, level) {
-    level = (level || "INFO").toUpperCase();
-    if (level === "WARN") level = "WARNING";
-    if (LOG_LEVELS[level] < LOG_LEVELS[logLevel]) return;
-    var line = new Date().toLocaleTimeString() + " [" + level + "] " + msg;
-    var pre = $("log");
-    if (pre) pre.textContent = line + "\n" + pre.textContent;
-    var fn = level === "ERROR" ? console.error : (level === "WARNING" ? console.warn : (level === "DEBUG" ? console.debug : console.log));
-    fn("[pptx-web-bridge] " + msg);
-  }
-  function setStatus(text, isError) { var s = $("status"); s.textContent = text; s.style.color = isError ? "#ffb3a7" : ""; if (isError) log(text, "ERROR"); }
+const state = {
+  sessionId: null,
+  filename: '',
+  kind: '',
+  spec: null,
+  specYaml: '',
+  sourceTheme: null,
+  themeId: null,
+  uploadedTheme: null,
+  themeSrc: 'source',
+  direction: 'to_pptx',
+  directions: [],
+  kinds: [],
+  kindOverrides: {},
+  prompt: null,
+  warnings: [],
+  images: [],
+};
+PWB.state = () => state;
 
-  // ---------------------------------------------------------------------
-  // 進捗バー（事前見積 + サブステップ累積％ + タイマー補間）
-  // ---------------------------------------------------------------------
-  var progress = { timer: null, start: 0, estimate: 0, base: 0, span: 0 };
-  function progressStart(steps, estimateMs) {
-    progress.steps = steps; progress.estimate = estimateMs; progress.start = Date.now(); progress.base = 0; progress.span = 100 / steps.length;
-    var el = $("progress"); el.classList.remove("hidden", "success");
-    progressStep(0);
-    clearInterval(progress.timer);
-    progress.timer = setInterval(function () {
-      var elapsed = Date.now() - progress.start;
-      var within = Math.min(0.9, elapsed / Math.max(1, progress.estimate / progress.steps.length));
-      progressSet(progress.base + progress.span * within);
-      var remain = Math.max(0, progress.estimate - elapsed);
-      $("progress-eta").textContent = remain > 0 ? "（残り約 " + Math.ceil(remain / 1000) + " 秒）" : "";
-    }, 200);
-  }
-  function progressStep(i) { progress.base = progress.span * i; $("progress-step").textContent = (i + 1) + "/" + progress.steps.length + " " + progress.steps[i]; progressSet(progress.base); }
-  function progressSet(pct) { pct = Math.max(0, Math.min(100, pct)); $("progress-fill").style.width = pct + "%"; $("progress-pct").textContent = Math.round(pct) + "%"; }
-  function progressDone(ok) {
-    clearInterval(progress.timer);
-    var el = $("progress");
-    if (ok) { progressSet(100); el.classList.add("success"); $("progress-step").textContent = "完了"; $("progress-eta").textContent = ""; setTimeout(function () { el.classList.add("hidden"); }, 1500); }
-    else { el.classList.add("hidden"); }
-  }
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-  // ---------------------------------------------------------------------
-  // API
-  // ---------------------------------------------------------------------
-  function api(path, options) {
-    log("API " + (options && options.method || "GET") + " " + path, "DEBUG");
-    return fetch(path, options).then(function (res) {
-      if (!res.ok) {
-        return res.text().then(function (t) {
-          var detail = t;
-          try { detail = JSON.parse(t).detail || t; } catch (e) { /* JSON でなければそのまま */ }
-          throw new Error(res.status + ": " + detail);
-        });
-      }
-      return res;
-    });
-  }
-  function apiJson(path, body) {
-    return api(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined).then(function (r) { return r.json(); });
-  }
-  function currentBody(extra) {
-    var b = { presentation: state.presentation, template_id: $("template-select").value, mode: $("mode-select").value, write_to_output: $("write-output").checked, use_base_pptx: !!($("use-base-pptx") && $("use-base-pptx").checked && !$("use-base-pptx-label").hidden) };
-    for (var k in (extra || {})) b[k] = extra[k];
-    return b;
-  }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
-  // ---------------------------------------------------------------------
-  // 取込
-  // ---------------------------------------------------------------------
-  function applyImport(result, sourceLabel, keepHistory) {
-    state.presentation = result.presentation;
-    state.warnings = result.warnings || [];
-    state.quality = result.quality || null;
-    state.report = null;
-    state.selectedSlide = Math.min(state.selectedSlide, Math.max(0, state.presentation.slides.length - 1));
-    if (!keepHistory) { state.selectedSlide = 0; PWB.history.clear(); }
-    PWB.slidelist.clearThumbs();
-    PWB.canvas.setSelection([]);
-    if (result.schema_errors && result.schema_errors.length) log("スキーマ違反が残っています: " + result.schema_errors.join(" / "), "ERROR");
-    $("project-name").value = $("project-name").value || (state.presentation.meta && state.presentation.meta.title) || "";
-    renderAll();
-    setStatus(sourceLabel + " を取り込みました（スライド " + state.presentation.slides.length + " 枚、警告 " + state.warnings.length + " 件）");
-    log(sourceLabel + " 取込完了: slides=" + state.presentation.slides.length + " warnings=" + state.warnings.length);
-  }
+function logLine(text, level) {
+  const ul = $('#log');
+  const li = document.createElement('li');
+  li.className = 'log-' + (level || 'info');
+  const t = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+  li.textContent = `[${t}] ${text}`;
+  ul.appendChild(li);
+  while (ul.children.length > 60) ul.removeChild(ul.firstChild);
+  ul.scrollTop = ul.scrollHeight;
+}
 
-  function importFile(file, mode) {
-    var name = file.name.toLowerCase();
-    if (!mode && canMerge(file)) { askMergeMode(file); return; }
-    if (mode === "merge") { mergeFile(file); return; }
-    var fd = new FormData();
-    fd.append("file", file);
-    fd.append("template_id", $("template-select").value);
-    var path;
-    if (name.endsWith(".pptx")) path = "/api/import/pptx";
-    else if (name.endsWith(".html") || name.endsWith(".htm") || name.endsWith(".zip")) path = "/api/import/html";
-    else if (name.endsWith(".json")) path = "/api/import/json";
-    else { setStatus("対応していない拡張子です: " + file.name, true); return; }
-    setStatus("変換中: " + file.name + " …");
-    progressStart(["送信", "解析・レイアウト", "プレビュー描画"], 1500 + file.size / 1e6 * 1500);
-    api(path, { method: "POST", body: fd }).then(function (r) { progressStep(1); return r.json(); })
-      .then(function (result) { progressStep(2); applyImport(result, file.name); progressDone(true); })
-      .catch(function (e) { progressDone(false); setStatus("取込失敗: " + e.message, true); });
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (e) { /* JSON でない応答 */ }
+    throw new Error(detail);
   }
+  return res;
+}
 
-  // ---------------------------------------------------------------------
-  // 版の表示（「更新できているか」を画面で確かめられるように）
-  // ---------------------------------------------------------------------
-  var versionInfo = null;
-  function loadVersion() {
-    return api("/api/version").then(function (r) { return r.json(); }).then(function (v) {
-      versionInfo = v;
-      var badge = $("version-badge");
-      var dirty = v.dirty ? "+変更あり" : "";
-      badge.textContent = "版 " + v.version + (v.commit && v.commit !== "不明" ? " (" + v.commit + dirty + ")" : "");
-      badge.title = "版 " + v.version + " / コミット " + v.commit + (v.branch ? " / ブランチ " + v.branch : "")
-        + (v.commit_date ? " / " + v.commit_date.slice(0, 19).replace("T", " ") : "") + "\n押すと入っている機能の一覧が出ます";
-      log("版 " + v.version + " コミット " + v.commit + " スキーマ " + v.schema_version, "INFO");
-      return v;
-    }).catch(function (e) { $("version-badge").textContent = "版: 不明"; log("版の取得に失敗: " + e.message, "WARNING"); });
-  }
+async function apiJson(path, body) {
+  const res = await api(path, body === undefined ? undefined : {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
 
-  function showVersion() {
-    var box = $("version-body");
-    var render = function (v) {
-      var rows = (v.features || []).map(function (f) {
-        return "<tr><td>" + escapeHtml(f.phase) + "</td><td>" + escapeHtml(f.name) + "</td><td class=\"muted\">" + escapeHtml(f.hint) + "</td></tr>";
-      }).join("");
-      box.innerHTML = "<p><strong>版 " + escapeHtml(v.version) + "</strong>"
-        + (v.commit && v.commit !== "不明" ? " / コミット <code>" + escapeHtml(v.commit) + (v.dirty ? "（作業中の変更あり）" : "") + "</code>" : "")
-        + (v.branch ? " / ブランチ <code>" + escapeHtml(v.branch) + "</code>" : "")
-        + "</p>"
-        + (v.commit_date ? '<p class="muted">コミット日時: ' + escapeHtml(v.commit_date.slice(0, 19).replace("T", " ")) + "</p>" : "")
-        + '<p class="muted">資料形式（スキーマ）: ' + escapeHtml(v.schema_version) + "</p>"
-        + '<table class="version-table"><thead><tr><th>段階</th><th>機能</th><th>内容</th></tr></thead><tbody>' + rows + "</tbody></table>"
-        + '<p class="muted">画面が古いままのときは Ctrl+F5（強制再読み込み）を試してください。</p>';
-      PWB.ui.openModal($("version-modal"));
-    };
-    if (versionInfo) { render(versionInfo); return; }
-    loadVersion().then(function (v) { if (v) render(v); });
-  }
+/* ---------- 1. 投入 ---------- */
 
-  // ---------------------------------------------------------------------
-  // 差分マージ再取込（Phase G）
-  // ---------------------------------------------------------------------
-  function canMerge(file) {
-    var pres = state.presentation;
-    if (!pres || !pres.meta || !pres.meta.import_snapshot) return false;
-    var src = pres.meta.import_snapshot.source || {};
-    var name = file.name.toLowerCase();
-    var kind = name.endsWith(".pptx") ? "pptx" : (name.endsWith(".json") ? "json" : "html");
-    var prev = String(src.type || "");
-    return prev === kind || (prev === "html" && kind === "html");
-  }
+async function uploadMain(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  logLine(`読み込み中: ${file.name}`);
+  const data = await (await api('/api/analyze', { method: 'POST', body: fd })).json();
+  applyAnalyze(data);
+  logLine(`読み込み完了: ${data.spec.slide_count} 枚（${data.kind === 'pptx' ? 'PowerPoint' : 'HTML 図解'}）`);
+}
 
-  function askMergeMode(file) {
-    var box = $("merge-dialog");
-    PWB.ui.openModal(box);
-    $("merge-file-name").textContent = file.name;
-    box.dataset.pending = "1";
-    pendingMergeFile = file;
-  }
-  var pendingMergeFile = null;
+function applyAnalyze(data) {
+  state.sessionId = data.session_id;
+  state.filename = data.filename;
+  state.kind = data.kind;
+  state.spec = data.spec;
+  state.specYaml = data.spec_yaml;
+  state.sourceTheme = data.theme;
+  state.warnings = data.warnings || [];
+  state.images = data.images || [];
+  state.direction = data.suggested_direction || state.direction;
+  $('#file-note').hidden = false;
+  $('#file-note').textContent = `${data.filename} — ${data.kind === 'pptx' ? 'PowerPoint' : 'HTML 図解'}として読みました（${data.spec.slide_count} 枚）`;
+  $('#step-2').hidden = false;
+  $('#step-3').hidden = false;
+  $('#step-4').hidden = false;
+  renderSpec();
+  renderTheme();
+  renderDirections();
+  renderWarnings();
+  refreshPrompt();
+}
 
-  function mergeFile(file) {
-    var fd = new FormData();
-    fd.append("file", file);
-    fd.append("presentation", JSON.stringify(state.presentation));
-    fd.append("template_id", $("template-select").value);
-    fd.append("conflict", ($("merge-conflict") && $("merge-conflict").value) || "theirs");
-    var before = snapshot();
-    setStatus("差分を取り込み中: " + file.name + " …");
-    progressStart(["送信", "照合・マージ", "プレビュー描画"], 1500 + file.size / 1e6 * 1500);
-    api("/api/import/merge", { method: "POST", body: fd }).then(function (r) { progressStep(1); return r.json(); })
-      .then(function (result) {
-        progressStep(2);
-        PWB.history.push(before);
-        applyImport(result, file.name + "（差分）", true);
-        state.mergeReport = result.report || null;
-        showMergeReport(result);
-        progressDone(true);
-      })
-      .catch(function (e) { progressDone(false); setStatus("差分取込に失敗: " + e.message, true); });
-  }
+/* ---------- 2. 中身 ---------- */
 
-  function showMergeReport(result) {
-    var rep = result.report || {};
-    var box = $("merge-report");
-    if (!box) return;
-    var lines = ["<p>" + escapeHtml(result.summary || "") + "</p>"];
-    if (rep.slides_added || rep.slides_removed) lines.push("<p class=\"muted\">スライド: 追加 " + (rep.slides_added || 0) + " / 削除 " + (rep.slides_removed || 0) + "</p>");
-    if ((rep.conflicts || []).length) {
-      lines.push("<p class=\"muted\">両方で変わった箇所（取り込み側を採用しました。必要なら元に戻して選び直してください）:</p><ul class=\"merge-conflicts\">");
-      rep.conflicts.forEach(function (c) {
-        lines.push("<li><code>" + escapeHtml(c.element_id || "") + "</code><div>今の資料: " + escapeHtml(c.ours) + "</div><div>取り込み: " + escapeHtml(c.theirs) + "</div>"
-          + '<button class="small secondary" data-action="merge-keep-ours" data-element="' + escapeHtml(c.element_id || "") + '" data-slide="' + escapeHtml(c.slide_id || "") + '">今の資料の文言に戻す</button></li>');
-      });
-      lines.push("</ul>");
+function contentSummary(s) {
+  const bits = [];
+  if (s.items && s.items.length) bits.push(`項目 ${s.items.length}`);
+  if (s.bullets && s.bullets.length) bits.push(`箇条書き ${s.bullets.length} 行`);
+  if (s.table) bits.push(`表 ${(s.table.rows || []).length} 行`);
+  if (s.images && s.images.length) bits.push(`画像 ${s.images.length}`);
+  if (s.notes) bits.push('ノートあり');
+  return bits.length ? bits.join(' / ') : '—';
+}
+
+function renderSpec() {
+  const tb = $('#spec-table tbody');
+  const opts = state.kinds.map((k) => `<option value="${esc(k.id)}">${esc(k.label)}</option>`).join('');
+  tb.innerHTML = (state.spec.slides || []).map((s) => `
+    <tr data-no="${s.no}">
+      <td class="num">${s.no}</td>
+      <td class="ttl" title="${esc(s.title)}">${esc(s.title)}</td>
+      <td><select data-kind-for="${s.no}" aria-label="${s.no} 枚目の型">${opts}</select></td>
+      <td class="reason">${esc(s.kind_reason)}</td>
+      <td class="muted">${esc(contentSummary(s))}</td>
+    </tr>`).join('');
+  (state.spec.slides || []).forEach((s) => {
+    const sel = tb.querySelector(`[data-kind-for="${s.no}"]`);
+    if (sel) sel.value = s.kind;
+  });
+  $('#spec-yaml').textContent = state.specYaml;
+}
+
+async function changeKind(no, kind) {
+  state.kindOverrides[String(no)] = kind;
+  const data = await apiJson('/api/spec', { session_id: state.sessionId, kind_overrides: state.kindOverrides });
+  state.spec = data.spec;
+  state.specYaml = data.spec_yaml;
+  state.warnings = data.warnings || [];
+  renderSpec();
+  renderWarnings();
+  await refreshPrompt();
+  logLine(`${no} 枚目の型を変えました`);
+}
+
+/* ---------- 3. 見た目 ---------- */
+
+function activeTheme() {
+  if (state.themeSrc === 'upload') return state.uploadedTheme;
+  if (state.themeSrc === 'source') return state.sourceTheme;
+  return null;
+}
+
+function renderTheme() {
+  $('#theme-upload').hidden = state.themeSrc !== 'upload';
+  const t = activeTheme();
+  const box = $('#theme-preview');
+  if (!t || !t.colors || !Object.keys(t.colors).length) {
+    box.hidden = state.themeSrc === 'none';
+    if (!box.hidden) {
+      $('#theme-swatches').innerHTML = '';
+      $('#theme-lines').textContent = state.themeSrc === 'upload'
+        ? 'テーマをまだ読み込んでいません。'
+        : 'このファイルからは配色を読み取れませんでした。見た目の指示なしで進みます。';
     }
-    box.innerHTML = lines.join("");
-    PWB.ui.openModal($("merge-result"));
-    setStatus("差分を取り込みました（" + (result.summary || "") + "）");
+    return;
   }
+  box.hidden = false;
+  $('#theme-swatches').innerHTML = Object.entries(t.colors).map(([role, hex]) =>
+    `<span class="sw" title="${esc(role)} ${esc(hex)}"><i style="background:${esc(hex)}"></i>${esc(hex)}</span>`).join('');
+  const lines = [];
+  if (t.fonts && t.fonts.heading) lines.push(`見出しのフォント: ${t.fonts.heading}`);
+  if (t.fonts && t.fonts.body) lines.push(`本文のフォント: ${t.fonts.body}`);
+  const d = t.decoration || {};
+  const dec = [];
+  if (d.radius_px) dec.push(`角丸 ${d.radius_px}px`);
+  if (d.shadow) dec.push('影あり');
+  if (d.border) dec.push('枠線あり');
+  if (dec.length) lines.push('装飾: ' + dec.join(' / '));
+  $('#theme-lines').textContent = lines.join('\n') || '配色のみ';
+}
 
-  function keepOursText(slideId, elementId) {
-    var rep = state.mergeReport;
-    if (!rep) return;
-    var c = (rep.conflicts || []).filter(function (x) { return x.element_id === elementId && x.slide_id === slideId; })[0];
-    if (!c) return;
-    var si = state.presentation.slides.map(function (s) { return s.id; }).indexOf(slideId);
-    var s = state.presentation.slides[si < 0 ? state.selectedSlide : si];
-    var el = (s.elements || []).filter(function (e) { return e.id === elementId; })[0];
-    if (!el) return;
-    var before = snapshot();
-    if (el.type === "text" || el.type === "shape") {
-      var base = (el.paragraphs && el.paragraphs[0]) || { runs: [{ text: "" }], level: 0, bullet: null };
-      var r0 = (base.runs && base.runs[0]) || {};
-      var nr = {}; for (var k in r0) if (k !== "text") nr[k] = r0[k];
-      el.paragraphs = c.ours.split("\n").map(function (line) { var rr = {}; for (var kk in nr) rr[kk] = nr[kk]; rr.text = line; return { runs: [rr], level: base.level || 0, bullet: base.bullet || null }; });
-    }
-    c.applied = "ours";
-    changed({ index: si < 0 ? state.selectedSlide : si, before: before, elementIds: [el.id] });
-    setStatus("今の資料の文言に戻しました: " + elementId);
-  }
+async function uploadTheme(file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  logLine(`テーマを読み込み中: ${file.name}`);
+  const data = await (await api('/api/theme', { method: 'POST', body: fd })).json();
+  state.themeId = data.theme_id;
+  state.uploadedTheme = data.theme;
+  state.warnings = (state.warnings || []).concat(data.warnings || []);
+  renderTheme();
+  renderWarnings();
+  await refreshPrompt();
+  logLine(`テーマを読み込みました: ${data.theme.name}`);
+}
 
-  // ---------------------------------------------------------------------
-  // 描画
-  // ---------------------------------------------------------------------
-  function renderAll(opts) {
-    opts = opts || {};
-    PWB.slidelist.render();
-    $("slide-count").textContent = state.presentation ? "(" + state.presentation.slides.length + " 枚)" : "";
-    if (!opts.keepInspector) PWB.inspector.render();
-    renderWarnings(); renderQuality(); renderReport(); updateRestyleButtons();
-    $("json-editor").value = state.presentation ? JSON.stringify(state.presentation, null, 2) : "";
-    updateUndoButtons();
-    scheduleRender();
-    autosave();
-  }
-  function reindex() { state.presentation.slides.forEach(function (s, i) { s.index = i; }); }
-  function updateUndoButtons() { $("btn-undo").disabled = !PWB.history.canUndo(); $("btn-redo").disabled = !PWB.history.canRedo(); }
+/* ---------- 4. 渡す ---------- */
 
-  var renderTimer = null;
-  var renderSeq = 0;
-  /** 選択スライド（＋サムネイル未取得分）をサーバで描き、キャンバスとサムネイルへ反映する。 */
-  function scheduleRender() {
-    clearTimeout(renderTimer);
-    if (!state.presentation) { PWB.canvas.clear(); return; }
-    renderTimer = setTimeout(renderNow, 120);
-  }
-  function renderNow() {
-    if (!state.presentation) return;
-    var pres = state.presentation;
-    var indices = [state.selectedSlide];
-    pres.slides.forEach(function (s, i) { if (!PWB.slidelist.hasThumb(s.id) && indices.indexOf(i) < 0) indices.push(i); });
-    var seq = ++renderSeq;
-    apiJson("/api/render/slides", currentBody({ indices: indices })).then(function (r) {
-      if (seq !== renderSeq) return; // 古い応答は捨てる
-      var editing = document.activeElement && $("inspector").contains(document.activeElement);
-      state.presentation = r.presentation; // prepare 後（修復・正規化・レイアウト・テンプレート適用）の状態を採用する
-      var slides = state.presentation.slides;
-      if (state.selectedSlide >= slides.length) state.selectedSlide = Math.max(0, slides.length - 1);
-      Object.keys(r.slides).forEach(function (k) { var i = parseInt(k, 10); if (slides[i]) PWB.slidelist.setThumb(slides[i].id, r.slides[k]); });
-      var html = r.slides[String(state.selectedSlide)];
-      if (html) PWB.canvas.mount(html, r.canvas.width_pt, r.canvas.height_pt, r.theme_css);
-      $("zoom-label").textContent = Math.round(PWB.canvas.scale() * 100) + "%";
-      if (!editing) PWB.inspector.render();
-      $("json-editor").value = JSON.stringify(state.presentation, null, 2);
-      autosave();
-    }).catch(function (e) { log("描画失敗: " + e.message, "ERROR"); });
-  }
+function renderDirections() {
+  $('#direction-box').innerHTML = state.directions.map((d) => `
+    <label class="direction ${d.id === state.direction ? 'on' : ''}">
+      <input type="radio" name="direction" value="${esc(d.id)}" ${d.id === state.direction ? 'checked' : ''}>
+      <span class="d-name">${esc(d.name)}</span>
+      <span class="d-out">${esc(d.outcome)}</span>
+      <span class="d-target">貼り先: ${esc(d.target)}</span>
+    </label>`).join('');
+}
 
-  function selectSlide(i) {
-    if (!state.presentation) return;
-    state.selectedSlide = Math.max(0, Math.min(i, state.presentation.slides.length - 1));
-    PWB.canvas.setSelection([]);
-    PWB.slidelist.render();
-    PWB.inspector.render();
-    scheduleRender();
-  }
-
-  function renderWarnings() {
-    var ul = $("warning-list");
-    ul.innerHTML = "";
-    $("warn-count").textContent = state.warnings.length;
-    if (!state.warnings.length) { ul.innerHTML = '<li class="muted">警告はありません。</li>'; return; }
-    state.warnings.forEach(function (w) {
-      var li = document.createElement("li");
-      li.innerHTML = '<span><span class="sev-warning">[' + escapeHtml(w.code) + ']</span> ' + escapeHtml(w.message) + (w.fallback ? ' <span class="muted">→ ' + escapeHtml(w.fallback) + '</span>' : "") + '</span><span class="muted">' + escapeHtml((w.slide_id || "") + (w.element_id ? "/" + w.element_id : "")) + '</span>';
-      ul.appendChild(li);
-    });
-  }
-  function renderQuality() {
-    var ul = $("quality-list");
-    ul.innerHTML = "";
-    var issues = (state.quality && state.quality.issues) || [];
-    $("quality-count").textContent = issues.length;
-    if (!issues.length) { ul.innerHTML = '<li class="muted">問題は見つかりませんでした。</li>'; return; }
-    issues.forEach(function (i) {
-      var li = document.createElement("li");
-      li.innerHTML = '<span><span class="sev-' + escapeAttr(i.severity) + '">[' + escapeHtml(i.code) + ']</span> ' + escapeHtml(i.message) + '</span><span class="muted">' + escapeHtml((i.slide_id || "") + (i.element_id ? "/" + i.element_id : "")) + '</span>';
-      ul.appendChild(li);
-    });
-  }
-  function renderReport() {
-    var tbody = document.querySelector("#report-table tbody");
-    tbody.innerHTML = "";
-    if (!state.report) { $("report-summary").textContent = "「最新化」で取得します。"; return; }
-    var sm = state.report.summary;
-    $("report-summary").textContent = "要素 " + sm.elements + " / 文字系 " + sm.text_as_shapes + "（座標確定 " + sm.text_with_bbox + "）/ 画像 " + sm.images + " / 編集可 " + Math.round(sm.editable_ratio * 100) + "%";
-    var f = function (v) { return v == null ? "" : (Math.round(v * 10) / 10); };
-    state.report.rows.forEach(function (r) {
-      var tr = document.createElement("tr");
-      var font = r.font_pt_min == null ? "" : (r.font_pt_min === r.font_pt_max ? r.font_pt_min : r.font_pt_min + "–" + r.font_pt_max);
-      tr.innerHTML = "<td>" + r.slide + "</td><td>" + escapeHtml(r.element_id) + "</td><td>" + escapeHtml(r.kind) + "</td><td>" + escapeHtml(r.role || "") + '</td><td class="num">' + f(r.x) + '</td><td class="num">' + f(r.y) + '</td><td class="num">' + f(r.w) + '</td><td class="num">' + f(r.h) + '</td><td class="num">' + font + "</td><td>" + escapeHtml(r.text || "") + "</td><td>" + escapeHtml(r.image_px || "") + "</td><td>" + (r.editable ? "○" : "×") + "</td>";
-      tbody.appendChild(tr);
-    });
-  }
-  function fetchReport() {
-    if (!state.presentation) return;
-    apiJson("/api/report", currentBody()).then(function (r) { state.report = r; renderReport(); activateTab("report"); }).catch(function (e) { setStatus(e.message, true); });
-  }
-
-  // ---------------------------------------------------------------------
-  // 編集（各モジュールから PWB.core 経由で呼ばれる）
-  // ---------------------------------------------------------------------
-  function snapshot() { return JSON.parse(JSON.stringify(state.presentation)); }
-  function currentSlide() { return state.presentation && state.presentation.slides[state.selectedSlide]; }
-  function marginPt() { return (state.config && state.config.layout && state.config.layout.margin_pt) || 36; }
-  function newId(prefix) { var s = currentSlide(); return (s ? s.id : "s") + "_" + prefix + Date.now().toString(36) + Math.floor(Math.random() * 1e3).toString(36); }
-
-  /** 変更の共通処理: 履歴 → 更新日時 → 再描画。before は変更前のスナップショット。 */
-  function changed(opts) {
-    opts = opts || {};
-    if (opts.before) {
-      var now = Date.now();
-      if (!(opts.coalesce && lastCoalesce.key === opts.coalesce && now - lastCoalesce.at < 1000)) PWB.history.push(opts.before);
-      lastCoalesce = { key: opts.coalesce || null, at: now };
-    }
-    if (state.presentation) { state.presentation.meta = state.presentation.meta || {}; state.presentation.meta.edited_at = new Date().toISOString(); }
-    if (opts.structural) PWB.slidelist.render();
-    renderAll({ keepInspector: !!opts.keepInspector });
-  }
-
-  function deleteElements(ids) {
-    var s = currentSlide();
-    if (!s || !ids.length) return;
-    var before = snapshot();
-    s.elements = s.elements.filter(function (el) { return ids.indexOf(el.id) < 0; });
-    PWB.canvas.setSelection([]);
-    changed({ index: state.selectedSlide, before: before });
-  }
-  function duplicateElements(ids) {
-    var s = currentSlide();
-    if (!s || !ids.length) return;
-    var before = snapshot();
-    var maxZ = s.elements.reduce(function (m, el) { return Math.max(m, el.z || 0); }, 0);
-    var created = [];
-    ids.forEach(function (id, k) {
-      var src = s.elements.filter(function (el) { return el.id === id; })[0];
-      if (!src) return;
-      var copy = JSON.parse(JSON.stringify(src));
-      copy.id = newId("e");
-      if (copy.bbox) { copy.bbox.x += 12; copy.bbox.y += 12; copy.user_bbox = true; }
-      copy.z = maxZ + 1 + k;
-      s.elements.push(copy);
-      created.push(copy.id);
-    });
-    PWB.canvas.setSelection(created);
-    changed({ index: state.selectedSlide, before: before });
-  }
-  function reorderZ(ids, dir) {
-    var s = currentSlide();
-    if (!s || !ids.length) return;
-    var before = snapshot();
-    var zs = s.elements.map(function (el) { return el.z || 0; });
-    var target = dir > 0 ? Math.max.apply(null, zs) + 1 : Math.min.apply(null, zs) - 1;
-    s.elements.forEach(function (el) { if (ids.indexOf(el.id) >= 0) el.z = target; });
-    changed({ index: state.selectedSlide, before: before });
-  }
-  function alignSelection(ids, act) {
-    var s = currentSlide();
-    if (!s || ids.length < 2) return;
-    var before = snapshot();
-    var els = s.elements.filter(function (el) { return ids.indexOf(el.id) >= 0 && el.bbox; });
-    if (act === "align-left") { var x = Math.min.apply(null, els.map(function (e) { return e.bbox.x; })); els.forEach(function (e) { e.bbox.x = x; e.user_bbox = true; }); }
-    if (act === "align-top") { var y = Math.min.apply(null, els.map(function (e) { return e.bbox.y; })); els.forEach(function (e) { e.bbox.y = y; e.user_bbox = true; }); }
-    if (act === "same-width") { var w = els[0].bbox.w; els.forEach(function (e) { e.bbox.w = w; e.user_bbox = true; }); }
-    changed({ index: state.selectedSlide, before: before });
-  }
-  function fitHeight(id) {
-    apiJson("/api/layout/fit", currentBody({ index: state.selectedSlide, element_id: id })).then(function (r) {
-      var s = currentSlide();
-      var el = s && s.elements.filter(function (e) { return e.id === id; })[0];
-      if (!el || !el.bbox) return;
-      var before = snapshot();
-      el.bbox.h = Math.round(r.h * 10) / 10; el.user_bbox = true;
-      changed({ index: state.selectedSlide, before: before });
-    }).catch(function (e) { setStatus(e.message, true); });
-  }
-  var DIAGRAM_DEFAULTS = {
-    flow: { h: 180, items: [{ title: "受付", text: "説明" }, { title: "審査", text: "説明" }, { title: "完了", text: "説明" }] },
-    cards: { h: 200, items: [{ title: "見出し 1", text: "説明" }, { title: "見出し 2", text: "説明" }, { title: "見出し 3", text: "説明" }] },
-    compare: { h: 260, items: [{ title: "Before", text: "現状" }, { title: "After", text: "改善後" }] },
-    kpi: { h: 170, items: [{ title: "削減率", value: "40%", text: "削減率" }, { title: "浮いた時間", value: "12h", text: "浮いた時間" }] },
-    timeline: { h: 150, items: [{ title: "2024", text: "できごと" }, { title: "2025", text: "できごと" }] }
+async function refreshPrompt() {
+  if (!state.sessionId) return;
+  const body = {
+    session_id: state.sessionId,
+    direction: state.direction,
+    use_source_theme: state.themeSrc === 'source',
+    theme_id: state.themeSrc === 'upload' ? state.themeId : null,
   };
+  const built = await apiJson('/api/prompt', body);
+  state.prompt = built;
+  $('#prompt').textContent = built.prompt;
+  $('#prompt-chars').textContent = `${built.chars.toLocaleString('ja-JP')} 字`;
+  $('#direction-how').textContent = built.how;
+  const note = $('#image-note');
+  if (built.has_images) {
+    const names = state.images.map((i) => i.filename).filter(Boolean);
+    note.hidden = false;
+    note.textContent = `この資料には画像が ${state.images.length} 個あります。プロンプトはファイル名（${names.slice(0, 3).join('、')}${names.length > 3 ? ' ほか' : ''}）で参照するので、「一式をダウンロード」の画像を Copilot に添付してください。`;
+  } else {
+    note.hidden = true;
+  }
+  const extra = (built.warnings || []).filter((w) => w.code === 'PROMPT_TRUNCATED');
+  if (extra.length) {
+    state.warnings = state.warnings.filter((w) => w.code !== 'PROMPT_TRUNCATED').concat(extra);
+    renderWarnings();
+  }
+}
 
-  function addElement(kind, file) {  // file: 画像はファイル、図解は型（"flow" など）
-    var s = currentSlide();
-    if (!s) { setStatus("先にスライドを用意してください。", true); return; }
-    var before = snapshot();
-    var m = marginPt();
-    var cw = state.presentation.canvas.width_pt, ch = state.presentation.canvas.height_pt;
-    var colors = (state.presentation.theme && state.presentation.theme.colors) || {};
-    var maxZ = s.elements.reduce(function (mm, el) { return Math.max(mm, el.z || 0); }, 0);
-    var el = null;
-    if (kind === "text") el = { id: newId("e"), type: "text", role: "body", bbox: { x: m + 24, y: m + 100, w: 400, h: 60 }, paragraphs: [{ runs: [{ text: "テキスト" }], level: 0, bullet: null }], editable: true };
-    if (kind === "shape") el = { id: newId("e"), type: "shape", role: null, bbox: { x: m + 24, y: m + 120, w: 240, h: 100 }, shape: "rounded_rect", fill: colors.surface || "#F4F6F9", stroke: colors.line || "#C9D1DB", stroke_width_pt: 1, paragraphs: [], editable: true };
-    if (kind === "diagram") {
-      var dt = (typeof file === "string" && file) || "flow";  // 図解は第 2 引数が型
-      el = { id: newId("e"), type: "diagram", role: null, bbox: { x: m, y: m + 110, w: cw - 2 * m, h: DIAGRAM_DEFAULTS[dt] ? DIAGRAM_DEFAULTS[dt].h : 180 }, diagram: { type: dt, items: (DIAGRAM_DEFAULTS[dt] || DIAGRAM_DEFAULTS.flow).items.map(function (it) { return { title: it.title, text: it.text || "", value: it.value || "" }; }) }, editable: true };
+async function copyPrompt() {
+  if (!state.prompt) return;
+  try {
+    await navigator.clipboard.writeText(state.prompt.prompt);
+    logLine('プロンプトをコピーしました。Copilot に貼り付けてください。');
+  } catch (e) {
+    const pre = $('#prompt');
+    const r = document.createRange();
+    r.selectNodeContents(pre);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    logLine('コピーできなかったので、プロンプトを選択しました。Ctrl+C でコピーしてください。', 'warn');
+  }
+}
+
+async function downloadPack() {
+  const body = {
+    session_id: state.sessionId,
+    direction: state.direction,
+    use_source_theme: state.themeSrc === 'source',
+    theme_id: state.themeSrc === 'upload' ? state.themeId : null,
+  };
+  const res = await api('/api/pack.zip', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const blob = await res.blob();
+  const cd = res.headers.get('Content-Disposition') || '';
+  const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
+  const name = m ? decodeURIComponent(m[1]) : 'copilot.zip';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  logLine(`一式をダウンロードしました: ${name}`);
+}
+
+/* ---------- 警告 ---------- */
+
+function renderWarnings() {
+  const seen = new Set();
+  const items = (state.warnings || []).filter((w) => {
+    const key = w.code + '|' + w.message;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  $('#warn-card').hidden = items.length === 0;
+  $('#warn-list').innerHTML = items.map((w) =>
+    `<li><code>${esc(w.code)}</code> ${esc(w.message)}${w.fallback ? `<span class="muted">（${esc(w.fallback)}）</span>` : ''}</li>`).join('');
+}
+
+/* ---------- 版 ---------- */
+
+async function loadConfig() {
+  const cfg = await apiJson('/api/config');
+  state.directions = cfg.directions || [];
+  state.kinds = cfg.kinds || [];
+  state.direction = state.directions.length ? state.directions[0].id : 'to_pptx';
+  const b = cfg.build || {};
+  $('#version-badge').textContent = `版 ${b.version || cfg.version}${b.commit && b.commit !== '不明' ? ` (${b.commit}${b.dirty ? '+変更あり' : ''})` : ''}`;
+  const v = await apiJson('/api/version');
+  $('#version-detail').textContent = `版 ${v.version} / コミット ${v.commit} / スキーマ ${v.schema_version}`;
+  $('#feature-list').innerHTML = (v.features || []).map((f) =>
+    `<li><strong>${esc(f.phase)}. ${esc(f.name)}</strong><span class="muted">${esc(f.hint)}</span></li>`).join('');
+  renderDirections();
+}
+
+/* ---------- 配線 ---------- */
+
+function bindDropzone(zoneSel, inputSel, handler) {
+  const zone = $(zoneSel);
+  const input = $(inputSel);
+  zone.addEventListener('click', () => input.click());
+  zone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault(); zone.classList.remove('over');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) run(handler, e.dataTransfer.files[0]);
+  });
+  input.addEventListener('change', () => { if (input.files[0]) run(handler, input.files[0]); });
+}
+
+async function run(fn, arg) {
+  try {
+    await fn(arg);
+  } catch (e) {
+    logLine('失敗: ' + e.message, 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  bindDropzone('#dropzone', '#file-input', uploadMain);
+  bindDropzone('#theme-dropzone', '#theme-input', uploadTheme);
+
+  document.addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.name === 'theme-src') {
+      state.themeSrc = t.value;
+      renderTheme();
+      run(refreshPrompt);
+    } else if (t.name === 'direction') {
+      state.direction = t.value;
+      $$('.direction').forEach((el) => el.classList.toggle('on', el.contains(t)));
+      run(refreshPrompt);
+    } else if (t.dataset && t.dataset.kindFor) {
+      run(() => changeKind(t.dataset.kindFor, t.value));
     }
-    if (kind === "line") el = { id: newId("e"), type: "line", role: null, bbox: { x: m, y: ch / 2, w: cw - 2 * m, h: 1 }, points: [[m, ch / 2], [cw - m, ch / 2]], stroke: colors.line || "#999999", stroke_width_pt: 1.5, editable: true };
-    if (kind === "image" && file) {
-      var reader = new FileReader();
-      reader.onload = function () {
-        var mm = /^data:([^;]+);base64,(.*)$/.exec(String(reader.result));
-        if (!mm) return;
-        var img = new Image();
-        img.onload = function () {
-          var aid = "img_u" + Date.now().toString(36);
-          state.presentation.assets[aid] = { mime: mm[1], filename: aid + "." + (mm[1].split("/")[1] || "png"), data_base64: mm[2], width_px: img.naturalWidth, height_px: img.naturalHeight };
-          var w = Math.min(img.naturalWidth * 0.75, (cw - 2 * m) * 0.5), h = w * img.naturalHeight / img.naturalWidth;
-          var e2 = { id: newId("e"), type: "image", role: null, bbox: { x: m + 24, y: m + 100, w: Math.round(w * 10) / 10, h: Math.round(h * 10) / 10 }, asset_id: aid, alt: file.name, fit: "contain", editable: true, z: maxZ + 1, user_bbox: true };
-          s.elements.push(e2);
-          PWB.canvas.setSelection([e2.id]);
-          changed({ index: state.selectedSlide, before: before });
-        };
-        img.src = String(reader.result);
-      };
-      reader.readAsDataURL(file);
-      return;
-    }
-    if (!el) return;
-    el.z = maxZ + 1; el.user_bbox = true;
-    s.elements.push(el);
-    PWB.canvas.setSelection([el.id]);
-    changed({ index: state.selectedSlide, before: before });
-  }
-  function moveSlide(from, to) {
-    var slides = state.presentation.slides;
-    if (from === to || from + 1 === to) return;
-    var before = snapshot();
-    var s = slides.splice(from, 1)[0];
-    if (to > from) to -= 1;
-    slides.splice(to, 0, s);
-    reindex();
-    state.selectedSlide = to;
-    changed({ before: before, structural: true });
-  }
-  function slideAction(act, i) {
-    var slides = state.presentation.slides, s = slides[i];
-    var before = snapshot();
-    if (act === "up" && i > 0) { slides.splice(i - 1, 0, slides.splice(i, 1)[0]); state.selectedSlide = i - 1; }
-    else if (act === "down" && i < slides.length - 1) { slides.splice(i + 1, 0, slides.splice(i, 1)[0]); state.selectedSlide = i + 1; }
-    else if (act === "dup") { var copy = JSON.parse(JSON.stringify(s)); copy.id = s.id + "_copy" + Date.now().toString(36); delete copy.continuation_of; delete copy.continuation_index; copy.elements.forEach(function (el, k) { el.id = copy.id + "_e" + (k + 1); }); slides.splice(i + 1, 0, copy); state.selectedSlide = i + 1; }
-    else if (act === "del") { if (!confirm("スライド " + (i + 1) + " を削除しますか？")) return; slides.splice(i, 1); state.selectedSlide = Math.max(0, Math.min(state.selectedSlide, slides.length - 1)); }
-    else return;
-    reindex();
-    PWB.canvas.setSelection([]);
-    changed({ before: before, structural: true });
-  }
-  function layoutSlide(scope) {
-    if (!state.presentation) return;
-    var before = snapshot();
-    apiJson("/api/layout/slide", currentBody({ index: state.selectedSlide, scope: scope })).then(function (r) {
-      PWB.history.push(before);
-      state.presentation = r.presentation;
-      PWB.canvas.setSelection([]);
-      renderAll();
-      setStatus(r.count > 1 ? "自動配置しました（" + r.count + " 枚に分割）" : "自動配置しました");
-    }).catch(function (e) { setStatus(e.message, true); });
-  }
-  function undo() { var p = PWB.history.undo(state.presentation); if (p) { state.presentation = p; PWB.canvas.setSelection([]); renderAll(); } }
-  function redo() { var p = PWB.history.redo(state.presentation); if (p) { state.presentation = p; PWB.canvas.setSelection([]); renderAll(); } }
+  });
 
-  /** テンプレート一覧（/api/config の templates）を select に反映する。selectId を指定するとそれを選ぶ。 */
-  function templateInfo(id) { var list = (state.config && state.config.templates) || []; for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i]; return null; }
-  function setTemplates(list, selectId) {
-    state.config = state.config || {};
-    state.config.templates = list;
-    var ts = $("template-select");
-    var current = selectId || ts.value;
-    ts.innerHTML = "";
-    list.forEach(function (t) { var o = document.createElement("option"); o.value = t.id; o.textContent = (t.source === "user" ? "★ " : "") + t.name; o.title = t.description || ""; ts.appendChild(o); });
-    if (current && templateInfo(current)) ts.value = current;
-    onTemplateSelected();
-  }
-  function onTemplateSelected() {
-    var t = templateInfo($("template-select").value);
-    $("btn-template-delete").hidden = !(t && t.source === "user");
-    $("use-base-pptx-label").hidden = !(t && t.has_base_pptx);
-    if (t && t.has_base_pptx && $("use-base-pptx") && !$("use-base-pptx").dataset.touched) $("use-base-pptx").checked = true;
-    updateRestyleButtons();
-  }
-
-  // ---------------------------------------------------------------------
-  // テンプレートで着せ替える（Phase J）
-  // ---------------------------------------------------------------------
-  function updateRestyleButtons() {
-    var pres = state.presentation;
-    var styled = !!(pres && pres.meta && pres.meta.restyled_with);
-    var btn = $("btn-restyle"), undo = $("btn-unrestyle");
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]');
     if (!btn) return;
-    btn.disabled = !pres;
-    btn.textContent = styled ? "別のテンプレートで着せ替える" : "テンプレートで着せ替える";
-    if (undo) undo.hidden = !styled;
-  }
-
-  function restyleNow() {
-    if (!state.presentation) { setStatus("先に資料を取り込んでください。", true); return; }
-    var before = snapshot();
-    setStatus("着せ替え中 …");
-    apiJson("/api/template/apply", currentBody()).then(function (r) {
-      PWB.history.push(before);
-      applyImport(r, "テンプレートの着せ替え", true);
-      showRestyleReport(r);
-      updateRestyleButtons();
-    }).catch(function (e) { setStatus("着せ替えに失敗: " + e.message, true); });
-  }
-
-  function unrestyleNow() {
-    if (!state.presentation) return;
-    var before = snapshot();
-    apiJson("/api/template/unapply", { presentation: state.presentation }).then(function (r) {
-      PWB.history.push(before);
-      applyImport(r, "着せ替えの取り消し", true);
-      PWB.ui.closeModal($("restyle-result"));
-      updateRestyleButtons();
-      setStatus(r.summary || "元の見た目に戻しました。");
-    }).catch(function (e) { setStatus("元に戻せませんでした: " + e.message, true); });
-  }
-
-  function showRestyleReport(r) {
-    var rep = r.report || {};
-    var box = $("restyle-report");
-    if (!box) return;
-    if (rep.skipped) { setStatus(rep.skipped); return; }
-    var map = rep.color_map || {};
-    var rows = Object.keys(map).map(function (from) {
-      return '<tr><td><span class="swatch inline" style="background:' + escapeHtml(from) + '"></span>' + escapeHtml(from) + "</td><td>→</td><td><span class=\"swatch inline\" style=\"background:" + escapeHtml(map[from]) + '"></span>' + escapeHtml(map[from]) + "</td></tr>";
-    }).join("");
-    box.innerHTML = "<p>" + escapeHtml(r.summary || "") + "</p>"
-      + (rows ? '<p class="muted">色の対応（資料で使われていた色 → テンプレートの色）</p><table class="version-table"><tbody>' + rows + "</tbody></table>" : '<p class="muted">置き換えた色はありません（元の色をそのまま使います）。</p>')
-      + '<p class="muted">思っていた見た目と違うときは「元の見た目に戻す」で戻せます（Ctrl+Z でも戻せます）。</p>';
-    PWB.ui.openModal($("restyle-result"));
-  }
-
-  PWB.core = {
-    state: state, api: api, apiJson: apiJson, importFile: importFile, currentBody: currentBody, log: log, setStatus: setStatus, escapeHtml: escapeHtml,
-    setTemplates: setTemplates, templateInfo: templateInfo, scheduleRender: scheduleRender, applyImport: applyImport, snapshot: snapshot,
-    DIAGRAM_DEFAULTS: DIAGRAM_DEFAULTS, changed: changed, deleteElements: deleteElements, duplicateElements: duplicateElements, reorderZ: reorderZ, alignSelection: alignSelection, fitHeight: fitHeight, addElement: addElement, moveSlide: moveSlide,
-    onSelectionChanged: function () { PWB.inspector.render(); },
-    focusInspector: function (id) { PWB.canvas.setSelection([id]); activateTab("inspector"); PWB.inspector.focusText(); },
-    select: function (ids) { PWB.canvas.setSelection(ids); }
-  };
-
-  // ---------------------------------------------------------------------
-  // 出力
-  // ---------------------------------------------------------------------
-  function download(path, filename) {
-    if (!state.presentation) { setStatus("先にファイルを投入してください。", true); return; }
-    setStatus("生成中 …");
-    var isVisual = path.indexOf("pptx") >= 0 && $("mode-select").value !== "editable";
-    progressStart(["生成", "ダウンロード"], (isVisual ? 4000 : 1500) + state.presentation.slides.length * (isVisual ? 400 : 60));
-    api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(currentBody({ name: $("project-name").value })) })
-      .then(function (r) {
-        progressStep(1);
-        var out = r.headers.get("X-Output-Path"); if (out) { try { out = decodeURIComponent(out); } catch (e) { /* そのまま */ } }
-        var warns = r.headers.get("X-Warnings");
-        var cd = r.headers.get("Content-Disposition") || "";
-        var m = /filename\*=UTF-8''([^;]+)/.exec(cd);
-        if (m) { try { m = [null, decodeURIComponent(m[1])]; } catch (e) { m = null; } }
-        if (!m) m = /filename="([^"]+)"/.exec(cd);
-        return r.blob().then(function (blob) {
-          var a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = (m && m[1]) || filename;
-          document.body.appendChild(a); a.click(); a.remove();
-          progressDone(true);
-          setStatus("出力完了: " + a.download + (out ? "（" + out + "）" : ""));
-          log("出力: " + a.download + (out ? " -> " + out : "") + (warns ? " 警告: " + warns : ""));
-        });
-      })
-      .catch(function (e) { progressDone(false); setStatus("出力失敗: " + e.message, true); });
-  }
-
-  // ---------------------------------------------------------------------
-  // プロジェクト
-  // ---------------------------------------------------------------------
-  function loadProjects() {
-    apiJson("/api/projects").then(function (r) {
-      var ul = $("project-list");
-      ul.innerHTML = "";
-      if (!r.projects.length) { ul.innerHTML = '<li class="muted">保存済みプロジェクトはありません。</li>'; return; }
-      r.projects.forEach(function (p) {
-        var li = document.createElement("li");
-        li.innerHTML = '<span title="' + escapeAttr(p.updated_at) + '">' + escapeHtml(p.name) + ' <span class="muted">(' + p.slides + '枚)</span></span><span class="row"><button class="small" data-project-act="load" data-project="' + escapeAttr(p.name) + '">開く</button><button class="small secondary" data-project-act="del" data-project="' + escapeAttr(p.name) + '">削除</button></span>';
-        ul.appendChild(li);
-      });
-    }).catch(function (e) { log("プロジェクト一覧取得失敗: " + e.message, "ERROR"); });
-  }
-  function autosave() { try { if (state.presentation) localStorage.setItem(LS_KEY, JSON.stringify({ presentation: state.presentation, at: Date.now() })); } catch (e) { /* 容量超過時は無視 */ } }
-
-  // ---------------------------------------------------------------------
-  // アクション（data-action）
-  // ---------------------------------------------------------------------
-  var actions = {
-    "new": function () { apiJson("/api/new?template_id=" + encodeURIComponent($("template-select").value)).then(function (r) { applyImport({ presentation: r.presentation, warnings: [] }, "空の資料"); }); },
-    "closing": function () {
-      if (!state.presentation) { setStatus("先にファイルを投入してください。", true); return; }
-      var before = snapshot();
-      apiJson("/api/closing-slide", currentBody({ name: "" })).then(function (r) { PWB.history.push(before); state.presentation = r.presentation; state.selectedSlide = r.presentation.slides.length - 1; renderAll(); setStatus(r.added ? "最終ページを追加しました。" : "最終ページは既にあります。"); }).catch(function (e) { setStatus(e.message, true); });
-    },
-    "save": function () {
-      if (!state.presentation) { setStatus("保存する資料がありません。", true); return; }
-      var name = $("project-name").value.trim() || (state.presentation.meta.title || "project");
-      apiJson("/api/projects", { name: name, presentation: state.presentation }).then(function (r) { $("project-name").value = r.name; setStatus("保存しました: " + r.saved); loadProjects(); }).catch(function (e) { setStatus(e.message, true); });
-    },
-    "export-html": function () { download("/api/export/html", "web.zip"); },
-    "export-pptx": function () { download("/api/export/pptx", "presentation.pptx"); },
-    "export-json": function () { download("/api/export/json", "presentation.json"); },
-    "refresh": function () { PWB.slidelist.clearThumbs(); scheduleRender(); },
-    "open-preview": function () {
-      if (!state.presentation) return;
-      api("/api/preview/html", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(currentBody()) })
-        .then(function (r) { return r.text(); })
-        .then(function (html) { var w = window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank"); if (w) { try { w.location.hash = "#s" + (state.selectedSlide + 1); } catch (e) { /* 無視 */ } } })
-        .catch(function (e) { setStatus("プレビュー失敗: " + e.message, true); });
-    },
-    "template-from-pptx": function () { PWB.templateEditor.open(); },
-    "copilot": function () { if (!state.presentation) { setStatus("先にファイルを投入してください。", true); return; } PWB.copilot.open("ask"); },
-    "copilot-reply": function () { PWB.copilot.open("reply"); },
-    "template-delete": function () {
-      var id = $("template-select").value;
-      var t = templateInfo(id);
-      if (!t || t.source !== "user") return;
-      if (!confirm("テンプレート「" + t.name + "」を削除します。画像フォルダも消えます。よろしいですか？")) return;
-      api("/api/templates/" + encodeURIComponent(id), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function (r) { setTemplates(r.templates, null); setStatus("テンプレートを削除しました: " + t.name); PWB.slidelist.clearThumbs(); scheduleRender(); }).catch(function (e) { setStatus(e.message, true); });
-    },
-    "relayout": function () { if (!state.presentation) return; var before = snapshot(); apiJson("/api/layout", currentBody()).then(function (r) { PWB.history.push(before); applyImport(r, "再レイアウト", true); }).catch(function (e) { setStatus(e.message, true); }); },
-    "layout-slide-unplaced": function () { layoutSlide("unplaced"); },
-    "layout-slide-all": function () { if (confirm("このスライドの全要素を配置し直します。手で動かした位置も元に戻ります。よろしいですか？")) layoutSlide("all"); },
-    "check": function () { if (!state.presentation) return; apiJson("/api/quality", currentBody()).then(function (q) { state.quality = q; renderQuality(); activateTab("quality"); setStatus("品質検査: " + q.summary.total + " 件"); }).catch(function (e) { setStatus(e.message, true); }); },
-    "report": fetchReport,
-    "undo": undo,
-    "redo": redo,
-    "add-text": function () { addElement("text"); },
-    "add-shape": function () { addElement("shape"); },
-    "add-line": function () { addElement("line"); },
-    "add-diagram": function (btn) { addElement("diagram", btn.getAttribute("data-diagram") || "flow"); },
-    "merge-replace": function () { PWB.ui.closeModal($("merge-dialog")); if (pendingMergeFile) { var f = pendingMergeFile; pendingMergeFile = null; importFile(f, "replace"); } },
-    "merge-diff": function () { PWB.ui.closeModal($("merge-dialog")); if (pendingMergeFile) { var f2 = pendingMergeFile; pendingMergeFile = null; importFile(f2, "merge"); } },
-    "show-version": function () { showVersion(); },
-    "version-close": function () { PWB.ui.closeModal($("version-modal")); },
-    "restyle": function () { restyleNow(); },
-    "unrestyle": function () { unrestyleNow(); },
-    "restyle-close": function () { PWB.ui.closeModal($("restyle-result")); },
-    "merge-cancel": function () { PWB.ui.closeModal($("merge-dialog")); pendingMergeFile = null; },
-    "merge-report-close": function () { PWB.ui.closeModal($("merge-result")); },
-    "merge-keep-ours": function (btn) { keepOursText(btn.getAttribute("data-slide"), btn.getAttribute("data-element")); },
-    "add-image": function () { if (!currentSlide()) { setStatus("先にスライドを用意してください。", true); return; } $("add-image-input").click(); },
-    "json-apply": function () {
-      var raw;
-      try { raw = JSON.parse($("json-editor").value); } catch (e) { setStatus("JSON 構文エラー: " + e.message, true); return; }
-      var before = snapshot();
-      apiJson("/api/validate", { presentation: raw }).then(function (r) {
-        if (before) PWB.history.push(before);
-        state.presentation = r.presentation; state.warnings = r.repairs || [];
-        if (r.schema_errors.length) log("スキーマ違反: " + r.schema_errors.join(" / "), "ERROR");
-        PWB.slidelist.clearThumbs();
-        renderAll(); setStatus(r.valid ? "JSON を反映しました。" : "JSON を反映しましたが違反が残っています（ログ参照）。", !r.valid);
-      }).catch(function (e) { setStatus(e.message, true); });
-    }
-  };
-
-  document.addEventListener("click", function (e) {
-    var t = e.target.closest("[data-action], [data-slide-act], [data-project-act], .tab, .slide-item, #dropzone");
-    if (!t) return;
-    if (t.hasAttribute("data-action")) { var fn = actions[t.getAttribute("data-action")]; if (fn) fn(t); return; }
-    if (t.hasAttribute("data-slide-act")) { e.stopPropagation(); slideAction(t.getAttribute("data-slide-act"), parseInt(t.getAttribute("data-slide"), 10)); return; }
-    if (t.hasAttribute("data-project-act")) {
-      var name = t.getAttribute("data-project");
-      if (t.getAttribute("data-project-act") === "load") apiJson("/api/projects/" + encodeURIComponent(name)).then(function (res) { $("project-name").value = name; applyImport(res, "プロジェクト " + name); }).catch(function (err) { setStatus(err.message, true); });
-      else if (confirm(name + " を削除しますか？")) api("/api/projects/" + encodeURIComponent(name), { method: "DELETE" }).then(loadProjects);
-      return;
-    }
-    if (t.classList.contains("tab")) { activateTab(t.getAttribute("data-tab")); return; }
-    if (t.id === "dropzone") { $("file-input").click(); return; }
-    if (t.classList.contains("slide-item") && e.target.tagName !== "INPUT" && !e.target.closest("button")) { selectSlide(parseInt(t.getAttribute("data-slide"), 10)); }
+    const act = btn.dataset.action;
+    if (act === 'copy') run(copyPrompt);
+    else if (act === 'pack') run(downloadPack);
+    else if (act === 'version') $('#version-dialog').showModal();
+    else if (act === 'version-close') $('#version-dialog').close();
   });
-  document.addEventListener("focusin", function (e) {
-    var inp = e.target.closest("[data-slide-title]");
-    if (inp) { var i = parseInt(inp.getAttribute("data-slide-title"), 10); if (i !== state.selectedSlide) selectSlide(i); }
-  });
-  document.addEventListener("change", function (e) {
-    var t = e.target;
-    if (t.hasAttribute("data-slide-title")) {
-      var before = snapshot();
-      var s = state.presentation.slides[parseInt(t.getAttribute("data-slide-title"), 10)];
-      s.title = t.value;
-      var titleEl = (s.elements || []).filter(function (el) { return el.role === "title"; })[0];
-      if (titleEl && titleEl.paragraphs && titleEl.paragraphs[0]) { var r0 = titleEl.paragraphs[0].runs[0] || {}; r0.text = t.value; titleEl.paragraphs[0].runs = [r0]; }
-      changed({ before: before, structural: true }); return;
-    }
-    if (t.id === "file-input") { if (t.files[0]) importFile(t.files[0]); t.value = ""; return; }
-    if (t.id === "use-base-pptx") { t.dataset.touched = "1"; return; }
-    if (t.id === "add-image-input") { if (t.files[0]) addElement("image", t.files[0]); t.value = ""; return; }
-    if (t.id === "template-select") { onTemplateSelected(); state.report = null; renderReport(); PWB.slidelist.clearThumbs(); scheduleRender(); return; }
-    if (t.id === "loglevel-select") { setLogLevel(t.value); return; }
-  });
-  document.addEventListener("keydown", function (e) {
-    if (e.target.id === "dropzone" && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); $("file-input").click(); return; }
-    if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) { e.preventDefault(); undo(); }
-    else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y" || (e.shiftKey && (e.key === "z" || e.key === "Z")))) { e.preventDefault(); redo(); }
-    else if (e.key === "PageDown" && state.presentation) { e.preventDefault(); selectSlide(state.selectedSlide + 1); }
-    else if (e.key === "PageUp" && state.presentation) { e.preventDefault(); selectSlide(state.selectedSlide - 1); }
-  });
-  ["dragenter", "dragover"].forEach(function (ev) { document.addEventListener(ev, function (e) { var dz = e.target.closest("#dropzone"); if (dz) { e.preventDefault(); dz.classList.add("over"); } }); });
-  ["dragleave", "drop"].forEach(function (ev) { document.addEventListener(ev, function (e) { var dz = e.target.closest("#dropzone"); if (dz) { e.preventDefault(); dz.classList.remove("over"); if (ev === "drop") { var f = e.dataTransfer.files[0]; if (f) importFile(f); } } }); });
 
-  function activateTab(name) {
-    document.querySelectorAll(".tab").forEach(function (t) { t.classList.toggle("active", t.getAttribute("data-tab") === name); });
-    document.querySelectorAll(".tab-body").forEach(function (b) { b.classList.toggle("hidden", b.id !== "tab-" + name); });
-    if (name === "report" && !state.report) fetchReport();
-  }
-  function setLogLevel(level) {
-    logLevel = level.toUpperCase();
-    $("loglevel-select").value = logLevel;
-    apiJson("/api/loglevel", { level: logLevel }).then(function () { log("ログレベル: " + logLevel, "WARNING"); }).catch(function (e) { log("ログレベル変更失敗: " + e.message, "ERROR"); });
-  }
-  function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
-  function escapeAttr(s) { return escapeHtml(s); }
-
-  // ---------------------------------------------------------------------
-  // デバッグコンソール（設計基準 7.1: 最終ビルド時に削除指示があるまで保持）
-  // ---------------------------------------------------------------------
-  window.qcDebug = window.__QC_DEBUG__ = {
-    version: "0.4.1",
-    build: function () { return versionInfo; },
-    state: function () { return state; },
-    presentation: function () { return state.presentation; },
-    setPresentation: function (p) { state.presentation = p; PWB.slidelist.clearThumbs(); renderAll(); },
-    slide: function (i) { return state.presentation && state.presentation.slides[i == null ? state.selectedSlide : i]; },
-    selectSlide: selectSlide,
-    select: function (ids) { PWB.canvas.setSelection(Array.isArray(ids) ? ids : [ids]); },
-    selection: function () { return PWB.canvas.getSelection(); },
-    setBbox: function (id, b) { var s = currentSlide(); var el = s && s.elements.filter(function (e) { return e.id === id; })[0]; if (!el) return false; var before = snapshot(); el.bbox = { x: b.x, y: b.y, w: b.w, h: b.h }; el.user_bbox = true; changed({ index: state.selectedSlide, before: before }); return true; },
-    undo: undo, redo: redo,
-    canvasScale: function () { return PWB.canvas.scale(); },
-    rendered: function () { return renderSeq; },
-    setLogLevel: setLogLevel,
-    logLevel: function () { return logLevel; },
-    runQuality: function () { actions.check(); },
-    report: function () { fetchReport(); return state.report; },
-    exportPptx: function () { actions["export-pptx"](); },
-    exportHtml: function () { actions["export-html"](); },
-    relayout: function () { actions.relayout(); },
-    clearAutosave: function () { try { localStorage.removeItem(LS_KEY); } catch (e) { /* 無視 */ } },
-    help: function () { console.groupCollapsed("qcDebug コマンド一覧"); console.table(Object.keys(window.qcDebug).map(function (k) { return { command: "qcDebug." + k + (typeof window.qcDebug[k] === "function" ? "()" : "") }; })); console.groupEnd(); }
-  };
-
-  // ---------------------------------------------------------------------
-  // 初期化
-  // ---------------------------------------------------------------------
-  function init() {
-    PWB.ui.initPanes(["pane-left", "pane-center", "pane-right"], { sizes: [22, 24, 54], minSize: [220, 200, 420], onResize: function () { PWB.canvas.fit(); } });
-    ["version-modal", "merge-dialog", "merge-result", "restyle-result"].forEach(function (id) { PWB.ui.bindModal($(id), { backdropCloses: id !== "merge-dialog", onClose: function () { if (id === "merge-dialog") pendingMergeFile = null; } }); });
-    PWB.canvas.init($("canvas-area"));
-    PWB.inspector.init($("inspector"));
-    PWB.slidelist.init($("slide-list"));
-    PWB.templateEditor.init($("tpl-modal"));
-    PWB.copilot.init($("copilot-modal"));
-    loadVersion();
-    apiJson("/api/config").then(function (c) {
-      state.config = c;
-      setTemplates(c.templates, null);
-      var ms = $("mode-select");
-      var labels = { editable: "編集性優先（文字はテキストシェイプ）", visual: "見た目優先（画像化）", hybrid: "ハイブリッド" };
-      c.pptx_modes.forEach(function (m) { var o = document.createElement("option"); o.value = m; o.textContent = labels[m] || m; if (m === c.default_mode) o.selected = true; ms.appendChild(o); });
-      $("raster-badge").textContent = "画像化: " + (c.raster_available ? "利用可" : "利用不可（見た目優先は編集性優先へ代替）");
-      $("output-dir").textContent = c.output_dir;
-      $("projects-dir").textContent = c.projects_dir;
-      if (c.log_level) { logLevel = c.log_level; $("loglevel-select").value = logLevel; }
-    }).catch(function (e) { setStatus("設定取得失敗: " + e.message, true); });
-    loadProjects();
-    try {
-      var saved = JSON.parse(localStorage.getItem(LS_KEY) || "null");
-      if (saved && saved.presentation && saved.presentation.slides && saved.presentation.slides.length) {
-        state.presentation = saved.presentation; renderAll();
-        setStatus("前回の作業内容を復元しました（" + new Date(saved.at).toLocaleString() + "）");
-      } else { PWB.inspector.render(); }
-    } catch (e) { PWB.inspector.render(); }
-    log("qcDebug.help() でデバッグコマンド一覧を表示できます", "DEBUG");
-  }
-  document.addEventListener("DOMContentLoaded", init);
-})();
+  run(loadConfig);
+  logLine('準備できました。PowerPoint か HTML 図解を投入してください。');
+});

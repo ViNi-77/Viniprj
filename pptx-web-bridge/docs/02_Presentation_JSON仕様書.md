@@ -1,12 +1,20 @@
-# Presentation JSON 仕様書 v1.0
+# Presentation JSON 仕様書 v1.1
 
-> 機械可読な定義は `schema/presentation.schema.json`（JSON Schema 2020-12）。本書は人が読むための補足。
+> 解析器（`pptx_parser` / `html_parser`）が作る**内部の中間形式**。
+> 利用者に見せるのはこれではなく、ここから作る**図解仕様**（`docs/03` 1 章）。
+>
+> **Phase P で 2 点変わった。**
+> 1. `theme` を持たない。かつてアプリ既定のテンプレート色を入れていたが、それは読み込んだ
+>    ファイルの色ではないので、渡すと嘘になる（`docs/99` 2026-09-14）。見た目は
+>    `theme_from_html` / `theme_from_pptx` が実ファイルから別に読む。
+> 2. JSON Schema（`schema/`）による検証をやめた。この形式を外から受け取る口が無くなり、
+>    解析器の出力を自分で検証する意味が薄れたため。
 
 ## 1. 基本方針
 - **単位**: すべて pt（1pt = 1/72 inch）。PPTX の EMU（12700 EMU = 1pt）と Web の px（1pt = 96/72 px）へ双方向に変換できる。
 - **座標系**: 原点はスライド左上、x 右向き、y 下向き。`bbox = {x, y, w, h}`。
-- **キャンバス**: 16:9 の既定値は 960 × 540 pt（13.333 × 7.5 inch）。
-- **bbox: null**: 座標未確定（HTML 由来など）。`layout.py` が決定的に配置する。
+- **キャンバス**: PPTX の実寸を記録する（題名の役割推定に使う）。既定は 960 × 540 pt。
+- **bbox: null**: 座標を持たない（HTML 由来など）。このアプリは描画しないので、座標を確定させる工程は無い。PPTX 由来の bbox は「横に並んでいるか」の判定にだけ使う。
 - **画像**: `assets` に base64 で内包し、要素からは `asset_id` で参照。同一画像は SHA-1 で重複排除。
 - **版**: `schema_version` は `1.x`。同一メジャー内は後方互換（新規フィールドは省略可）。
 
@@ -14,10 +22,9 @@
 
 ```
 {
-  "schema_version": "1.0",
-  "meta":   { "title", "author", "created_at", "generator", "source": {"type": "pptx|html|manual|json", "filename"}, "import_snapshot": {...} },
+  "schema_version": "1.1",
+  "meta":   { "title", "author", "created_at", "generator", "source": {"type": "pptx|html|manual", "filename"} },
   "canvas": { "width_pt": 960, "height_pt": 540, "aspect": "16:9" },
-  "theme":  { "template_id", "fonts": {"heading", "body"}, "colors": {"primary","secondary","accent","background","surface","text","muted","line"} },
   "assets": { "<asset_id>": {"mime", "filename", "data_base64", "width_px", "height_px"} },
   "slides": [ <slide> ],
   "warnings": [ <warning> ]
@@ -36,8 +43,6 @@
 | elements | element[] | 描画順は `z` 昇順 |
 | warnings | warning[] | このスライドに関する警告 |
 
-### meta.import_snapshot（差分マージ用）
-前回の取込直後の状態を照合するためだけの記録。`{source, slides: [{key, notes, layout, elements: [{key, hash}]}]}` で、本文・画像は持たない（`key` は種別・役割・文字の先頭 40 字、`hash` は文字の SHA-1 先頭 12 桁）。各スライド・要素には取り込んだときの鍵 `import_key` が付き、利用者が文字を直しても対応付けられる。
 
 ### element（共通）
 | フィールド | 型 | 説明 |

@@ -44,3 +44,13 @@ def sample_pptx_bytes() -> bytes:
 def sample_html_files() -> dict[str, bytes]:
     base = ROOT / "samples" / "sample_html"
     return {str(p.relative_to(base)): p.read_bytes() for p in base.rglob("*") if p.is_file()}
+
+
+@pytest.fixture(scope="session")
+def html_themes(tmp_path_factory: pytest.TempPathFactory) -> dict[str, bytes]:
+    """HTML 図解テーマの試験資料（壊れる軸を網羅した 6 種類）。"""
+    sys.path.insert(0, str(ROOT / "samples"))
+    from make_html_themes import build  # type: ignore
+
+    out = tmp_path_factory.mktemp("themes")
+    return {p.name: p.read_bytes() for p in build(out)}

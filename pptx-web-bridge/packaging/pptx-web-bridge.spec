@@ -1,30 +1,26 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller 仕様（onedir）。python packaging/build_exe.py から使う。
 
-同梱するもの: backend（コード）、frontend、schema、config（既定）、backend/app/viewer、python-pptx のテンプレート、
-jsonschema の仕様データ。
-書き込み先（projects/output/logs）は exe の隣に作られる。
+同梱するもの: backend（コード）、frontend、config（既定）、python-pptx のテンプレート。
+書き込み先（logs）は exe の隣に作られる。
 
 Playwright は同梱しない: そのドライバは Node.js 本体（約120MB）を含み、配布物が肥大化するうえ、
 展開先パスが深くなりすぎて Windows の MAX_PATH に達したり、社内のウイルス対策/EDR に
-実行ファイル同梱の node バイナリを警戒されたりする原因になりやすい。Computed Style
-補助機能（見た目優先の微調整）はあくまで任意機能で、Playwright が無い環境では
-自動的に静的解析のみへフォールバックする（backend/app/rasterize.py の is_available() 参照）ため、
-exe 版では同梱せず、必要な場合はソースから起動する運用とする。
+実行ファイル同梱の node バイナリを警戒されたりする原因になりやすい。
+そもそもこのアプリの本体（読み取りとプロンプト生成）はブラウザを使わない。
+Playwright が要るのは開発時の画面検査（scripts/ui_smoke.py）だけで、配布物には不要。
 """
 import os
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH).resolve().parent  # noqa: F821 - SPECPATH は PyInstaller が定義
 BACKEND = ROOT / "backend"
 
 datas = [
     (str(ROOT / "frontend"), "frontend"),
-    (str(ROOT / "schema"), "schema"),
     (str(ROOT / "config"), "config"),
-    (str(BACKEND / "app" / "viewer"), "app/viewer"),
 ]
 binaries = []
 hiddenimports = [
@@ -33,16 +29,9 @@ hiddenimports = [
     "uvicorn.protocols.websockets", "uvicorn.protocols.websockets.auto", "uvicorn.lifespan", "uvicorn.lifespan.on",
     "anyio._backends._asyncio", "multipart", "python_multipart",
 ]
-for pkg in ("pptx", "jsonschema", "jsonschema_specifications", "lxml", "bs4", "PIL", "referencing", "rpds"):
+for pkg in ("pptx", "lxml", "bs4", "PIL"):
     datas += collect_data_files(pkg)
     hiddenimports += collect_submodules(pkg)
-# jsonschema/referencing 系は importlib.metadata でパッケージ情報を参照することがあるため、
-# .dist-info も明示的に同梱する（collect_data_files だけでは同梱されない）
-for _meta_pkg in ("jsonschema", "jsonschema_specifications", "referencing", "attrs", "rpds-py"):
-    try:
-        datas += copy_metadata(_meta_pkg)
-    except Exception:  # noqa: BLE001 - パッケージ名の揺れ（rpds/rpds-py 等）は無視して継続
-        pass
 # python-pptx の既定テンプレート（default.pptx / *.xml）は明示的に同梱する（collect_data_files が拾わない環境がある）
 import pptx as _pptx  # noqa: E402
 

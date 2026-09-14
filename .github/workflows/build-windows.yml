@@ -10,7 +10,6 @@ on:
       - "pptx-web-bridge/backend/**"
       - "pptx-web-bridge/frontend/**"
       - "pptx-web-bridge/config/**"
-      - "pptx-web-bridge/schema/**"
       - "pptx-web-bridge/packaging/**"
       - "pptx-web-bridge/requirements.txt"
       - ".github/workflows/build-windows.yml"

@@ -35,7 +35,7 @@ def main() -> int:
     print(" ".join(cmd), flush=True)
     subprocess.run(cmd, check=True, cwd=str(ROOT))
 
-    # 利用者が触るもの（設定・テンプレート素材・サンプル・README）を exe の隣に置く
+    # 利用者が触るもの（設定・サンプル・README）を exe の隣に置く
     for rel in ("config", "samples"):
         src, dst = ROOT / rel, DIST / rel
         if dst.exists():
@@ -82,14 +82,17 @@ def main() -> int:
     )
     (DIST / "BUILD_INFO.txt").write_text(f"commit: {sha}\nbuilt_at_utc: {datetime.datetime.utcnow().isoformat(timespec='seconds')}Z\nplatform: {platform.platform()}\npython: {platform.python_version()}\n", encoding="utf-8")
     (DIST / "はじめにお読みください.txt").write_text(
-        "PPTX <-> Web図解 変換アプリ\n\n"
+        "図解プロンプト作成（PowerPoint <-> Web 図解）\n\n"
+        "PowerPoint や HTML 図解を読み取り、Copilot にそのまま貼れる指示文を作ります。\n"
+        "図解を作るのは Copilot です。このアプリは資料の中身を読み取って言葉にするだけで、外部には送信しません。\n\n"
         "1. pptx-web-bridge.exe をダブルクリックしてください（初回は Windows の SmartScreen が出たら「詳細情報」→「実行」）。\n"
         "2. 黒い窓が開き、数秒後にブラウザで http://127.0.0.1:8765/ が開きます。\n"
-        "3. 画面左の枠に PPTX / HTML(ZIP) / JSON をドロップして変換します。samples フォルダに試用ファイルがあります。\n"
-        "4. 終了するときは黒い窓を閉じてください。\n\n"
-        "設定: config/app_config.json（ポート等）、テンプレート: config/templates.json と config/template_assets/\n"
-        "保存: projects/  出力: output/  ログ: logs/app.log\n"
-        "見た目優先モードは Windows 標準の Microsoft Edge を使って画像化します（Edge が無い場合は編集性優先へ自動で代替）。\n\n"
+        "3. PowerPoint(.pptx) か HTML 図解(.html / .zip) をドロップします。samples フォルダに試用ファイルがあります。\n"
+        "4. 読み取った中身を確かめ（型が違えばその場で直せます）、プロンプトをコピーして Copilot に貼ります。\n"
+        "5. 画像がある資料は「一式をダウンロード」の画像も一緒に添付してください。\n"
+        "6. 終了するときは黒い窓を閉じてください。\n\n"
+        "設定: config/app_config.json（ポート等）  ログ: logs/app.log\n"
+        "社外秘の資料は、社内テナントの M365 Copilot にだけ貼ってください。\n\n"
         "うまく起動しないとき:\n"
         "- ZIP は C:\\pptx-web-bridge のような短いパスに展開してください（深い階層だと Windows のパス長上限に達することがあります）。\n"
         "- 起動直後にエラーが出た場合は logs/startup_error.log の内容を担当者に共有してください。\n"

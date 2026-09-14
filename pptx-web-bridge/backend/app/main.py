@@ -1,65 +1,66 @@
 """ローカル API（FastAPI）。ブラウザ UI から呼ばれる。
 
+このアプリは図解を描かない。**読み取って、Copilot への指示文にする**だけ。
+だから API も 3 本しかない: 投入（`/api/analyze`）、テーマ（`/api/theme`）、
+プロンプト（`/api/prompt` と `/api/pack.zip`）。
+
 - 外部へファイルを送信しない。すべてローカルで処理する。
-- 失敗は HTTP 4xx/5xx + 日本語メッセージで返し、ログに工程名を残す。
+- 失敗は HTTP 4xx + 日本語メッセージで返し、ログに工程名を残す。
 """
 from __future__ import annotations
 
-import io
-import json
+import logging
 import re
+import uuid
 import zipfile
-from pathlib import Path
+from collections import OrderedDict
 from typing import Any
 from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-import logging
-
-from . import copilot_agent_kit, copilot_handoff, pipeline, restyle, storage, template_from_layout, template_from_pptx, template_kit, template_store
-from . import layout as layout_slide_module
-from .layout import element_height, layout_slide
-from .report import build_report
+from . import handoff_pack, pipeline, prompt_builder, spec_builder
 from . import version as version_mod
 from .config import get_config, resource_path
 from .logging_setup import get_logger
-from .model import new_presentation
-from .rasterize import is_available as raster_available
-from .typography import normalize_presentation
-from .validate import validate_and_repair
-from .web_renderer import _VIEWER_DIR, render_html, slide_html, theme_css
 
 log = get_logger("api")
 
 
 def _cfg():
-    """設定は呼び出し時に引く（試験で差し替えた設定や、再読込した設定を API がそのまま使えるように）。"""
+    """設定は呼び出し時に引く（試験で差し替えた設定をそのまま使えるように）。"""
     return get_config()
 
 
-cfg = _cfg()
-app = FastAPI(title="PPTX ⇄ Web図解 変換アプリ", version=version_mod.APP_VERSION)
+app = FastAPI(title="図解プロンプト作成（PowerPoint ⇄ Web 図解）", version=version_mod.APP_VERSION)
 FRONTEND_DIR = resource_path("frontend")
 _MAX_UPLOAD = int(_cfg().get("limits.max_upload_mb", 50)) * 1024 * 1024
 
-
-class PresentationBody(BaseModel):
-    presentation: dict[str, Any]
-    mode: str | None = None
-    template_id: str | None = None
-    name: str | None = None
-    write_to_output: bool = False
-    use_base_pptx: bool = False  # PPTX から作ったテンプレートの元ファイルを土台にして出力する
+# 解析結果の預かり所。ZIP を作るときに画像の実体が要るのでサーバー側に置く。
+# 手元で 1 人が使う前提なので、古いものから順に捨てる小さな箱で足りる。
+_SESSIONS: "OrderedDict[str, dict]" = OrderedDict()
+_THEMES: "OrderedDict[str, dict]" = OrderedDict()
+_KEEP = 8
 
 
-class SaveBody(BaseModel):
-    name: str = Field(min_length=1)
-    presentation: dict[str, Any]
+def _remember(store: OrderedDict, value: dict) -> str:
+    key = uuid.uuid4().hex[:12]
+    store[key] = value
+    while len(store) > _KEEP:
+        store.popitem(last=False)
+    return key
+
+
+def _session(session_id: str) -> dict:
+    got = _SESSIONS.get(session_id)
+    if not got:
+        raise HTTPException(404, "投入したファイルの情報が見つかりません。もう一度ファイルを投入してください。")
+    _SESSIONS.move_to_end(session_id)
+    return got
 
 
 def _content_disposition(filename: str) -> str:
@@ -75,17 +76,7 @@ def _check_size(data: bytes, filename: str) -> None:
         raise HTTPException(400, f"空のファイルです: {filename}")
 
 
-def _apply_template(pres: dict, template_id: str | None) -> dict:
-    if template_id:
-        t = _cfg().template(template_id)
-        pres.setdefault("theme", {})
-        pres["theme"]["template_id"] = t.get("id")
-        pres["theme"]["fonts"] = dict(t.get("fonts", {}))
-        pres["theme"]["colors"] = dict(t.get("colors", {}))
-    return pres
-
-
-_ASSET_REF = re.compile(r'(?P<ref>(?:href|src)="/(?:static|viewer)/[^"?]+)"')
+_ASSET_REF = re.compile(r'(?P<ref>(?:href|src)="/static/[^"?]+)"')
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -105,614 +96,125 @@ def api_version() -> dict:
 @app.get("/api/config")
 def api_config() -> dict:
     return {
-        "templates": [{"id": t["id"], "name": t.get("name", t["id"]), "description": t.get("description", ""), "source": t.get("source", "builtin"), "has_base_pptx": bool(t.get("base_pptx"))} for t in _cfg().templates()],
-        "pptx_modes": _cfg().get("pptx_export.modes"),
-        "default_mode": _cfg().get("pptx_export.default_mode"),
-        "raster_available": raster_available(),
+        "directions": prompt_builder.directions(),
+        "kinds": spec_builder.kind_options(),
         "max_upload_mb": _cfg().get("limits.max_upload_mb"),
-        "output_dir": str(_cfg().path("output_dir")),
-        "projects_dir": str(_cfg().path("projects_dir")),
+        "max_prompt_chars": _cfg().get("copilot.max_prompt_chars", prompt_builder.DEFAULT_MAX_CHARS),
         "version": app.version,
         "build": version_mod.build_info(),
         "log_level": logging.getLevelName(logging.getLogger("pptx_web_bridge").level),
-        "layout": {"margin_pt": _cfg().get("layout.margin_pt"), "gutter_pt": _cfg().get("layout.gutter_pt"), "size_bands": _cfg().get("layout.size_bands"), "body_font_pt": _cfg().get("layout.body_font_pt"), "title_font_pt": _cfg().get("layout.title_font_pt")},
-        "canvas": {"width_pt": _cfg().get("canvas.default_width_pt"), "height_pt": _cfg().get("canvas.default_height_pt")},
     }
 
 
-class RenderBody(PresentationBody):
-    indices: list[int] | None = None
-
-
-@app.post("/api/render/slides")
-def api_render_slides(body: RenderBody) -> dict:
-    """編集キャンバス・サムネイル用に、指定スライドの HTML 断片を返す（描画器はサーバ側の 1 つだけ）。
-
-    prepare（修復 → 正規化 → レイアウト → テンプレート）後の資料も返すので、クライアントはこれを状態として採用する。
-    """
-    pres, errors, fixes = pipeline.prepare(_apply_template(body.presentation, body.template_id))
-    template = _cfg().template(pres.get("theme", {}).get("template_id"))
-    slides = pres.get("slides", [])
-    indices = body.indices if body.indices is not None else list(range(len(slides)))
-    html = {str(i): slide_html(slides[i], pres, inline_assets=True, template=template, with_notes=False) for i in indices if 0 <= i < len(slides)}
-    return {"presentation": pres, "canvas": pres["canvas"], "theme_css": theme_css(pres), "slides": html, "warnings": fixes, "schema_errors": errors}
-
-
-class LayoutSlideBody(PresentationBody):
-    index: int
-    scope: str = "unplaced"  # unplaced: 座標の無い要素だけ / all: 全要素を配置し直す
-
-
-@app.post("/api/layout/slide")
-def api_layout_slide(body: LayoutSlideBody) -> dict:
-    """1 枚だけ自動配置する（分割されて複数枚になることがある）。"""
-    pres, errors, fixes = validate_and_repair(_apply_template(body.presentation, body.template_id))
-    slides = pres.get("slides", [])
-    if not 0 <= body.index < len(slides):
-        raise HTTPException(400, "スライド番号が範囲外です。")
-    normalize_presentation(pres)
-    target = slides[body.index]
-    if body.scope == "all":
-        for el in target.get("elements", []):
-            el["bbox"] = None
-            el.pop("font_scale", None)
-            el.pop("user_bbox", None)
-    template = template_kit.template_for(pres)
-    new_slides = layout_slide(target, pres["canvas"], pres.get("assets", {}), None, template if template_kit.has_parts(template) else None)
-    slides[body.index : body.index + 1] = new_slides
-    for i, s in enumerate(slides):
-        s["index"] = i
-    pres = template_kit.apply_template(pres)
-    return {"presentation": pres, "count": len(new_slides), "schema_errors": errors, "warnings": fixes}
-
-
-class FitBody(PresentationBody):
-    index: int
-    element_id: str
-
-
-@app.post("/api/layout/fit")
-def api_layout_fit(body: FitBody) -> dict:
-    """「内容に合わせる」: 要素の現在幅での推定高さを返す。"""
-    pres, _e, _f = validate_and_repair(body.presentation)
-    normalize_presentation(pres)
-    try:
-        slide = pres["slides"][body.index]
-        el = next(e for e in slide.get("elements", []) if e.get("id") == body.element_id)
-    except (IndexError, StopIteration) as e:
-        raise HTTPException(404, "要素が見つかりません。") from e
-    width = float((el.get("bbox") or {}).get("w") or (float(pres["canvas"]["width_pt"]) - 2 * float(_cfg().get("layout.margin_pt", 36))))
-    return {"h": round(element_height(el, width, pres), 2), "font_pt": el.get("font_pt")}
-
-
-@app.post("/api/import/pptx")
-async def api_import_pptx(file: UploadFile = File(...), template_id: str | None = Form(None)) -> dict:
-    data = await file.read()
-    _check_size(data, file.filename or "")
-    try:
-        return await run_in_threadpool(pipeline.import_pptx, data, file.filename or "input.pptx", template_id)
-    except (ValueError, zipfile.BadZipFile, KeyError) as e:
-        log.warning("PPTX 取込を拒否（入力起因）: %s: %s", file.filename, e)
-        raise HTTPException(422, f"PPTX を読み込めませんでした（工程: pptx_parser）: {e}") from e
-    except Exception as e:  # noqa: BLE001
-        log.exception("PPTX 取込に失敗: %s", file.filename)
-        raise HTTPException(422, f"PPTX を読み込めませんでした（工程: pptx_parser）: {e}") from e
-
-
-@app.post("/api/import/html")
-async def api_import_html(file: UploadFile = File(...), template_id: str | None = Form(None), assets: list[UploadFile] | None = File(None), computed_style: bool | None = Form(None)) -> dict:
-    data = await file.read()
-    _check_size(data, file.filename or "")
-    extra: dict[str, bytes] = {}
-    for a in assets or []:
-        blob = await a.read()
-        if blob:
-            extra[a.filename or "asset"] = blob
-    try:
-        # 同期 Playwright はイベントループ上で動かないため、スレッドプールで実行する
-        return await run_in_threadpool(pipeline.import_html, data, file.filename or "input.html", template_id, extra, computed_style)
-    except (ValueError, zipfile.BadZipFile) as e:
-        log.warning("HTML 取込を拒否（入力起因）: %s: %s", file.filename, e)
-        raise HTTPException(422, f"HTML を読み込めませんでした（工程: html_parser）: {e}") from e
-    except Exception as e:  # noqa: BLE001
-        log.exception("HTML 取込に失敗: %s", file.filename)
-        raise HTTPException(422, f"HTML を読み込めませんでした（工程: html_parser）: {e}") from e
-
-
-@app.post("/api/import/json")
-async def api_import_json(file: UploadFile = File(...)) -> dict:
-    data = await file.read()
-    _check_size(data, file.filename or "")
-    try:
-        raw = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as e:
-        raise HTTPException(422, f"JSON として読み込めません: {e}") from e
-    pres, errors, fixes = validate_and_repair(raw)
-    return {"presentation": pres, "warnings": fixes, "schema_errors": errors, "quality": pipeline.quality(pres)}
-
-
-@app.post("/api/import/merge")
-async def api_import_merge(
-    file: UploadFile = File(...),
-    presentation: str = Form(...),
-    template_id: str | None = Form(None),
-    conflict: str = Form("theirs"),
-    assets: list[UploadFile] | None = File(None),
-    computed_style: bool | None = Form(None),
-) -> dict:
-    """同じ資料を直したファイルを、いまの資料へ差分として取り込む（編集を残す）。"""
-    data = await file.read()
-    _check_size(data, file.filename or "")
-    try:
-        current = json.loads(presentation)
-    except json.JSONDecodeError as e:
-        raise HTTPException(422, f"いまの資料を読み取れません: {e}") from e
-    if not isinstance(current, dict) or not current.get("slides"):
-        raise HTTPException(400, "差分の取り込み先になる資料がありません。")
-    name = (file.filename or "input").lower()
-    try:
-        if name.endswith(".pptx"):
-            incoming = await run_in_threadpool(pipeline.import_pptx, data, file.filename or "input.pptx", template_id)
-        elif name.endswith(".json"):
-            incoming = {"presentation": validate_and_repair(json.loads(data.decode("utf-8")))[0]}
-        elif name.endswith((".md", ".markdown", ".txt")):
-            pres_in = copilot_handoff.import_markdown(data.decode("utf-8"), template_id, file.filename or "copilot.md")
-            incoming = {"presentation": pres_in}
-        else:
-            extra: dict[str, bytes] = {}
-            for a in assets or []:
-                blob = await a.read()
-                if blob:
-                    extra[a.filename or "asset"] = blob
-            incoming = await run_in_threadpool(pipeline.import_html, data, file.filename or "input.html", template_id, extra, computed_style)
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001
-        log.exception("差分取込の読み込みに失敗: %s", file.filename)
-        raise HTTPException(422, f"ファイルを読み込めませんでした: {e}") from e
-    policy = {"conflict": "ours" if conflict == "ours" else "theirs"}
-    result = await run_in_threadpool(pipeline.merge_import, current, incoming["presentation"], policy)
-    log.info("差分取込: %s %s", file.filename, result["summary"])
-    return result
-
-
-class RestyleBody(PresentationBody):
-    pass
-
-
-@app.post("/api/template/apply")
-def api_template_apply(body: RestyleBody) -> dict:
-    """テンプレートを資料全体へ着せ替える（色・フォント・題名の位置・背景）。元に戻せる。"""
-    pres = _apply_template(body.presentation, body.template_id)
-    template = _cfg().template(pres.get("theme", {}).get("template_id"))
-    styled, report = restyle.restyle(pres, template)
-    styled, errors, fixes = validate_and_repair(styled)
-    styled = layout_slide_module.layout_presentation(styled)
-    return {"presentation": styled, "report": report, "summary": restyle.summary_text(report), "warnings": styled.get("warnings", []) + fixes, "schema_errors": errors, "quality": pipeline.quality(styled)}
-
-
-@app.post("/api/template/unapply")
-def api_template_unapply(body: PresentationBody) -> dict:
-    """着せ替えを取り消して元の見た目へ戻す。"""
-    plain, report = restyle.unstyle(body.presentation)
-    plain, errors, fixes = validate_and_repair(plain)
-    return {"presentation": plain, "report": report, "summary": f"{report['restored']} 個の要素を元に戻しました。" if report.get("restored") else str(report.get("skipped", "")), "warnings": fixes, "schema_errors": errors, "quality": pipeline.quality(plain)}
-
-
-@app.post("/api/validate")
-def api_validate(body: PresentationBody) -> dict:
-    pres, errors, fixes = validate_and_repair(body.presentation)
-    return {"presentation": pres, "schema_errors": errors, "repairs": fixes, "valid": not errors}
-
-
-@app.post("/api/quality")
-def api_quality(body: PresentationBody) -> dict:
-    return pipeline.quality(body.presentation)
-
-
-@app.post("/api/layout")
-def api_layout(body: PresentationBody) -> dict:
-    pres, errors, fixes = pipeline.prepare(_apply_template(body.presentation, body.template_id))
-    return {"presentation": pres, "schema_errors": errors, "warnings": fixes, "quality": pipeline.quality(pres)}
-
-
-@app.post("/api/preview/html", response_class=HTMLResponse)
-def api_preview_html(body: PresentationBody) -> Any:
-    pres, _e, _f = pipeline.prepare(_apply_template(body.presentation, body.template_id))
-    return HTMLResponse(render_html(pres, inline_assets=True, inline_viewer=True))
-
-
-@app.post("/api/export/html")
-def api_export_html(body: PresentationBody) -> Response:
-    pres, _e, _f = pipeline.prepare(_apply_template(body.presentation, body.template_id))
-    name = storage.safe_name(body.name or pres.get("meta", {}).get("title") or "web")
-    data = storage.bundle_zip(pres)
-    headers = {"Content-Disposition": _content_disposition(f"{name}_web.zip")}
-    if body.write_to_output:
-        path = storage.write_web_dir(pres, name)
-        headers["X-Output-Path"] = quote(str(path))
-        log.info("Web 一式を書き出し: %s", path)
-    return Response(content=data, media_type="application/zip", headers=headers)
-
-
-@app.post("/api/export/pptx")
-def api_export_pptx(body: PresentationBody) -> Response:
-    try:
-        data, pres, warns = pipeline.export_pptx(_apply_template(body.presentation, body.template_id), body.mode, body.use_base_pptx)
-    except Exception as e:  # noqa: BLE001
-        log.exception("PPTX 生成に失敗")
-        raise HTTPException(500, f"PPTX を生成できませんでした（工程: pptx_generator）: {e}") from e
-    name = storage.safe_name(body.name or pres.get("meta", {}).get("title") or "presentation")
-    headers = {"Content-Disposition": _content_disposition(f"{name}.pptx"), "X-Warning-Count": str(len(warns)), "X-Warnings": json.dumps([w["code"] for w in warns], ensure_ascii=True)}
-    if body.write_to_output:
-        path = storage.write_output("pptx", name, data, "pptx")
-        headers["X-Output-Path"] = quote(str(path))
-        log.info("PPTX を書き出し: %s", path)
-    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation", headers=headers)
-
-
-@app.post("/api/export/json")
-def api_export_json(body: PresentationBody) -> Response:
-    pres, _e, _f = validate_and_repair(body.presentation)
-    name = storage.safe_name(body.name or pres.get("meta", {}).get("title") or "presentation")
-    data = json.dumps(pres, ensure_ascii=False, indent=2).encode("utf-8")
-    headers = {"Content-Disposition": _content_disposition(f"{name}.json")}
-    if body.write_to_output:
-        headers["X-Output-Path"] = quote(str(storage.write_output("json", name, data, "json")))
-    return Response(content=data, media_type="application/json", headers=headers)
-
-
-@app.get("/api/projects")
-def api_projects() -> dict:
-    return {"projects": storage.list_projects()}
-
-
-@app.post("/api/projects")
-def api_save_project(body: SaveBody) -> dict:
-    pres, errors, _fixes = validate_and_repair(body.presentation)
-    path = storage.save_project(body.name, pres)
-    return {"saved": str(path), "name": path.stem, "schema_errors": errors}
-
-
-@app.get("/api/projects/{name}")
-def api_load_project(name: str) -> dict:
-    try:
-        pres = storage.load_project(name)
-    except FileNotFoundError as e:
-        raise HTTPException(404, "プロジェクトが見つかりません。") from e
-    pres, errors, fixes = validate_and_repair(pres)
-    return {"presentation": pres, "schema_errors": errors, "warnings": fixes, "quality": pipeline.quality(pres)}
-
-
-@app.delete("/api/projects/{name}")
-def api_delete_project(name: str) -> dict:
-    return {"deleted": storage.delete_project(name)}
-
-
-@app.get("/api/new")
-def api_new(template_id: str | None = None) -> dict:
-    return {"presentation": new_presentation("新規資料", "manual", "", template_id)}
-
-
-@app.post("/api/report")
-def api_report(body: PresentationBody) -> dict:
-    """要素判別レポート（文字/画像の区別、座標、フォントサイズ）。"""
-    pres, _e, _f = pipeline.prepare(_apply_template(body.presentation, body.template_id))
-    return build_report(pres)
-
-
-@app.post("/api/closing-slide")
-def api_closing_slide(body: PresentationBody) -> dict:
-    """テンプレートの最終ページ（ロゴ中央）を末尾へ追加した資料を返す。"""
-    pres, _e, _f = validate_and_repair(body.presentation)
-    if pres["slides"] and pres["slides"][-1].get("layout") == "closing":
-        return {"presentation": pres, "added": False}
-    n = len(pres["slides"])
-    pres["slides"].append(template_kit.make_closing_slide(f"s_end{n + 1:03d}", n, body.name or ""))
-    pres, _e2, _f2 = pipeline.prepare(pres)
-    return {"presentation": pres, "added": True}
-
-
-# ---------------------------------------------------------------- テンプレート（PPTX から作成）
-class TemplateBody(BaseModel):
-    template: dict[str, Any]
-    previous_id: str | None = None  # 画面で ID を変えたとき、画像フォルダを移す元の ID
-
-
-class LayoutPreviewBody(BaseModel):
-    template_id: str
-    master: int = 0
-    index: int = 0
-
-
-class LayoutMapBody(BaseModel):
-    template_id: str
-    layout_map: dict[str, dict[str, int]]
-    filename: str | None = None
-    name: str | None = None
-
-
-def _template_previews(template: dict) -> dict:
-    """提案テンプレートで 3 枚のサンプル（表紙 / 中身 / 最終）を描く。未保存でも描けるよう use_template で差し込む。"""
-    with template_kit.use_template(template):
-        pres, _e, _f = pipeline.prepare(template_from_pptx.sample_presentation(template))
-        html = {}
-        for s in pres["slides"]:
-            kind = template_kit.slide_kind(s, pres)
-            html[kind] = slide_html(s, pres, inline_assets=True, template=template, with_notes=False)
-        return {"previews": html, "canvas": pres["canvas"], "theme_css": theme_css(pres), "sample": pres}
-
-
-def _slide_thumbs(data: bytes, filename: str, limit: int = 12) -> tuple[list[str], str | None]:
-    """投入した PPTX の各スライドを（テンプレート部品を描かずに）縮小表示用の断片にする。
-
-    返り値: (断片一覧, 失敗理由 or None)。失敗を握り潰すと「元スライドと見比べる」手段が黙って消えるため理由を返す。
-    """
-    try:
-        from .pptx_parser import parse_pptx
-
-        pres = parse_pptx(data, filename)
-        pres, _e, _f = pipeline.prepare(pres)
-        with template_kit.use_template({}):
-            return [slide_html(s, pres, inline_assets=True, template={}, with_notes=False) for s in pres["slides"][:limit]], None
-    except Exception as e:  # noqa: BLE001
-        log.warning("テンプレート元 PPTX のサムネイル描画に失敗: %s", e)
-        return [], f"元のスライドを描けませんでした（{e}）。「このアプリの解釈」だけの表示になります。"
-
-
-@app.get("/api/templates")
-def api_templates() -> dict:
-    return {"templates": _cfg().templates()}
-
-
-@app.post("/api/templates/from-pptx")
-async def api_template_from_pptx(file: UploadFile = File(...), roles: str | None = Form(None), template_id: str | None = Form(None), name: str | None = Form(None), thumbs: bool = Form(True)) -> dict:
-    """PPTX（表紙・中身・最終ページ）を解析し、テンプレート定義の提案とプレビューを返す。roles は {"0": "cover", ...} の JSON。"""
-    data = await file.read()
-    _check_size(data, file.filename or "")
-    if data[:2] != b"PK":
-        raise HTTPException(422, "PPTX（ZIP 形式）として読めません。")
-    overrides: dict[int, str] = {}
-    if roles:
-        try:
-            overrides = {int(k): str(v) for k, v in json.loads(roles).items()}
-        except (ValueError, AttributeError) as e:
-            raise HTTPException(400, f"roles の形式が不正です: {e}") from e
-    try:
-        result = await run_in_threadpool(template_from_pptx.analyze, data, file.filename or "template.pptx", template_id, overrides, name)
-    except ValueError as e:
-        raise HTTPException(422, str(e)) from e
-    except Exception as e:  # noqa: BLE001
-        log.exception("テンプレート推定に失敗: %s", file.filename)
-        raise HTTPException(422, f"テンプレートを推定できませんでした（工程: template_from_pptx）: {e}") from e
-    result.update(await run_in_threadpool(_template_previews, result["proposal"]))
-    result.pop("sample", None)
-    if thumbs:
-        result["thumbs"], thumb_error = await run_in_threadpool(_slide_thumbs, data, file.filename or "template.pptx")
-        if thumb_error:
-            result.setdefault("warnings", []).append(thumb_error)
-    # レイアウト方式が使えるファイルかを同じ応答で返す（1 往復で両方式を出せる）
-    try:
-        result["layouts"] = await run_in_threadpool(template_from_layout.enumerate_layouts, data, file.filename or "template.pptx")
-    except Exception as e:  # noqa: BLE001 - 列挙の失敗で推測方式まで止めない
-        log.warning("レイアウトの列挙に失敗: %s", e)
-        result["layouts"] = {"available": False, "masters": [], "layouts": [], "warnings": [f"レイアウトを読めませんでした: {e}"]}
-    _LAYOUT_SOURCES[result["proposal"]["id"]] = data
-    return result
-
-
-#: 「PPTX からテンプレート作成」で読んだ元ファイル（レイアウトの描画と保存に使う）。テンプレート ID ごとに 1 件
-_LAYOUT_SOURCES: dict[str, bytes] = {}
-
-
-def _layout_source(template_id: str) -> bytes:
-    data = _LAYOUT_SOURCES.get(template_id)
-    if data is None:
-        raise HTTPException(409, "元の PowerPoint が見つかりません。もう一度ファイルを選び直してください。")
-    return data
-
-
-@app.post("/api/templates/layout-preview")
-def api_template_layout_preview(body: LayoutPreviewBody) -> dict:
-    """1 つのレイアウトを描いて返す（選択 UI のサムネイル用。必要になったものだけ描く）。"""
-    from pptx import Presentation as _Presentation
-
-    data = _layout_source(body.template_id)
-    try:
-        prs = _Presentation(io.BytesIO(data))
-        pres = template_from_layout.parse_layout(prs, body.master, body.index)
-    except ValueError as e:
-        raise HTTPException(422, str(e)) from e
-    with template_kit.use_template({}):
-        html = slide_html(pres["slides"][0], pres, inline_assets=True, template={}, with_notes=False)
-    return {"html": html, "canvas": pres["canvas"], "theme_css": theme_css(pres)}
-
-
-@app.post("/api/templates/from-layout")
-def api_template_from_layout(body: LayoutMapBody) -> dict:
-    """選んだレイアウトからテンプレート定義を作る（推測しない）。"""
-    data = _layout_source(body.template_id)
-    try:
-        built = template_from_layout.build_template(data, body.filename or "template.pptx", body.layout_map, body.template_id, body.name)
-    except ValueError as e:
-        raise HTTPException(422, str(e)) from e
-    result = {"proposal": built["proposal"], "warnings": built["warnings"], "parts": template_from_pptx.parts_of(built["proposal"])}
-    result.update(_template_previews(built["proposal"]))
-    result.pop("sample", None)
-    return result
-
-
-@app.post("/api/templates/preview")
-def api_template_preview(body: TemplateBody) -> dict:
-    """画面で座標を直した提案を描き直す。parts も返す（番号付き枠の一覧）。"""
-    out = _template_previews(body.template)
-    out.pop("sample", None)
-    out["parts"] = template_from_pptx.parts_of(body.template)
-    return out
-
-
-class PartRoleBody(BaseModel):
-    template: dict[str, Any]
-    kind: str
-    key: str
-    role: str
-
-
-@app.post("/api/templates/part-role")
-def api_template_part_role(body: PartRoleBody) -> dict:
-    """画面で部品の役割を変える（帯 ⇄ 装飾、文字候補 → 題名/フッター …）。描き直した提案・部品一覧・プレビューを返す。"""
-    if body.kind not in ("cover", "content", "closing"):
-        raise HTTPException(400, "kind は cover / content / closing のいずれかです。")
-    if body.role not in template_from_pptx.ROLE_TARGETS:
-        raise HTTPException(400, f"role が不正です: {body.role}")
-    template = template_from_pptx.set_part_role(body.template, body.kind, body.key, body.role)
-    out = _template_previews(template)
-    out.pop("sample", None)
-    out["template"] = template
-    out["parts"] = template_from_pptx.parts_of(template)
-    return out
-
-
-@app.put("/api/templates/{template_id}")
-def api_template_save(template_id: str, body: TemplateBody) -> dict:
-    t = dict(body.template)
-    t["id"] = template_store.safe_id(template_id)
-    if body.previous_id and body.previous_id != t["id"]:
-        t = template_store.rename_assets(body.previous_id, t["id"], t)
-        template_store.delete_template(body.previous_id)
-    try:
-        saved = template_store.save_template(t)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    log.info("ユーザーテンプレートを保存: %s", saved["id"])
-    return {"template": saved, "templates": api_config()["templates"]}
-
-
-@app.delete("/api/templates/{template_id}")
-def api_template_delete(template_id: str) -> dict:
-    if template_store.is_builtin(template_id):
-        raise HTTPException(400, "組込テンプレートは削除できません。")
-    deleted = template_store.delete_template(template_id)
-    return {"deleted": deleted, "templates": api_config()["templates"]}
-
-
-# ---------------------------------------------------------------- Copilot 連携（API を使わない受け渡し）
-class HandoffBody(PresentationBody):
-    purpose: str | None = None
-    options: dict[str, Any] | None = None
-
-
-class CopilotReplyBody(BaseModel):
-    text: str = Field(min_length=1)
-    apply: str = "new"  # new: 新しい資料として取り込む / notes: 既存資料のノートへ反映 / merge: 差分として反映
-    presentation: dict[str, Any] | None = None
-    template_id: str | None = None
-
-
-@app.get("/api/copilot/prompts")
-def api_copilot_prompts() -> dict:
-    data = _cfg().copilot_prompts()
-    from .diagrams import MARKDOWN_SPEC
-
-    return {"chat_url": data.get("chat_url"), "diagram_spec": MARKDOWN_SPEC, "purposes": [{k: v for k, v in p.items() if k != "prompt"} for p in data.get("purposes", [])]}
-
-
-@app.post("/api/copilot/handoff")
-def api_copilot_handoff(body: HandoffBody) -> dict:
-    """資料を Copilot に貼る形（プロンプト + Markdown / JSON）にする。"""
-    pres, _e, _f = validate_and_repair(_apply_template(body.presentation, body.template_id))
-    return copilot_handoff.build_prompt(pres, body.purpose, body.options)
-
-
-@app.post("/api/copilot/handoff.zip")
-def api_copilot_handoff_zip(body: HandoffBody) -> Response:
-    """Copilot へ渡す一式（prompt.txt / outline.md / outline.json / outline.docx / images）。"""
-    pres, _e, _f = validate_and_repair(_apply_template(body.presentation, body.template_id))
-    name = storage.safe_name(body.name or pres.get("meta", {}).get("title") or "copilot")
-    data = copilot_handoff.bundle_zip(pres, body.purpose, body.options)
-    headers = {"Content-Disposition": _content_disposition(f"{name}_copilot.zip")}
-    if body.write_to_output:
-        path = storage.write_output("copilot", name, data, "zip")
-        headers["X-Output-Path"] = quote(str(path))
-    return Response(content=data, media_type="application/zip", headers=headers)
-
-
-@app.post("/api/copilot/docx")
-def api_copilot_docx(body: PresentationBody) -> Response:
-    """Word 文書だけ（Copilot in PowerPoint の「ファイルから作成」用）。"""
-    pres, _e, _f = validate_and_repair(_apply_template(body.presentation, body.template_id))
-    name = storage.safe_name(body.name or pres.get("meta", {}).get("title") or "outline")
-    return Response(content=copilot_handoff.to_docx(pres), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": _content_disposition(f"{name}.docx")})
-
-
-class AgentKitBody(BaseModel):
-    template_id: str | None = None
-    agent_name: str | None = None
-    description: str | None = None
-    write_to_output: bool = False
-
-
-@app.get("/api/copilot/agent-kit/preview")
-def api_copilot_agent_kit_preview(template_id: str | None = None) -> dict:
-    """エージェント一式に入る指示文と知識ファイルの一覧（書き出す前の確認用）。"""
-    records = copilot_agent_kit.collect_sources(template_id)
-    knowledge = copilot_agent_kit.pack_knowledge(records)
-    manifest = copilot_agent_kit.build_manifest()
+def _analyze_payload(session_id: str, got: dict) -> dict:
     return {
-        "agent": {"name": manifest["name"], "description": manifest["description"], "starters": manifest["conversation_starters"]},
-        "instructions": copilot_agent_kit.build_instructions(template=_cfg().template(template_id)),
-        "files": [{"name": name, "chars": len(text)} for name, text in knowledge],
+        "session_id": session_id,
+        "kind": got["kind"],
+        "filename": got["filename"],
+        "spec": got["spec"],
+        "spec_yaml": got["spec_yaml"],
+        "theme": {k: v for k, v in got["theme"].items() if k != "warnings"},
+        "images": handoff_pack.image_manifest(got["spec"]),
+        "warnings": got["warnings"],
+        "suggested_direction": "to_html" if got["kind"] == "pptx" else "to_pptx",
     }
 
 
-@app.post("/api/copilot/agent-kit")
-def api_copilot_agent_kit(body: AgentKitBody) -> Response:
-    """Copilot エージェント一式（定義・指示文・ナレッジ）を ZIP で書き出す。"""
-    data = copilot_agent_kit.build_kit_zip(body.template_id, body.agent_name, body.description)
-    name = storage.safe_name(body.agent_name or _cfg().copilot_prompts().get("agent", {}).get("name") or "copilot_agent")
-    headers = {"Content-Disposition": _content_disposition(f"{name}_agent.zip")}
-    if body.write_to_output:
-        path = storage.write_output("copilot", name, data, "zip")
-        headers["X-Output-Path"] = quote(str(path))
-    return Response(content=data, media_type="application/zip", headers=headers)
-
-
-@app.post("/api/copilot/import")
-def api_copilot_import(body: CopilotReplyBody) -> dict:
-    """Copilot の回答（Markdown / 簡易 JSON）を資料にする。apply=new で新規、notes で既存資料のノートへ。"""
-    if len(body.text) > _MAX_UPLOAD:
-        raise HTTPException(413, "貼り付けた文章が大きすぎます。")
-    if body.apply == "notes":
-        if not body.presentation:
-            raise HTTPException(400, "ノートを反映する資料がありません。")
-        pres, _e, _f = validate_and_repair(body.presentation)
-        pres, count, note_warnings = copilot_handoff.apply_notes(pres, body.text)
-        return {"presentation": pres, "applied": count, "mode": "notes", "warnings": note_warnings, "schema_errors": [], "quality": pipeline.quality(pres)}
-    kind, data = copilot_handoff.parse_copilot_reply(body.text)
-    if body.apply == "merge" and not body.presentation:
-        raise HTTPException(400, "差分を反映する資料がありません。")
+@app.post("/api/analyze")
+async def api_analyze(file: UploadFile = File(...)) -> dict:
+    """PowerPoint か HTML 図解を投入し、図解仕様と見た目を取り出す。"""
+    data = await file.read()
+    name = file.filename or "input"
+    _check_size(data, name)
     try:
-        pres = copilot_handoff.import_outline_json(data, body.template_id) if kind == "json" else copilot_handoff.import_markdown(body.text, body.template_id)
+        got = await run_in_threadpool(pipeline.analyze, data, name)
+    except (ValueError, zipfile.BadZipFile, KeyError) as e:
+        log.warning("解析を拒否（入力起因）: %s: %s", name, e)
+        raise HTTPException(422, str(e)) from e
     except Exception as e:  # noqa: BLE001
-        log.exception("Copilot 回答の取込に失敗")
-        raise HTTPException(422, f"回答を読み取れませんでした（工程: copilot_handoff）: {e}") from e
-    if not pres.get("slides"):
-        raise HTTPException(422, "回答からスライドを作れませんでした。見出し（## 1. 題名）と箇条書き（- ）の形式で貼り付けてください。")
-    from .layout import layout_presentation
-
-    pres = layout_presentation(pres)
-    if body.apply == "merge":
-        current, _e, _f = validate_and_repair(body.presentation)
-        result = pipeline.merge_import(current, pres, {"conflict": "theirs"})
-        result["mode"] = "merge"
-        result["format"] = kind
-        return result
-    pres, errors, fixes = validate_and_repair(pres)
-    return {"presentation": pres, "mode": "new", "format": kind, "warnings": pres.get("warnings", []) + fixes, "schema_errors": errors, "quality": pipeline.quality(pres)}
+        log.exception("解析に失敗: %s", name)
+        raise HTTPException(422, f"ファイルを読み込めませんでした: {e}") from e
+    got["filename"] = name
+    return _analyze_payload(_remember(_SESSIONS, got), got)
 
 
-class LogLevelBody(BaseModel):
-    level: str
+class KindBody(BaseModel):
+    session_id: str
+    kind_overrides: dict[str, str] = {}
+
+
+@app.post("/api/spec")
+def api_spec(body: KindBody) -> dict:
+    """画面で型を直したときに、仕様を作り直す。"""
+    got = _session(body.session_id)
+    spec = spec_builder.build_spec(got["presentation"], body.kind_overrides)
+    got["spec"] = spec
+    got["spec_yaml"] = spec_builder.to_yaml(spec)
+    got["kind_overrides"] = body.kind_overrides
+    got["warnings"] = list(spec.get("warnings", [])) + list(got["theme"].get("warnings", []))
+    return _analyze_payload(body.session_id, got)
+
+
+@app.post("/api/theme")
+async def api_theme(file: UploadFile = File(...)) -> dict:
+    """HTML 図解テーマを投入する（見た目の指示に使う）。"""
+    data = await file.read()
+    name = file.filename or "theme.html"
+    _check_size(data, name)
+    try:
+        theme = await run_in_threadpool(pipeline.analyze_theme, data, name)
+    except (ValueError, zipfile.BadZipFile) as e:
+        raise HTTPException(422, str(e)) from e
+    except Exception as e:  # noqa: BLE001
+        log.exception("テーマの解析に失敗: %s", name)
+        raise HTTPException(422, f"テーマを読み込めませんでした: {e}") from e
+    theme_id = _remember(_THEMES, theme)
+    return {"theme_id": theme_id, "theme": theme, "lines": prompt_builder.theme_from_html.to_prompt_lines(theme), "warnings": theme.get("warnings", [])}
+
+
+class PromptBody(BaseModel):
+    session_id: str
+    direction: str = "to_pptx"
+    theme_id: str | None = None
+    use_source_theme: bool = True
+    kind_overrides: dict[str, str] | None = None
+
+
+def _build(body: PromptBody) -> tuple[dict, dict, dict]:
+    got = _session(body.session_id)
+    spec = got["spec"]
+    if body.kind_overrides is not None:
+        spec = spec_builder.build_spec(got["presentation"], body.kind_overrides)
+        got["spec"] = spec
+        got["spec_yaml"] = spec_builder.to_yaml(spec)
+    theme: dict | None = None
+    if body.theme_id:
+        theme = _THEMES.get(body.theme_id)
+        if theme is None:
+            raise HTTPException(404, "テーマが見つかりません。もう一度テーマを投入してください。")
+    elif body.use_source_theme:
+        theme = got.get("theme") or None
+    built = prompt_builder.build(spec, theme, body.direction)
+    return got, spec, built
+
+
+@app.post("/api/prompt")
+def api_prompt(body: PromptBody) -> dict:
+    """図解仕様 + 見た目 → Copilot に貼るプロンプト。"""
+    _got, _spec, built = _build(body)
+    return built
+
+
+@app.post("/api/pack.zip")
+def api_pack(body: PromptBody) -> Response:
+    """プロンプト・仕様・Word・画像をまとめた ZIP。"""
+    got, spec, built = _build(body)
+    blob = handoff_pack.build_zip(built, spec, got["presentation"])
+    return Response(
+        blob,
+        media_type="application/zip",
+        headers={"Content-Disposition": _content_disposition(handoff_pack.pack_name(spec, built))},
+    )
 
 
 @app.get("/api/loglevel")
@@ -721,20 +223,22 @@ def api_get_loglevel() -> dict:
 
 
 @app.post("/api/loglevel")
-def api_set_loglevel(body: LogLevelBody) -> dict:
-    """設計基準 7.3: ログレベルを実行時に切り替える（DEBUG / INFO / WARNING / ERROR）。"""
-    level = body.level.upper()
-    if level not in ("DEBUG", "INFO", "WARNING", "WARN", "ERROR"):
-        raise HTTPException(400, "ログレベルは DEBUG / INFO / WARNING / ERROR のいずれかです。")
-    logging.getLogger("pptx_web_bridge").setLevel(getattr(logging, "WARNING" if level == "WARN" else level))
-    log.warning("ログレベルを %s に変更しました", level)
+def api_set_loglevel(payload: dict) -> dict:
+    level = str(payload.get("level", "INFO")).upper()
+    if level not in ("DEBUG", "INFO", "WARNING", "ERROR"):
+        raise HTTPException(400, "level は DEBUG / INFO / WARNING / ERROR のいずれかです。")
+    logging.getLogger("pptx_web_bridge").setLevel(level)
     return {"level": level}
 
 
 @app.get("/api/health")
 def api_health() -> dict:
-    return {"ok": True}
+    return {"status": "ok", "version": app.version}
+
+
+@app.exception_handler(404)
+async def not_found(_request, exc) -> JSONResponse:  # noqa: ANN001
+    return JSONResponse({"detail": getattr(exc, "detail", "見つかりません")}, status_code=404)
 
 
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
-app.mount("/viewer", StaticFiles(directory=str(_VIEWER_DIR)), name="viewer")

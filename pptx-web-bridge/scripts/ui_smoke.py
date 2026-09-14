@@ -1,28 +1,37 @@
-"""UI スモークテスト（Playwright）。サーバを起動し、ブラウザでサンプルを取り込んでキャンバス編集の基本操作を確認する。
+"""画面の検査（Playwright）。サーバを起動し、実際のブラウザで 1 本道をなぞる。
 
-- Playwright / Chromium（または Edge/Chrome）が無い環境では skip（終了コード 0）。
+なぞる道: 資料を投入 → 読み取った中身を確かめる（型を直す）→ 見た目を決める →
+プロンプトをコピー / 一式をダウンロード。
+
+- Playwright / Chromium が無い環境では skip（終了コード 0）。
 - 実行: python scripts/ui_smoke.py [--screenshots DIR]
-確認項目: キャンバス描画、サムネイル、ドラッグで bbox が変わる、Undo で戻る、インスペクタの数値入力、要素追加・削除、スライド並べ替え、
-          PPTX からテンプレート作成（解析 → 枠のドラッグ → 部品の除外 → 保存 → 適用 → 削除）、Copilot で下書きを作る（指示作成 → 回答の貼り付け → 反映）、
-          ノート PC の実寸（1366×768@125% / 1920×1080@150%）で切れずに押せること。
-ユーザーテンプレートの保存先は一時ディレクトリ（リポジトリの config/ を汚さない）。
+
+**ノート PC 2 構成（1366×768@125% = 1093×614 / 1920×1080@150% = 1280×720）で
+文字とボタンが切れず、横スクロールが出ないこと**が受入条件（CLAUDE.md 6 章）。
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
-import shutil
 import socket
-import tempfile
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
+
+# ノート PC の実寸（CSS px と拡大率）
+LAPTOPS = [
+    ("1366x768@125%", {"width": 1093, "height": 614}, 1.25),
+    ("1920x1080@150%", {"width": 1280, "height": 720}, 1.5),
+]
+
+RESULTS: list[tuple[str, bool, str]] = []
 
 
 def _free_port() -> int:
@@ -43,537 +52,281 @@ def _wait(url: str, timeout: float = 30.0) -> bool:
     return False
 
 
-# ノート PC の実寸（CSS px と拡大率）。1366×768 @125% と 1920×1080 @150%
-LAPTOPS = [
-    ("1366x768@125%", {"width": 1093, "height": 614}, 1.25),
-    ("1920x1080@150%", {"width": 1280, "height": 720}, 1.5),
-]
+# 画像化に不要な外部通信（更新確認・同期・初回設定）を抑える
+_ARGS = ["--no-sandbox", "--disable-background-networking", "--disable-component-update",
+         "--no-first-run", "--disable-sync", "--disable-default-apps", "--no-default-browser-check"]
 
 
-_TEXTS_JS = (
-    "() => JSON.stringify(qcDebug.presentation().slides.map(function (s) {"
-    "  return (s.elements || []).map(function (e) {"
-    "    return (e.paragraphs || []).map(function (pp) {"
-    "      return (pp.runs || []).map(function (r) { return r.text; }).join('');"
-    "    }).join('\\n');"
-    "  }).join('|');"
-    "}))"
-)
-"""資料の文章だけを取り出す JS（着せ替えで文章が変わらないことの確認に使う）。"""
+def _candidate_executables() -> list[str | None]:
+    """Chromium の場所。Playwright の版とブラウザの版がずれている環境があるので、実体を自分で探す。"""
+    cands: list[str | None] = []
+    env = os.environ.get("PLAYWRIGHT_CHROMIUM_PATH")
+    if env:
+        cands.append(env)
+    base = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if base and Path(base).exists():
+        for d in sorted(Path(base).glob("chromium-*"), reverse=True):
+            for rel in ("chrome-linux/chrome", "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+                        "chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium",
+                        "chrome-win/chrome.exe", "chrome-win64/chrome.exe"):
+                if (d / rel).exists():
+                    cands.append(str(d / rel))
+    cands.append(None)  # Playwright 既定
+    return cands
 
 
-def _stable_box(page, selector: str, timeout: float = 15.0) -> dict:
-    """枠の位置と大きさを測る（描き直しで枠が差し替わっても測れるように待つ）。
-
-    プレビューの再取得が終わると DOM ごと作り直されるため、`wait_for_selector` の
-    直後に `bounding_box()` を呼ぶと、見つけた要素が既に外されていて None が返る
-    ことがある（遅い CI で再現）。寸法が取れて、かつ 2 回続けて同じ位置になるまで
-    測り直す。
-    """
-    deadline, last = time.time() + timeout, None
-    while time.time() < deadline:
+def launch(p):  # type: ignore[no-untyped-def]
+    last: Exception | None = None
+    for exe in _candidate_executables():
         try:
-            box = page.locator(selector).first.bounding_box()
-        except Exception:  # noqa: BLE001 - 差し替え途中の要素は測れない
-            box = None
-        if box and box["width"] > 0 and box["height"] > 0:
-            if last and abs(last["x"] - box["x"]) < 0.5 and abs(last["y"] - box["y"]) < 0.5:
-                return box
-            last = box
-        page.wait_for_timeout(150)
-    raise AssertionError(f"{selector} の枠が測れませんでした（描き直しが終わらない）")
+            kwargs = {"args": _ARGS}
+            if exe:
+                kwargs["executable_path"] = exe
+            return p.chromium.launch(**kwargs)
+        except Exception as e:  # noqa: BLE001
+            last = e
+    raise RuntimeError(str(last))
 
 
-def _clickable(page, selector: str) -> tuple[bool, str]:
-    """要素が画面内にあり、その中心を押すとその要素（または子）に当たるか（＝スクロール無しで押せる）。"""
+def _browser_available() -> bool:
     try:
-        box = _stable_box(page, selector, timeout=5.0)
-    except AssertionError:
-        return False, f"{selector}: 位置なし"
-    vw, vh = page.viewport_size["width"], page.viewport_size["height"]
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return False
+    try:
+        with sync_playwright() as p:
+            launch(p).close()
+        return True
+    except Exception:  # noqa: BLE001 - ブラウザが入っていない環境
+        return False
+
+
+def record(name: str, ok: bool, detail: str = "") -> None:
+    RESULTS.append((name, bool(ok), detail))
+    print(f"[{'OK ' if ok else 'NG '}] {name} {detail}")
+
+
+def visible_and_clickable(page, selector: str) -> tuple[bool, str]:
+    """画面内にあって、その場所が本当にその要素で押せるか（他の要素に覆われていないか）。"""
+    el = page.query_selector(selector)
+    if not el:
+        return False, f"{selector}: 見つからない"
+    box = el.bounding_box()
+    if not box:
+        return False, f"{selector}: 表示されていない"
+    vw = page.viewport_size["width"]
+    vh = page.viewport_size["height"]
+    el.scroll_into_view_if_needed()
+    box = el.bounding_box()
     inside = box["x"] >= 0 and box["y"] >= 0 and box["x"] + box["width"] <= vw + 1 and box["y"] + box["height"] <= vh + 1
+    cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
     hit = page.evaluate(
-        "([x, y, sel]) => { var el = document.elementFromPoint(x, y); var t = document.querySelector(sel); return !!(el && t && (el === t || t.contains(el))); }",
-        [box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, selector],
+        "([x, y, sel]) => { const t = document.elementFromPoint(x, y); const want = document.querySelector(sel);"
+        " return !!(t && want && (want === t || want.contains(t) || t.contains(want))); }",
+        [cx, cy, selector],
     )
-    return inside and hit, f"{selector}: {'画面内' if inside else '画面外'} / {'押せる' if hit else '別の要素に隠れる'} ({box['x']:.0f},{box['y']:.0f} {box['width']:.0f}×{box['height']:.0f})"
+    state = ("画面内" if inside else "画面外") + " / " + ("押せる" if hit else "覆われている")
+    return bool(inside and hit), f"{selector}: {state} ({int(box['x'])},{int(box['y'])} {int(box['width'])}×{int(box['height'])})"
 
 
-def laptop_checks(browser, base: str, brand: Path, record, shots, layout_pptx: Path) -> None:
-    """ノート PC の画面でも、切れずに押せることを確かめる（Phase H の受入）。"""
-    for label, viewport, dsf in LAPTOPS:
-        ctx = browser.new_context(viewport=viewport, device_scale_factor=dsf)
-        page = ctx.new_page()
-        errors: list[str] = []
-        page.on("pageerror", lambda e: errors.append(str(e)))
-        try:
-            page.goto(base + "/")
-            page.evaluate("() => { try { localStorage.clear(); } catch (e) {} }")
-            page.reload()
-            page.wait_for_selector("#dropzone")
-            page.set_input_files("#file-input", str(ROOT / "samples" / "sample_deck.pptx"))
-            page.wait_for_selector(".canvas-stage .slide", timeout=30000)
-            page.wait_for_function("() => document.getElementById('progress').classList.contains('hidden')", timeout=20000)  # 進捗の帯が消えてから
-            page.wait_for_timeout(300)
-            no_hscroll = page.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth && document.body.scrollHeight <= window.innerHeight + 1")
-            record(f"[{label}] 画面全体がはみ出さない（横スクロール無し）", no_hscroll)
-            problems = []
-            for sel in ("#version-badge", ".pane-right .toolbar button[data-action='add-text']", ".inspector-card .tabs", "#canvas-area"):
-                ok, why = _clickable(page, sel)
-                if not ok:
-                    problems.append(why)
-            record(f"[{label}] ヘッダー・ツールバー・タブ・キャンバスが画面内", not problems, "; ".join(problems))
-            # 左ペインの一番下のボタンはペイン内スクロールで届く
-            page.locator("#btn-copilot").scroll_into_view_if_needed()
-            ok, why = _clickable(page, "#btn-copilot")
-            record(f"[{label}] 「Copilot で下書きを作る」までスクロールして押せる", ok, why)
-            # ログを増やしても他のカードを押し出さない
-            page.evaluate("() => { for (var i = 0; i < 200; i++) PWB.core.log('ノート PC 試験の行 ' + i, 'INFO'); }")
-            page.click(".inspector-card .tab[data-tab='log']")
-            page.wait_for_timeout(200)
-            ok, why = _clickable(page, ".inspector-card .tabs")
-            canvas_h = page.evaluate("() => document.getElementById('canvas-area').clientHeight")
-            record(f"[{label}] ログが増えてもタブとキャンバスが残る", ok and canvas_h >= 100, f"canvas={canvas_h}px {why}")
-            page.click(".inspector-card .tab[data-tab='inspector']")
-            if shots:
-                page.screenshot(path=str(shots / f"laptop_{label.replace('%', '')}_main.png"))
-            # テンプレート作成モーダル: 部品が多くても保存ボタンが見えて押せる
-            page.click("button[data-action='template-from-pptx']")
-            page.wait_for_selector("#tpl-modal:not([hidden])")
-            page.set_input_files("#tpl-file", str(brand))
-            page.wait_for_function("() => PWB.templateEditor.state().proposal && document.querySelectorAll('#tpl-parts .tpl-part').length > 0", timeout=60000)
-            page.wait_for_timeout(500)
-            n_parts = page.evaluate("() => document.querySelectorAll('#tpl-parts .tpl-part').length")
-            ok, why = _clickable(page, "#tpl-save")
-            record(f"[{label}] テンプレート作成の「保存」が見えて押せる（部品 {n_parts} 個）", ok, why)
-            ok2, why2 = _clickable(page, "#tpl-canvas")
-            record(f"[{label}] テンプレートのプレビューが画面内", ok2, why2)
-            if shots:
-                page.screenshot(path=str(shots / f"laptop_{label.replace('%', '')}_template.png"))
-            page.click("button[data-tpl-act='close']")
-            page.wait_for_function("() => document.getElementById('tpl-modal').hidden", timeout=10000)
-            # レイアウト方式の選択 UI もノート PC で押せる
-            page.click("button[data-action='template-from-pptx']")
-            page.wait_for_selector("#tpl-modal:not([hidden])")
-            page.set_input_files("#tpl-file", str(layout_pptx))
-            page.wait_for_function("() => { var s = PWB.templateEditor.state(); return s.layouts && s.layouts.available; }", timeout=60000)
-            page.wait_for_timeout(400)
-            ok3, why3 = _clickable(page, "#tpl-layout-list .tpl-chip")
-            record(f"[{label}] レイアウトの選択チップが押せる", ok3, why3)
-            page.click("button[data-tpl-act='close']")
-            page.wait_for_function("() => document.getElementById('tpl-modal').hidden", timeout=10000)
-            # Copilot モーダル
-            page.click("button[data-action='copilot']")
-            page.wait_for_selector("#copilot-modal:not([hidden])")
-            page.wait_for_function("() => document.getElementById('copilot-content').value.length > 0", timeout=20000)
-            ok, why = _clickable(page, "button[data-copilot-act='copy-all']")
-            record(f"[{label}] Copilot モーダルの「全部コピー」が押せる", ok, why)
-            if shots:
-                page.screenshot(path=str(shots / f"laptop_{label.replace('%', '')}_copilot.png"))
-            page.click("button[data-copilot-act='close']")
-            page.wait_for_function("() => document.getElementById('copilot-modal').hidden", timeout=10000)
-            # 版のモーダル（小さいダイアログ）
-            page.click("#version-badge")
-            page.wait_for_selector("#version-modal:not([hidden])", timeout=10000)
-            ok, why = _clickable(page, "button[data-action='version-close']")
-            record(f"[{label}] 小さいダイアログの「閉じる」が押せる", ok, why)
-            page.click("button[data-action='version-close']")
-            record(f"[{label}] JavaScript エラーなし", not errors, "; ".join(errors)[:200])
-        finally:
-            ctx.close()
+def no_horizontal_scroll(page) -> tuple[bool, str]:
+    got = page.evaluate("() => ({ w: document.documentElement.scrollWidth, c: document.documentElement.clientWidth })")
+    return got["w"] <= got["c"] + 1, f"scrollWidth={got['w']} clientWidth={got['c']}"
+
+
+DIAGRAM_HTML = """<html lang="ja"><head><meta charset="utf-8"><title>受注の流れ</title>
+<style>body{background:#F7F9FC;color:#222;font-family:sans-serif}h1{color:#0B3D91}
+.grid{display:flex;gap:12px}.card{background:#fff;border:1px solid #D7DEE8;border-radius:10px;padding:16px}</style>
+</head><body>
+<section><h1>受注から出荷まで</h1><p class="lead">現行プロセス</p>
+<div class="grid"><div class="card">① 受注</div><div class="card">② 引当</div><div class="card">③ 出荷</div></div>
+</section>
+<section><h2>効果</h2><ul><li>62 % の削減</li><li>月 200 件</li></ul></section>
+</body></html>"""
+
+
+def _fixtures(tmp: Path) -> tuple[Path, Path]:
+    diagram = tmp / "diagram.html"
+    diagram.write_text(DIAGRAM_HTML, encoding="utf-8")
+    sys.path.insert(0, str(ROOT / "samples"))
+    from make_html_themes import build as build_themes  # type: ignore
+
+    themes = {p.name: p for p in build_themes(tmp / "themes")}
+    return diagram, themes["theme_vars.html"]
+
+
+def main_flow(page, base: str, diagram: Path, theme: Path, shots: Path | None) -> None:
+    page.goto(base, wait_until="networkidle")
+
+    # 1. 投入
+    page.set_input_files("#file-input", str(diagram))
+    page.wait_for_function("() => PWB.state().spec !== null", timeout=30000)
+    spec = page.evaluate("() => PWB.state().spec")
+    record("資料を投入すると中身が読み取られる", spec["slide_count"] == 2, f"{spec['slide_count']} 枚")
+
+    # 2. 中身の表
+    rows = page.query_selector_all("#spec-table tbody tr")
+    kinds = page.eval_on_selector_all("#spec-table tbody select", "els => els.map(e => e.value)")
+    reasons = page.eval_on_selector_all("#spec-table tbody td.reason", "els => els.map(e => e.textContent.trim())")
+    record("頁ごとに型と判定理由が出る", len(rows) == 2 and kinds[0] == "flow" and all(reasons),
+           f"型={kinds} 理由={len(reasons)} 件")
+
+    prompt_before = page.inner_text("#prompt")
+    page.select_option("#spec-table tbody select >> nth=0", "timeline")
+    page.wait_for_function(
+        "(prev) => document.querySelector('#prompt').textContent !== prev", arg=prompt_before, timeout=15000)
+    reason_now = page.inner_text("#spec-table tbody tr:first-child td.reason")
+    record("型を画面で直せて、プロンプトに反映される", "画面で指定" in reason_now and "年表" in page.inner_text("#prompt"), reason_now)
+    page.select_option("#spec-table tbody select >> nth=0", "flow")
+    page.wait_for_timeout(400)
+
+    # 3. 見た目
+    record("元ファイルの配色が出る", "#0B3D91" in page.inner_text("#theme-swatches"),
+           page.inner_text("#theme-swatches").split("\n")[0][:30])
+    page.check("input[name='theme-src'][value='upload']")
+    page.wait_for_selector("#theme-upload:not([hidden])")
+    page.set_input_files("#theme-input", str(theme))
+    page.wait_for_function("() => PWB.state().uploadedTheme !== null", timeout=30000)
+    page.wait_for_function("() => document.querySelector('#prompt').textContent.includes('#6C3CE0')", timeout=15000)
+    record("テーマを読み込むと、その配色がプロンプトに入る", True, "#6C3CE0")
+
+    page.check("input[name='theme-src'][value='none']")
+    page.wait_for_function("() => !document.querySelector('#prompt').textContent.includes('#')", timeout=15000)
+    record("見た目を指示しない選択ができる", True, "色の指示なし")
+    page.check("input[name='theme-src'][value='source']")
+    page.wait_for_timeout(400)
+
+    # 4. 渡す
+    dirs = page.eval_on_selector_all(".direction .d-name", "els => els.map(e => e.textContent.trim())")
+    record("渡す向きを 2 つから選べる", len(dirs) == 2, " / ".join(dirs))
+    prompt = page.inner_text("#prompt")
+    record("プロンプトに文言がそのまま載る",
+           all(w in prompt for w in ("受注から出荷まで", "① 受注", "62 % の削減")), f"{len(prompt)} 字")
+    record("型ごとの作り方が書かれている", "フロー:" in prompt and "矢印" in prompt)
+    record("何をどこに貼るかが画面に出ている", bool(page.inner_text("#direction-how").strip()),
+           page.inner_text("#direction-how")[:40])
+
+    page.click("input[name='direction'][value='to_html']")
+    page.wait_for_function("() => document.querySelector('#prompt').textContent.includes('HTML ファイル')", timeout=15000)
+    record("向きを変えるとプロンプトが差し替わる", True, "to_html")
+    page.click("input[name='direction'][value='to_pptx']")
+    page.wait_for_timeout(400)
+
+    with page.expect_download(timeout=30000) as dl:
+        page.click("[data-action='pack']")
+    name = dl.value.suggested_filename
+    record("一式（ZIP）をダウンロードできる", name.endswith(".zip"), name)
+
+    # 警告（中身の無い頁）
+    empty = diagram.parent / "empty.html"
+    empty.write_text('<html lang="ja"><head><meta charset="utf-8"><title>空</title></head><body><section><h1>題名だけ</h1></section></body></html>', encoding="utf-8")
+    page.set_input_files("#file-input", str(empty))
+    page.wait_for_function("() => PWB.state().spec && PWB.state().spec.slide_count === 1", timeout=30000)
+    page.wait_for_selector("#warn-card:not([hidden])", timeout=15000)
+    record("読み取れなかったものが画面に出る", "SLIDE_HAS_NO_CONTENT" in page.inner_text("#warn-list"),
+           page.inner_text("#warn-list")[:60])
+
+    errors = page.evaluate("() => window.__jsErrors || []")
+    record("JavaScript エラーなし", not errors, "; ".join(errors[:2]))
+    if shots:
+        page.screenshot(path=str(shots / "main.png"), full_page=True)
+
+
+def laptop_checks(page, base: str, label: str, diagram: Path, theme: Path, shots: Path | None) -> None:
+    page.goto(base, wait_until="networkidle")
+    ok, detail = no_horizontal_scroll(page)
+    record(f"[{label}] 画面全体がはみ出さない（横スクロール無し）", ok, detail)
+
+    for sel in ("header.app-head h1", "#dropzone"):
+        ok, detail = visible_and_clickable(page, sel)
+        record(f"[{label}] 最初の画面に投入口が見えている", ok, detail)
+        break
+
+    page.set_input_files("#file-input", str(diagram))
+    page.wait_for_function("() => PWB.state().spec !== null", timeout=30000)
+    ok, detail = no_horizontal_scroll(page)
+    record(f"[{label}] 中身が出ても横スクロールが出ない", ok, detail)
+
+    for sel in ("#spec-table tbody select", "[data-action='copy']", "[data-action='pack']", "#version-badge"):
+        ok, detail = visible_and_clickable(page, sel)
+        record(f"[{label}] {sel} が切れずに押せる", ok, detail)
+
+    page.check("input[name='theme-src'][value='upload']")
+    page.wait_for_selector("#theme-upload:not([hidden])")
+    ok, detail = visible_and_clickable(page, "#theme-dropzone")
+    record(f"[{label}] テーマの投入口が切れずに押せる", ok, detail)
+
+    page.click("[data-action='version']")
+    page.wait_for_selector("#version-dialog[open]")
+    ok, detail = visible_and_clickable(page, "[data-action='version-close']")
+    record(f"[{label}] ダイアログの「閉じる」が見えて押せる", ok, detail)
+    page.click("[data-action='version-close']")
+
+    errors = page.evaluate("() => window.__jsErrors || []")
+    record(f"[{label}] JavaScript エラーなし", not errors, "; ".join(errors[:2]))
+    if shots:
+        page.screenshot(path=str(shots / f"laptop_{label.replace('%', '').replace('@', '_')}.png"), full_page=True)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--screenshots", default="")
     args = ap.parse_args()
-    from app import rasterize
 
-    if not rasterize.is_available():
-        print("[SKIP] Playwright / ブラウザが無いため UI スモークを省略")
+    if not _browser_available():
+        print("[SKIP] Playwright / ブラウザが無いため画面検査を省略")
         return 0
     from playwright.sync_api import sync_playwright
 
-    port = _free_port()
-    tmp_store = Path(tempfile.mkdtemp(prefix="pwb_ui_"))
+    shots = Path(args.screenshots) if args.screenshots else None
+    if shots:
+        shots.mkdir(parents=True, exist_ok=True)
+
+    tmp = Path(tempfile.mkdtemp(prefix="pwb_ui_"))
+    diagram, theme = _fixtures(tmp)
     cfg = json.loads((ROOT / "config" / "app_config.json").read_text(encoding="utf-8"))
-    cfg["paths"]["user_templates_file"] = str(tmp_store / "user_templates.json")
-    cfg["paths"]["user_template_assets_dir"] = str(tmp_store / "assets")
-    (tmp_store / "app_config.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
-    env = dict(os.environ, PWB_PORT=str(port), PPTX_WEB_BRIDGE_CONFIG=str(tmp_store / "app_config.json"))
-    brand = ROOT / "samples" / "brand_template.pptx"
-    # レイアウト方式（Phase N）の確認には、装飾がレイアウトに入った資料が要る
-    sys.path.insert(0, str(ROOT / "samples"))
-    from make_template_matrix import chrome_on_layout  # type: ignore
+    cfg["paths"]["logs_dir"] = str(tmp / "logs")
+    (tmp / "app_config.json").write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
 
-    layout_pptx = tmp_layout = Path(tempfile.mkdtemp(prefix="pwb_layout_")) / "chrome_on_layout.pptx"
-    chrome_on_layout(layout_pptx)
-    if not brand.exists():
-        sys.path.insert(0, str(ROOT / "samples"))
-        from make_brand_template_pptx import build as build_brand  # type: ignore
-
-        build_brand(brand)
-    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"], cwd=str(ROOT / "backend"), env=env)
-    results: list[tuple[str, bool, str]] = []
-
-    def record(name: str, ok: bool, detail: str = "") -> None:
-        results.append((name, ok, detail))
-        print(f"[{'OK ' if ok else 'NG '}] {name} {detail}")
-
+    port = _free_port()
+    env = dict(os.environ, PPTX_WEB_BRIDGE_CONFIG=str(tmp / "app_config.json"))
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
+        cwd=str(ROOT / "backend"), env=env)
+    base = f"http://127.0.0.1:{port}/"
     try:
-        base = f"http://127.0.0.1:{port}"
-        if not _wait(base + "/api/health"):
-            print("サーバが起動しませんでした")
+        if not _wait(base + "api/health"):
+            print("[NG ] サーバが起動しなかった")
             return 1
-        shots = Path(args.screenshots) if args.screenshots else None
-        if shots:
-            shots.mkdir(parents=True, exist_ok=True)
         with sync_playwright() as p:
+            browser = launch(p)
             try:
-                browser = rasterize._launch(p)  # 同梱 Chromium → Edge / Chrome の順（--no-sandbox 等の引数も共通）
-            except Exception as e:  # noqa: BLE001
-                print(f"[SKIP] ブラウザを起動できません: {e}")
-                return 0
-            page = browser.new_page(viewport={"width": 1600, "height": 950}, accept_downloads=True)
-            errors: list[str] = []
-            page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(base + "/")
-            page.evaluate("() => { try { localStorage.clear(); } catch (e) {} }")
-            page.reload()
-            page.wait_for_selector("#dropzone")
-            page.set_input_files("#file-input", str(ROOT / "samples" / "sample_deck.pptx"))
-            page.wait_for_selector(".canvas-stage .slide", timeout=30000)
-            page.wait_for_function("() => window.qcDebug && qcDebug.rendered() > 0")
-            page.wait_for_timeout(600)
-            n_slides = page.evaluate("() => qcDebug.presentation().slides.length")
-            record("PPTX 取込 → キャンバス描画", n_slides == 6, f"slides={n_slides}")
-            page.wait_for_function("() => document.querySelectorAll('.slide-item .thumb .slide').length >= 6", timeout=30000)
-            record("サムネイル描画", True)
-            if shots:
-                page.screenshot(path=str(shots / "ui_01_imported.png"))
+                ctx = browser.new_context(accept_downloads=True)
+                page = ctx.new_page()
+                page.add_init_script("window.__jsErrors = []; window.addEventListener('error', e => window.__jsErrors.push(String(e.message)));")
+                main_flow(page, base, diagram, theme, shots)
+                ctx.close()
 
-            # スライド 2 を選び、最初の文字要素をドラッグ
-            page.click(".slide-item[data-slide='1'] .thumb")
-            page.wait_for_function("() => qcDebug.state().selectedSlide === 1")
-            page.wait_for_timeout(500)
-            el_id, before = page.evaluate("() => { var s = qcDebug.slide(); var el = s.elements.filter(function(e){return e.type==='text';})[0]; return [el.id, el.bbox]; }")
-            box = _stable_box(page, f".canvas-stage .el[id='{el_id}']")
-            page.mouse.move(box["x"] + box["width"] / 2, box["y"] + 10)
-            page.mouse.down()
-            page.mouse.move(box["x"] + box["width"] / 2 + 60, box["y"] + 10 + 30, steps=8)
-            page.mouse.up()
-            page.wait_for_timeout(500)
-            after = page.evaluate(f"() => qcDebug.slide().elements.filter(function(e){{return e.id==='{el_id}';}})[0].bbox")
-            moved = after["x"] > before["x"] + 20 and after["y"] > before["y"] + 10
-            record("ドラッグで移動（bbox が変わる）", moved, f"{before['x']:.0f},{before['y']:.0f} → {after['x']:.0f},{after['y']:.0f}")
-            user_bbox = page.evaluate(f"() => !!qcDebug.slide().elements.filter(function(e){{return e.id==='{el_id}';}})[0].user_bbox")
-            record("user_bbox が付く", user_bbox)
-            if shots:
-                page.screenshot(path=str(shots / "ui_02_dragged.png"))
-
-            # リサイズ（右下ハンドル）
-            page.wait_for_selector(".sel-handle.h-se")
-            hb = _stable_box(page, ".sel-handle.h-se")
-            page.mouse.move(hb["x"] + 5, hb["y"] + 5)
-            page.mouse.down()
-            page.mouse.move(hb["x"] + 5 + 80, hb["y"] + 5 + 40, steps=8)
-            page.mouse.up()
-            page.wait_for_timeout(500)
-            resized = page.evaluate(f"() => qcDebug.slide().elements.filter(function(e){{return e.id==='{el_id}';}})[0].bbox")
-            record("ハンドルでリサイズ", resized["w"] > after["w"] + 30, f"w {after['w']:.0f} → {resized['w']:.0f}")
-
-            # Undo ×2 で元に戻る
-            page.keyboard.press("Escape")
-            page.click("#canvas-area")
-            page.keyboard.press("Control+z")
-            page.keyboard.press("Control+z")
-            page.wait_for_timeout(500)
-            undone = page.evaluate(f"() => qcDebug.slide().elements.filter(function(e){{return e.id==='{el_id}';}})[0].bbox")
-            record("Undo で元に戻る", abs(undone["x"] - before["x"]) < 0.01 and abs(undone["w"] - before["w"]) < 0.01, f"x={undone['x']:.0f} w={undone['w']:.0f}")
-
-            # インスペクタで数値入力
-            page.evaluate(f"() => qcDebug.select('{el_id}')")
-            page.wait_for_selector("#inspector input[data-prop='bbox.x']")
-            page.fill("#inspector input[data-prop='bbox.x']", "100")
-            page.press("#inspector input[data-prop='bbox.x']", "Enter")
-            page.wait_for_timeout(500)
-            xv = page.evaluate(f"() => qcDebug.slide().elements.filter(function(e){{return e.id==='{el_id}';}})[0].bbox.x")
-            record("インスペクタの数値入力", abs(xv - 100) < 0.01, f"x={xv}")
-            page.fill("#inspector input[data-prop='font_pt']", "30")
-            page.press("#inspector input[data-prop='font_pt']", "Enter")
-            page.wait_for_timeout(500)
-            fs = page.evaluate(f"() => qcDebug.slide().elements.filter(function(e){{return e.id==='{el_id}';}})[0].paragraphs[0].runs[0].size_pt")
-            record("フォント pt の明示指定", fs == 30, f"size_pt={fs}")
-
-            # 要素追加・削除
-            n0 = page.evaluate("() => qcDebug.slide().elements.length")
-            page.click("button[data-action='add-text']")
-            page.wait_for_timeout(500)
-            n1 = page.evaluate("() => qcDebug.slide().elements.length")
-            record("文字要素の追加", n1 == n0 + 1, f"{n0} → {n1}")
-            added_selected = page.evaluate("() => qcDebug.selection().length === 1 && qcDebug.selection()[0] === qcDebug.slide().elements[qcDebug.slide().elements.length - 1].id")
-            record("追加した要素が選択される", added_selected)
-            page.focus("#canvas-area")
-            page.keyboard.press("Delete")
-            page.wait_for_timeout(500)
-            n2 = page.evaluate("() => qcDebug.slide().elements.length")
-            record("Delete で削除", n2 == n0, f"{n1} → {n2}")
-
-            # スライドの並べ替え（↓ボタン）
-            first_id = page.evaluate("() => qcDebug.presentation().slides[1].id")
-            page.click(".slide-item[data-slide='1'] button[data-slide-act='down']")
-            page.wait_for_timeout(400)
-            moved_id = page.evaluate("() => qcDebug.presentation().slides[2].id")
-            record("スライドの並べ替え", moved_id == first_id)
-            if shots:
-                page.screenshot(path=str(shots / "ui_03_inspector.png"))
-
-            # --- PPTX からテンプレート作成 ---
-            page.click("button[data-action='template-from-pptx']")
-            page.wait_for_selector("#tpl-modal:not([hidden])")
-            page.set_input_files("#tpl-file", str(brand))
-            page.wait_for_function("() => PWB.templateEditor.state().proposal && document.querySelectorAll('#tpl-parts .tpl-part').length > 0", timeout=60000)
-            page.wait_for_timeout(500)
-            n_parts = page.evaluate("() => PWB.templateEditor.state().parts.length")
-            n_all = page.evaluate("() => document.querySelectorAll('#tpl-canvas .sel-box.all').length")
-            record("テンプレート推定（部品の一覧と番号付き枠）", n_parts >= 8 and n_all >= 3, f"parts={n_parts} boxes(cover)={n_all}")
-            # 解釈だけを見せると「読み取れていない」のか「元がそうなのか」が分からない。元スライドを並べる
-            origin = page.evaluate("() => { const e = document.querySelector('#tpl-origin .slide-wrap'); return e ? 1 : 0; }")
-            side_by_side = page.evaluate(
-                "() => { const a = document.querySelector('#tpl-origin'), b = document.querySelector('#tpl-canvas');"
-                " if (!a || !b) return 0; const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();"
-                " return (ra.width > 40 && rb.width > 40) ? 1 : 0; }"
-            )
-            record("元のスライドと解釈が並んで見える", origin == 1 and side_by_side == 1, f"origin={origin} panes={side_by_side}")
-            page.uncheck("#tpl-compare")
-            page.wait_for_timeout(200)
-            hidden = page.evaluate("() => document.querySelector('#tpl-compare-box').classList.contains('single') ? 1 : 0")
-            page.check("#tpl-compare")
-            page.wait_for_timeout(200)
-            record("見比べの表示は切り替えられる", hidden == 1, f"single={hidden}")
-            if shots:
-                page.screenshot(path=str(shots / "ui_04_template_cover.png"))
-            page.click("button[data-tpl-tab='content']")
-            page.wait_for_timeout(300)
-            page.click(".tpl-part[data-part='content:bar']")
-            page.wait_for_selector("#tpl-canvas .sel-box.primary")
-            bar_before = page.evaluate("() => JSON.parse(JSON.stringify(PWB.templateEditor.state().proposal.content.bar))")
-            bb = _stable_box(page, "#tpl-canvas .sel-box.primary")
-            page.mouse.move(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2)
-            page.mouse.down()
-            page.mouse.move(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2 - 40, steps=8)
-            page.mouse.up()
-            page.wait_for_timeout(700)
-            bar_after = page.evaluate("() => PWB.templateEditor.state().proposal.content.bar")
-            record("テンプレートの枠をドラッグ（帯の y が変わり描き直される）", bar_after["y"] < bar_before["y"] - 10, f"y {bar_before['y']:.0f} → {bar_after['y']:.0f}")
-            page.fill("#tpl-parts input[data-tpl-box='x'][data-part='content:bar']", "150")
-            page.press("#tpl-parts input[data-tpl-box='x'][data-part='content:bar']", "Enter")
-            page.wait_for_timeout(600)
-            bar_x = page.evaluate("() => PWB.templateEditor.state().proposal.content.bar.x")
-            record("テンプレート部品の数値入力", abs(bar_x - 150) < 0.01, f"x={bar_x}")
-            page.click("button[data-tpl-remove='content:page_number']")
-            page.wait_for_function("() => !PWB.templateEditor.state().proposal.content.page_number", timeout=10000)
-            page.wait_for_timeout(500)
-            has_pn = page.evaluate("() => (PWB.templateEditor.state().previews.content || '').indexOf('data-tpl=\"page_number\"') >= 0")
-            record("部品を外す（ページ番号がプレビューから消える）", not has_pn)
-            if shots:
-                page.screenshot(path=str(shots / "ui_05_template_content.png"))
-            page.fill("#tpl-id", "ui_brand")
-            page.fill("#tpl-name", "UI 試験テンプレート")
-            page.click("#tpl-save")
-            page.wait_for_function("() => document.getElementById('tpl-modal').hidden && document.getElementById('template-select').value === 'ui_brand'", timeout=20000)
-            page.wait_for_timeout(800)
-            tpl_opt = page.evaluate("() => { var s = document.getElementById('template-select'); return s.options[s.selectedIndex].textContent; }")
-            del_visible = page.evaluate("() => !document.getElementById('btn-template-delete').hidden && !document.getElementById('use-base-pptx-label').hidden")
-            record("テンプレートの保存と選択（★付き、削除・土台の選択肢が出る）", "ui_brand" in page.evaluate("() => document.getElementById('template-select').value") and tpl_opt.startswith("★") and del_visible, tpl_opt)
-            page.wait_for_function("() => document.querySelector('.canvas-stage .tpl-bar') !== null", timeout=20000)
-            record("保存したテンプレートでキャンバスが描き直される（帯が出る）", True)
-
-            # --- テンプレートで着せ替える（Phase J） ---
-            texts_before = page.evaluate(_TEXTS_JS)
-            page.click("#btn-restyle")
-            page.wait_for_selector("#restyle-result:not([hidden])", timeout=30000)
-            page.wait_for_timeout(400)
-            styled_with = page.evaluate("() => qcDebug.presentation().meta.restyled_with")
-            color_rows = page.evaluate("() => document.querySelectorAll('#restyle-report table tr').length")
-            texts_after = page.evaluate(_TEXTS_JS)
-            ok, why = _clickable(page, "#restyle-result .modal-foot button[data-action='unrestyle']")
-            record(
-                "テンプレートで着せ替える（結果が出て、文章はそのまま）",
-                styled_with == "ui_brand" and texts_after == texts_before and ok,
-                f"restyled_with={styled_with} 色の対応 {color_rows} 行 / {why}",
-            )
-            if shots:
-                page.screenshot(path=str(shots / "ui_06_restyle.png"))
-            page.click("#restyle-result .modal-foot button[data-action='unrestyle']")
-            page.wait_for_function("() => !qcDebug.presentation().meta.restyled_with", timeout=20000)
-            page.wait_for_timeout(400)
-            closed = page.evaluate("() => document.getElementById('restyle-result').hidden")
-            undo_hidden = page.evaluate("() => document.getElementById('btn-unrestyle').hidden")
-            record("着せ替えを元の見た目に戻せる", closed and undo_hidden and page.evaluate(_TEXTS_JS) == texts_before)
-
-            page.on("dialog", lambda d: d.accept())
-            page.click("#btn-template-delete")
-            page.wait_for_function("() => Array.prototype.every.call(document.getElementById('template-select').options, function (o) { return o.value !== 'ui_brand'; })", timeout=20000)
-            record("ユーザーテンプレートの削除", True)
-
-            # --- レイアウト方式（Phase N）: 推測せず、実在レイアウトを選ぶ ---
-            page.click("button[data-action='template-from-pptx']")
-            page.wait_for_selector("#tpl-modal:not([hidden])")
-            page.set_input_files("#tpl-file", str(layout_pptx))
-            page.wait_for_function("() => { var s = PWB.templateEditor.state(); return s.layouts !== null; }", timeout=60000)
-            page.wait_for_timeout(500)
-            avail = page.evaluate("() => PWB.templateEditor.state().layouts.available")
-            mode = page.evaluate("() => PWB.templateEditor.state().mode")
-            note = page.inner_text("#tpl-mode-note")
-            record("レイアウトに図形があれば、レイアウト方式が既定になる", avail is True and mode == "layout" and "レイアウト" in note, f"available={avail} mode={mode}")
-            n_rows = page.evaluate("() => document.querySelectorAll('#tpl-layout-list .tpl-layout').length")
-            page.wait_for_function("() => document.querySelector('#tpl-layout-list .tpl-layout-thumb .slide-wrap') !== null", timeout=30000)
-            record("レイアウトの一覧とサムネイルが出る（絞り込み後）", n_rows >= 1, f"rows={n_rows}")
-            page.click("#tpl-layout-list .tpl-chip[data-tpl-lrole='content']")
-            page.wait_for_function("() => { var s = PWB.templateEditor.state(); return s.proposal && s.proposal.mode === 'layout'; }", timeout=30000)
-            page.wait_for_timeout(400)
-            lm = page.evaluate("() => PWB.templateEditor.state().proposal.layout_map")
-            chrome_n = page.evaluate("() => document.querySelectorAll('#tpl-canvas .tpl-el').length")
-            record("レイアウトを割り当てると、その装飾がプレビューに出る", bool(lm.get("content")) and chrome_n >= 2, f"map={lm} 装飾={chrome_n}")
-            if shots:
-                page.screenshot(path=str(shots / "ui_07_layout_mode.png"))
-            # 装飾がスライド側のファイルでは理由を出して推測方式に落ちる
-            page.set_input_files("#tpl-file", str(ROOT / "samples" / "brand_template.pptx"))
-            page.wait_for_function("() => { var s = PWB.templateEditor.state(); return s.layouts && s.layouts.available === false; }", timeout=60000)
-            page.wait_for_timeout(300)
-            mode2 = page.evaluate("() => PWB.templateEditor.state().mode")
-            note2 = page.inner_text("#tpl-mode-note")
-            record("レイアウトに図形が無ければ理由を出して推測方式に落ちる", mode2 == "parts" and "ありませんでした" in note2, note2[:50])
-            page.click("button[data-tpl-act='close']")
-            page.wait_for_function("() => document.getElementById('tpl-modal').hidden", timeout=10000)
-
-            # --- Copilot で下書きを作る（API 不使用）: プロンプト作成 → 回答の貼り付け → 反映 ---
-            page.click("button[data-action='copilot']")
-            page.wait_for_selector("#copilot-modal:not([hidden])")
-            page.wait_for_function("() => document.getElementById('copilot-content').value.length > 100", timeout=20000)
-            instr = page.evaluate("() => document.getElementById('copilot-instruction').value")
-            content = page.evaluate("() => document.getElementById('copilot-content').value")
-            record("Copilot 向けの指示と内容が作られる", "Markdown" in instr and content.startswith("# ") and "## 2." in content, f"chars={len(instr) + len(content)}")
-            # 何のための機能かが、用途を選ぶ前に読める（利用者の「なんの役に立つか分からん」への対処）
-            lede = page.inner_text(".copilot-lede")
-            steps = page.evaluate("() => document.querySelectorAll('#copilot-steps li').length")
-            now = page.evaluate("() => document.querySelectorAll('#copilot-steps li.now').length")
-            outcome = page.inner_text("#copilot-purpose-outcome")
-            example = page.evaluate("() => { var e = document.getElementById('copilot-purpose-example'); return e.hidden ? '' : e.textContent; }")
-            record("何が出来上がるかが画面に出ている（目的・手順・実例）",
-                   len(lede) > 10 and steps == 3 and now >= 1 and len(outcome) > 5 and example.startswith("例:"),
-                   f"steps={steps} now={now} outcome={outcome[:24]} example={bool(example)}")
-            page.select_option("#copilot-purpose", "summarize")
-            page.wait_for_function("() => document.getElementById('copilot-instruction').value.indexOf('枚のスライド') >= 0", timeout=20000)
-            page.fill("#copilot-options input[data-copilot-opt='count']", "5")
-            page.dispatch_event("#copilot-options input[data-copilot-opt='count']", "change")
-            page.wait_for_function("() => document.getElementById('copilot-instruction').value.indexOf('5 枚') >= 0", timeout=20000)
-            record("用途の切替と枚数の反映", True)
-            page.click("button[data-copilot-tab='reply']")
-            page.fill("#copilot-reply", "# Copilot 回答\n\n## 1. 背景\n型: カード\n- 課題: 二重作業\n- 原因: 形式が違う\n- 対策: 共通形式\nノート: 2 分で\n\n## 2. 効果\n- 半減\n")
-            page.click("button[data-copilot-act='apply']")
-            page.wait_for_function("() => document.getElementById('copilot-modal').hidden && qcDebug.presentation().slides.length === 3", timeout=20000)
-            page.wait_for_timeout(600)
-            kinds = page.evaluate("() => qcDebug.presentation().slides.map(function (s) { return s.layout; })")
-            note = page.evaluate("() => qcDebug.presentation().slides[1].notes")
-            dia = page.evaluate("() => (qcDebug.presentation().slides[1].elements.filter(function (e) { return e.type === 'diagram'; })[0] || {}).diagram || null")
-            record("回答を貼り付けて新しい資料にする（カード図解・ノート）", bool(dia) and dia["type"] == "cards" and len(dia["items"]) == 3 and note == "2 分で", f"layouts={kinds} diagram={dia and dia['type']}")
-            if shots:
-                page.screenshot(path=str(shots / "ui_06_copilot_reply.png"))
-
-            # 読み取れなかった型・ノートを黙って通さない（従来は無言で普通のスライドになっていた）
-            page.click("button[data-action='copilot-reply']")
-            page.wait_for_selector("#copilot-modal:not([hidden])")
-            page.fill("#copilot-reply", "# 壊れた回答\n\n## 1. 現状\n型: プロセス図\n- あ\n**ノート**: 行頭ではない\n\n## 2. 対策\n- い\n")
-            page.click("button[data-copilot-act='apply']")
-            page.wait_for_function("() => document.getElementById('copilot-status').classList.contains('err')", timeout=20000)
-            status = page.inner_text("#copilot-status")
-            record("読み取れなかった型・ノートが画面に出る", "プロセス図" in status and "ノート" in status, status[:80])
-            if not page.is_hidden("#copilot-modal"):
-                page.click("button[data-copilot-act='close']")
-                page.wait_for_function("() => document.getElementById('copilot-modal').hidden", timeout=10000)
-
-            # --- 図解部品（Phase F）: 図解を追加 → 項目を足す ---
-            if not page.is_hidden("#copilot-modal"):
-                page.click("button[data-copilot-act='close']")
-            page.click("button[data-action='add-diagram'][data-diagram='flow']")
-            page.wait_for_function("() => qcDebug.slide().elements.some(function (e) { return e.type === 'diagram'; })", timeout=20000)
-            page.wait_for_selector(".canvas-stage .el-diagram", timeout=20000)
-            page.evaluate("() => { var el = qcDebug.slide().elements.filter(function (e) { return e.type === 'diagram'; })[0]; PWB.core.focusInspector(el.id); }")
-            page.wait_for_selector("[data-act='diagram-add']", timeout=20000)
-            page.click("[data-act='diagram-add']")
-            page.wait_for_timeout(500)
-            dia = page.evaluate("() => qcDebug.slide().elements.filter(function (e) { return e.type === 'diagram'; })[0].diagram")
-            children = page.evaluate("() => document.querySelectorAll('.canvas-stage .el-diagram .el').length")
-            record("図解を追加して項目を編集できる（キャンバスに展開される）", dia["type"] == "flow" and len(dia["items"]) == 4 and children >= 4, f"items={len(dia['items'])} children={children}")
-
-            # --- Copilot エージェント一式の書き出し（下書き作成とは別の入口） ---
-            page.click("button[data-action='copilot']")
-            page.wait_for_selector("#copilot-modal:not([hidden])")
-            page.evaluate("() => document.querySelector('.copilot-more').open = true")
-            page.click("button[data-copilot-act='open-agent']")
-            page.wait_for_selector("#copilot-agent-modal:not([hidden])")
-            record("エージェントは下書き作成と別の入口になっている", page.is_visible("#copilot-agent-modal"))
-            page.wait_for_function("() => document.getElementById('copilot-agent-instructions').value.length > 100", timeout=20000)
-            files = page.evaluate("() => PWB.copilot.state().agent.files.length")
-            name = page.evaluate("() => document.getElementById('copilot-agent-name').value")
-            with page.expect_download() as dl:
-                page.click("button[data-copilot-act='download-agent']")
-            path = dl.value.path()
-            size = os.path.getsize(path) if path else 0
-            record("Copilot エージェント一式の書き出し（指示文・ナレッジ・ZIP）", files >= 3 and bool(name) and size > 1000, f"knowledge={files} name={name} bytes={size}")
-            page.click("button[data-copilot-act='agent-close']")
-            page.wait_for_function("() => document.getElementById('copilot-agent-modal').hidden", timeout=10000)
-
-            # --- 差分マージ再取込（Phase G）: 同じ HTML を直して投入 → 差分を選ぶ ---
-            if not page.is_hidden("#copilot-modal"):
-                page.click("button[data-copilot-act='close']")
-                page.wait_for_function("() => document.getElementById('copilot-modal').hidden", timeout=10000)
-            v1 = tmp_store / "merge_v1.html"
-            v2 = tmp_store / "merge_v2.html"
-            v1.write_text("<html><body><section><h2>背景</h2><p>課題は二重作業</p></section></body></html>", encoding="utf-8")
-            v2.write_text("<html><body><section><h2>背景</h2><p>課題は二重作業と転記</p></section><section><h2>今後</h2><p>全社展開</p></section></body></html>", encoding="utf-8")
-            page.set_input_files("#file-input", str(v1))
-            page.wait_for_function("() => qcDebug.presentation() && qcDebug.presentation().meta.import_snapshot", timeout=30000)
-            page.wait_for_timeout(400)
-            moved = page.evaluate("() => { var el = qcDebug.slide(0).elements.filter(function (e) { return e.role !== 'title'; })[0]; return qcDebug.setBbox(el.id, { x: 50, y: 300, w: 200, h: 60 }) && el.id; }")
-            page.set_input_files("#file-input", str(v2))
-            page.wait_for_selector("#merge-dialog:not([hidden])", timeout=20000)
-            page.click("button[data-action='merge-diff']")
-            page.wait_for_selector("#merge-result:not([hidden])", timeout=30000)
-            page.wait_for_timeout(600)
-            kept = page.evaluate("(id) => { var el = qcDebug.slide(0).elements.filter(function (e) { return e.id === id; })[0]; return el ? { x: el.bbox.x, text: (el.paragraphs || []).map(function (p) { return p.runs.map(function (r) { return r.text; }).join(''); }).join('') } : null; }", moved)
-            n_after = page.evaluate("() => qcDebug.presentation().slides.length")
-            summary = page.inner_text("#merge-report")
-            record("差分マージ再取込（位置を残して本文を更新・ページ追加）", bool(kept) and kept["x"] == 50 and "転記" in kept["text"] and n_after == 2, f"slides={n_after} summary={summary.splitlines()[0] if summary else ''}")
-            page.click("button[data-action='merge-report-close']")
-
-            # --- 版の表示（更新できているかの確認） ---
-            page.wait_for_function("() => document.getElementById('version-badge').textContent.indexOf('確認中') < 0", timeout=20000)
-            badge = page.inner_text("#version-badge")
-            page.click("#version-badge")
-            page.wait_for_selector("#version-modal:not([hidden])", timeout=10000)
-            feature_rows = page.evaluate("() => document.querySelectorAll('#version-body .version-table tbody tr').length")
-            build = page.evaluate("() => qcDebug.build()")
-            page.click("button[data-action='version-close']")
-            tagged = page.evaluate("() => Array.prototype.slice.call(document.querySelectorAll('script[src], link[rel=stylesheet]')).every(function (e) { var u = e.src || e.href; return u.indexOf('/static/') < 0 && u.indexOf('/viewer/') < 0 || u.indexOf('?v=') > 0; })")
-            record("版の表示と機能一覧（キャッシュ無効化の印つき）", badge.startswith("版 ") and feature_rows >= 7 and bool(build) and tagged, f"badge={badge} features={feature_rows} tagged={tagged}")
-
-            record("JavaScript エラーなし", not errors, "; ".join(errors)[:200])
-            laptop_checks(browser, base, brand, record, shots, layout_pptx)
-            browser.close()
+                for label, size, scale in LAPTOPS:
+                    ctx = browser.new_context(viewport=size, device_scale_factor=scale, accept_downloads=True)
+                    page = ctx.new_page()
+                    page.add_init_script("window.__jsErrors = []; window.addEventListener('error', e => window.__jsErrors.push(String(e.message)));")
+                    laptop_checks(page, base, label, diagram, theme, shots)
+                    ctx.close()
+            finally:
+                browser.close()
     finally:
         proc.terminate()
         try:
-            proc.wait(timeout=5)
-        except Exception:  # noqa: BLE001
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
             proc.kill()
-        shutil.rmtree(tmp_store, ignore_errors=True)
-    ok = all(r[1] for r in results)
-    print(f"\n総合: {'合格' if ok else '不合格'}（{sum(1 for r in results if r[1])} / {len(results)}）")
-    return 0 if ok else 1
+
+    ok = sum(1 for _n, o, _d in RESULTS if o)
+    total = len(RESULTS)
+    print(f"\n総合: {'合格' if ok == total else '不合格'}（{ok} / {total}）")
+    return 0 if ok == total else 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())

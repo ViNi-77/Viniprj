@@ -133,46 +133,21 @@ def test_font_scale_autofit(sample_pptx_bytes):
     assert body_el["paragraphs"][0]["runs"][0]["size_pt"] == round(_master_size(Presentation(io.BytesIO(sample_pptx_bytes)).slide_masters[0], "bodyStyle", 1) * 0.5, 1)
 
 
-def test_inherited_flags_and_template_override(sample_pptx_bytes):
-    """継承で補った値には inherited 印が付き、テンプレート適用で上書きされる。明示値は保持される（レビュー指摘: 回帰防止）。"""
-    from app import pipeline
+def test_inherited_values_are_marked_and_explicit_ones_are_not(sample_pptx_bytes):
+    """継承で補った値には inherited 印が付き、明示された値には付かない。
 
-    p = parse_pptx(sample_pptx_bytes, "sample_deck.pptx", template_id="corporate_standard")
-    body = next(el for el in p["slides"][1]["elements"] if el["role"] == "body")
-    r0 = body["paragraphs"][0]["runs"][0]
-    assert {"size_pt", "color", "font"} <= set(r0["inherited"])
-    p, _e, _f = pipeline.prepare(p)
-    title = next(el for el in p["slides"][1]["elements"] if el["role"] == "title")
-    tr = title["paragraphs"][0]["runs"][0]
-    assert tr["color"] == "#001A72" and tr["size_pt"] == 28.0
-    # 明示 12pt + accent1 の注記は上書きされない
-    cap = next(el for el in p["slides"][4]["elements"] if el["type"] == "text" and "月別" in el["paragraphs"][0]["runs"][0]["text"])
-    assert cap["paragraphs"][0]["runs"][0]["size_pt"] == 12.0 and "size_pt" not in cap["paragraphs"][0]["runs"][0].get("inherited", [])
-
-
-def test_inherited_font_not_written_to_pptx_or_html(sample_pptx_bytes):
-    from app.pptx_generator import generate_pptx
-    from app.web_renderer import render_html
-
+    印の使い道は変わった（かつてはテンプレート適用の上書き判定に使っていた）。
+    いまは「この色・大きさは本当にその資料が指定したものか」を区別するために要る。
+    """
     p = parse_pptx(sample_pptx_bytes, "sample_deck.pptx")
-    html = render_html(p, inline_assets=True, inline_viewer=True)
-    assert "font-family:'Calibri'" not in html
-    data, _ = generate_pptx(p, "editable")
-    prs = Presentation(io.BytesIO(data))
-    body = next(sh for sh in prs.slides[1].shapes if sh.name.startswith("body:"))
-    assert body.text_frame.paragraphs[0].runs[0].font.name == "Meiryo"
+    body = next(el for el in p["slides"][1]["elements"] if el["role"] == "body")
+    assert {"size_pt", "color", "font"} <= set(body["paragraphs"][0]["runs"][0]["inherited"])
+    # 明示 12pt の注記には size_pt の印が付かない
+    cap = next(el for el in p["slides"][4]["elements"] if el["type"] == "text" and "月別" in el["paragraphs"][0]["runs"][0]["text"])
+    r = cap["paragraphs"][0]["runs"][0]
+    assert r["size_pt"] == 12.0 and "size_pt" not in r.get("inherited", [])
 
 
-def test_parallelogram_slant_matches_config(sample_pptx_bytes):
-    from app import pipeline
-    from app.pptx_generator import generate_pptx
-
-    p = parse_pptx(sample_pptx_bytes, "sample_deck.pptx", template_id="corporate_standard")
-    p, _e, _f = pipeline.prepare(p)
-    data, _ = generate_pptx(p, "editable")
-    bar = next(sh for sh in Presentation(io.BytesIO(data)).slides[1].shapes if sh.name == "bar")
-    ss = min(bar.width, bar.height) / 12700
-    assert abs(ss * bar.adjustments[0] - 14.0) < 0.05  # templates.json の slant_pt=14
 
 
 def test_clr_map_override_resolves_inverted_slide(sample_pptx_bytes):
