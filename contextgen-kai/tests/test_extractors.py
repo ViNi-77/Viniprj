@@ -236,10 +236,14 @@ def test_text_budget_does_not_silently_truncate(tmp_path, monkeypatch):
     assert any("上限 10 字" in warning for warning in result.warnings)
 
 
-def test_deadline_and_validation(tmp_path):
+def test_deadline_and_validation(tmp_path, monkeypatch):
+    from types import SimpleNamespace
     path = tmp_path / "source.txt"
     path.write_text("data")
-    result = ex.extract_document(path, timeout=0.00000001)
+    # 実時計の分解能に依存せず、期限設定後の最初の確認で超過させる。
+    timestamps = iter((100.0, 102.0))
+    monkeypatch.setattr(ex, "time", SimpleNamespace(monotonic=lambda: next(timestamps)))
+    result = ex.extract_document(path, timeout=1.0)
     assert result.status == "error"
     assert any("処理時間" in warning for warning in result.warnings)
     with pytest.raises(ValueError):
@@ -309,7 +313,9 @@ def test_real_tesseract_image_and_mixed_pdf(tmp_path, monkeypatch):
 def test_real_japanese_ocr_image_and_office_media(tmp_path, monkeypatch):
     import docx
     import unicodedata
-    candidates = [Path("C:/Windows/Fonts/msgothic.ttc"), Path("C:/Windows/Fonts/YuGothR.ttc")]
+    import os
+    explicit_font = os.environ.get("CONTEXTGEN_TEST_JAPANESE_FONT")
+    candidates = ([Path(explicit_font)] if explicit_font else []) + [Path("C:/Windows/Fonts/msgothic.ttc"), Path("C:/Windows/Fonts/YuGothR.ttc")]
     candidates += [p for p in Path("/System/Library/Fonts").glob("*W3.ttc") if "ヒラギノ" in unicodedata.normalize("NFC", p.name)]
     font_path = next((p for p in candidates if p.is_file()), None)
     if font_path is None:

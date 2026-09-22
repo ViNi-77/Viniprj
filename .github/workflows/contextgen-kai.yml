@@ -12,7 +12,7 @@ env:
 permissions:
   contents: read
 concurrency:
-  group: contextgen-kai-${{ github.ref }}
+  group: contextgen-kai-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
   windows:
@@ -51,6 +51,15 @@ jobs:
           key: contextgen-kai-vcpkg-static-${{ runner.os }}-ef7dbf94-${{ hashFiles('contextgen-kai/packaging/triplets/*') }}
       - name: Build standalone EXE and bundled Japanese-English OCR
         run: ./packaging/build_windows.ps1 -VcpkgRoot '${{ github.workspace }}/.contextgen-build/vcpkg'
+      - name: All tests with bundled OCR
+        run: |
+          python scripts/prepare_test_font.py
+          if ($LASTEXITCODE -ne 0) { throw 'OCR test font preparation failed' }
+          $env:CONTEXTGEN_TEST_JAPANESE_FONT = (Resolve-Path 'build/NotoSansCJKjp-Regular.otf').Path
+          $env:CONTEXTGEN_TESSERACT = (Resolve-Path 'dist/ContextgenKai/ocr/tesseract.exe').Path
+          $env:TESSDATA_PREFIX = (Resolve-Path 'dist/ContextgenKai/ocr/tessdata').Path
+          python -m pytest -q --junitxml=build/test-results.xml
+          if ($LASTEXITCODE -ne 0) { throw 'Tests with bundled OCR failed' }
       - name: Packaged EXE and real Windows scheduler smoke
         run: |
           python scripts/windows_smoke.py --exe dist/ContextgenKai/ContextgenKai.exe
