@@ -1,0 +1,72 @@
+{
+  "application_version": "0.1.0",
+  "measured_at": "2026-09-22T23:20:10.908603+00:00",
+  "environment": {
+    "os": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.12.13",
+    "machine": "arm64"
+  },
+  "document_count": 10000,
+  "method": "Temporary unique UTF-8 text documents; actual JobManager and spawned extraction worker; no existing user sources touched.",
+  "baseline_peak_rss_bytes": 27279360,
+  "scenarios": [
+    {
+      "name": "initial_scan",
+      "elapsed_seconds": 42.482,
+      "processed": 10000,
+      "total": 10000,
+      "errors": 0,
+      "extractor_calls": 10000,
+      "expected_extractor_calls": 10000,
+      "throughput_files_per_second": 235.4,
+      "parent_peak_rss_bytes": 32620544,
+      "completed_worker_peak_rss_bytes": 28524544
+    },
+    {
+      "name": "unchanged_scan",
+      "elapsed_seconds": 1.439,
+      "processed": 10000,
+      "total": 10000,
+      "errors": 0,
+      "extractor_calls": 0,
+      "expected_extractor_calls": 0,
+      "throughput_files_per_second": 6950.1,
+      "parent_peak_rss_bytes": 32620544,
+      "completed_worker_peak_rss_bytes": 28524544
+    },
+    {
+      "name": "twenty_changed_files",
+      "elapsed_seconds": 1.675,
+      "processed": 10000,
+      "total": 10000,
+      "errors": 0,
+      "extractor_calls": 20,
+      "expected_extractor_calls": 20,
+      "throughput_files_per_second": 5968.8,
+      "parent_peak_rss_bytes": 32833536,
+      "completed_worker_peak_rss_bytes": 28524544
+    }
+  ],
+  "input_generation_seconds": 0.915,
+  "source_bytes": 7180000,
+  "changed_source_hash_count": 20,
+  "search": {
+    "queries": 40,
+    "median_seconds": 0.013857,
+    "p95_seconds": 0.014826,
+    "max_seconds": 0.016153,
+    "paged_listing_max_seconds": 0.000968,
+    "all_queries_found_exactly_one": true,
+    "list_response_omits_document_body": true
+  },
+  "sqlite_file_bytes": 69840896,
+  "parent_peak_rss_bytes": 35864576,
+  "completed_worker_peak_rss_bytes": 28524544,
+  "passed": true,
+  "limits": [
+    "Generated text corpus; does not measure OCR-heavy or large Office/PDF corpora.",
+    "Peak RSS is the process high-water mark, not a claim of constant memory for every document type.",
+    "macOS/Linux resource API gives parent and completed-child peaks separately; they must not be added as simultaneous usage.",
+    "No Windows target-device acceptance is implied by this benchmark."
+  ]
+}

@@ -1,0 +1,74 @@
+name: contextgen-kai Windows
+on:
+  push:
+    branches: [main, 'codex/**']
+    paths: ['contextgen-kai/**', '.github/workflows/contextgen-kai.yml']
+  pull_request:
+    paths: ['contextgen-kai/**', '.github/workflows/contextgen-kai.yml']
+  workflow_dispatch:
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
+permissions:
+  contents: read
+concurrency:
+  group: contextgen-kai-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: contextgen-kai
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: contextgen-kai/requirements.lock
+      - name: Install application and test tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.lock
+          if ($LASTEXITCODE -ne 0) { throw 'Locked dependency installation failed' }
+          python -m pip install -e . --no-deps --no-build-isolation
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+      - name: Unit and integration tests
+        run: |
+          python -m pytest -q --junitxml=build/test-results.xml
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0
+          path: .contextgen-build/vcpkg
+      - uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: contextgen-kai-vcpkg-static-${{ runner.os }}-ef7dbf94-${{ hashFiles('contextgen-kai/packaging/triplets/*') }}
+      - name: Build standalone EXE and bundled Japanese-English OCR
+        run: ./packaging/build_windows.ps1 -VcpkgRoot '${{ github.workspace }}/.contextgen-build/vcpkg'
+      - name: Packaged EXE and real Windows scheduler smoke
+        run: |
+          python scripts/windows_smoke.py --exe dist/ContextgenKai/ContextgenKai.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged application smoke failed' }
+      - name: ZIP distributable
+        run: Compress-Archive -Path dist/ContextgenKai -DestinationPath dist/contextgen-kai-0.1.0-windows-x64.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contextgen-kai-windows
+          path: contextgen-kai/dist/contextgen-kai-0.1.0-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contextgen-kai-test-evidence
+          path: |
+            contextgen-kai/build/test-results.xml
+            contextgen-kai/build/windows-smoke.json
+            contextgen-kai/build/windows-smoke.log
+          retention-days: 30
