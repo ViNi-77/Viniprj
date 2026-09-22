@@ -21,7 +21,7 @@ OCR は文字認識です。図や写真の意味を説明する機能ではあ�
 
 同梱資料: docs\ 要件定義・仕様、概要と変更履歴、基本設計基準
 第三者コンポーネントの権利表示: THIRD_PARTY_LICENSES\ および ocr\tessdata\LICENSE
-Tesseract 5.5.1 / tessdata_fast 4.1.0（日本語・英語）
+Tesseract 5.5.1 / tessdata_fast（日本語・英語、BUILD-MANIFEST の固定コミット）
 ビルド来歴: BUILD-MANIFEST.json
 
 検証状態: Windows CI の成功と、利用予定の Windows PC での受入確認は別です。

@@ -1,6 +1,7 @@
 """実配布 EXE を開発 PATH なしで検証。実予約は一時 state 配下で作成し必ず解除する。"""
 from __future__ import annotations
 import argparse
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 import io
 import hashlib
@@ -101,12 +102,17 @@ def main():
     def checked(name):
         evidence['checks'].append(name)
         print(name, flush=True)
-    process, task_name, scheduler, schedule_id, root = None, None, None, None, None
+    process, task_name, scheduler, schedule_id, root, temporary_root = None, None, None, None, None, None
     try:
         assert os.name == 'nt', 'Windows only'
         assert exe.is_file()
-        with tempfile.TemporaryDirectory(prefix='contextgen-kai-smoke-', ignore_cleanup_errors=True) as temp:
+        temporary_root = tempfile.TemporaryDirectory(prefix='contextgen-kai-smoke-', ignore_cleanup_errors=True)
+        with nullcontext(temporary_root.name) as temp:
             root = Path(temp)
+            # 配布フォルダ自体を日本語・空白入りに移し、OCRの言語データ探索も検証する。
+            relocated = root / '配布 アプリ'
+            shutil.copytree(exe.parent, relocated)
+            exe = relocated / exe.name
             state = root / '状態 日本語'
             source = root / '資料 日本語'
             fixtures(source)
@@ -148,10 +154,12 @@ def main():
                     return row if row['state'] in ('completed', 'held', 'failed', 'stopped') else None
                 finished = wait_for(lambda: job_done(job['id']), label='Office/PDF/image scan')
                 assert finished['state'] == 'completed', finished
+                assert finished['errors'] == 0, finished
                 docs = request(base, '/api/documents?limit=50')['items']
                 assert len(docs) == 7, docs
                 for doc in docs:
                     detail = request(base, '/api/documents/' + doc['id'])
+                    assert detail['status'] == 'ok', detail
                     assert detail['effective_text'].strip(), detail
                     assert detail['units'], detail
                     if doc['relative_path'] == '混在.pdf':
@@ -160,16 +168,15 @@ def main():
                 collection = request(base, '/api/collections', method='POST', data={'name': '受入セット', 'library_id': library['id'], 'purpose': 'overview'}, token=token)
                 exported = request(base, '/api/exports', method='POST', data={'collection_id': collection['id']}, token=token)
                 completed = wait_for(lambda: job_done(exported['id']), label='export')
-                assert completed['state'] in ('completed', 'held'), completed
+                assert completed['state'] == 'completed', completed
                 exports = request(base, '/api/exports')
                 generation = next(e for e in exports if e['id'] == completed['export_id'])
-                if generation['state'] == 'held':
-                    request(base, '/api/exports/' + generation['id'] + '/activate', method='POST', data={}, token=token)
+                assert generation['state'] == 'published' and generation['is_active'], generation
                 archive = request(base, '/api/exports/' + generation['id'] + '/download')
                 with zipfile.ZipFile(io.BytesIO(archive)) as zip_out:
                     assert any(p.lower().endswith('.txt') for p in zip_out.namelist())
                     assert any(p.lower().endswith('.jsonl') for p in zip_out.namelist())
-                checked('packaged export generation, approval, and ZIP download')
+                checked('packaged export automatically published and ZIP downloaded')
                 # 最初は翌日の予約にし、起動中 tick と競合しないようにする。
                 schedule = request(base, '/api/schedules', method='POST', token=token, data={
                     'name': 'CI 一時予約', 'library_id': library['id'], 'collection_id': collection['id'],
@@ -205,7 +212,7 @@ def main():
                     data = json.loads(row[0])
                     return data if data.get('last_result') in ('completed', 'held', 'failed', 'stopped') else None
                 result = wait_for(background_finished, seconds=180, label='real headless task after EXE shutdown')
-                assert result['last_result'] in ('completed', 'held'), result
+                assert result['last_result'] == 'completed', result
                 checked('background task scans/exports with app closed and reports completion')
                 scheduler.delete(schedule_id)
                 task_name = None
@@ -215,10 +222,16 @@ def main():
             process.terminate()
             process.wait(timeout=15)
         if task_name:
+            diagnosis = subprocess.run(['schtasks.exe', '/Query', '/TN', task_name, '/V', '/FO', 'CSV'], capture_output=True)
+            (output / 'windows-task-details.txt').write_bytes(diagnosis.stdout + diagnosis.stderr)
             subprocess.run(['schtasks.exe', '/End', '/TN', task_name], capture_output=True)
             subprocess.run(['schtasks.exe', '/Delete', '/TN', task_name, '/F'], capture_output=True)
         if root:
-            shutil.rmtree(root, ignore_errors=True)
+            app_log = root / '状態 日本語' / 'app.log'
+            if app_log.is_file():
+                shutil.copy2(app_log, output / 'windows-app.log')
+        if temporary_root:
+            temporary_root.cleanup()
         (output / 'windows-smoke.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(evidence, ensure_ascii=False, indent=2))
 

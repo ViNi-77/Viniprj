@@ -45,12 +45,20 @@ jobs:
           repository: microsoft/vcpkg
           ref: ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0
           path: .contextgen-build/vcpkg
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: vcpkg_cache
         with:
           path: ~/AppData/Local/vcpkg/archives
           key: contextgen-kai-vcpkg-static-${{ runner.os }}-ef7dbf94-${{ hashFiles('contextgen-kai/packaging/triplets/*') }}
       - name: Build standalone EXE and bundled Japanese-English OCR
+        id: native_build
         run: ./packaging/build_windows.ps1 -VcpkgRoot '${{ github.workspace }}/.contextgen-build/vcpkg'
+      - name: Preserve successful native build cache
+        uses: actions/cache/save@v4
+        if: always() && steps.native_build.outputs.ocr_cache_ready == 'true' && steps.vcpkg_cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/AppData/Local/vcpkg/archives
+          key: contextgen-kai-vcpkg-static-${{ runner.os }}-ef7dbf94-${{ hashFiles('contextgen-kai/packaging/triplets/*') }}
       - name: All tests with bundled OCR
         run: |
           python scripts/prepare_test_font.py
@@ -80,4 +88,9 @@ jobs:
             contextgen-kai/build/test-results.xml
             contextgen-kai/build/windows-smoke.json
             contextgen-kai/build/windows-smoke.log
+            contextgen-kai/build/windows-app.log
+            contextgen-kai/build/windows-task-details.txt
+            contextgen-kai/build/tesseract-*.manifest
+            contextgen-kai/build/windows/warn-windows.txt
+            .contextgen-build/vcpkg/buildtrees/**/*.log
           retention-days: 30
