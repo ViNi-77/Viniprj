@@ -1,0 +1,11 @@
+{
+  "application_version": "0.3.0",
+  "tests": 143,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 1,
+  "seconds": 11.376,
+  "ocr": "Real Tesseract, bundled Japanese-English data",
+  "windows_only": "Windows junction traversal is checked by Windows CI",
+  "old_projects": "No source differences; identical old PPTX source passed Linux loop-check run 35827127899 attempt 2 (73 unit/API, 18 E2E, 34 UI checks)."
+}

@@ -157,6 +157,7 @@ def test_missing_ocr_and_office_image_visible(tmp_path, monkeypatch):
     make_ocr_image(path)
     result = ex.extract_document(path)
     assert result.status == "needs_ocr"
+    assert result.metadata["retryable"] is True
     assert "Tesseract" in result.warnings[0]
     document = docx.Document()
     document.add_paragraph("画像のある資料")
@@ -165,6 +166,7 @@ def test_missing_ocr_and_office_image_visible(tmp_path, monkeypatch):
     document.save(office)
     result = ex.extract_document(office)
     assert result.status == "partial"
+    assert result.metadata["retryable"] is True
     assert result.metadata["embedded_images"] == 1
     assert any("word/media/" in warning for warning in result.warnings)
 
@@ -180,6 +182,7 @@ def test_ocr_timeout_reports_unread_part(tmp_path, monkeypatch):
     result = ex.extract_document(path)
     assert result.status == "needs_ocr"
     assert any("制限時間" in warning for warning in result.warnings)
+    assert result.metadata["retryable"] is True
 
 
 def test_zip_traversal_symlinks_and_valid_member(tmp_path):
@@ -234,6 +237,7 @@ def test_text_budget_does_not_silently_truncate(tmp_path, monkeypatch):
     assert result.status == "partial"
     assert result.units[0]["text"] == "ABCDEFABCD"
     assert any("上限 10 字" in warning for warning in result.warnings)
+    assert result.metadata["retryable"] is False
 
 
 def test_deadline_and_validation(tmp_path, monkeypatch):
@@ -307,6 +311,16 @@ def test_real_tesseract_image_and_mixed_pdf(tmp_path, monkeypatch):
     assert "FACTORY REPORT 2026" in result.text
     assert result.metadata["ocr_units"] == 1
     assert result.status == "ok"
+    # 同一ページ内に文字とスキャン画像が共存しても両方の原文を保持する。
+    same_page = PdfWriter()
+    same_page.add_page(PdfReader(text_pdf).pages[0])
+    same_page.pages[0].merge_page(PdfReader(image_pdf).pages[0])
+    combined = tmp_path / "same-page.pdf"
+    same_page.write(combined)
+    result = ex.extract_document(combined)
+    assert "Production report ALPHA" in result.text and "FACTORY REPORT 2026" in result.text, result.as_dict()
+    assert result.metadata["ocr_units"] == 1
+    assert any(u["kind"] == "image" and "ページ 1 画像" in u["locator"] for u in result.units)
 
 
 @pytest.mark.skipif(not ex.tesseract_path(), reason="Tesseract binary unavailable in this environment")

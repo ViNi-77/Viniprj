@@ -6,9 +6,9 @@
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const state = {token: "", view: "home", libraries: [], collections: [], jobs: [], schedules: [], exports: [], documents: [], documentTotal: 0, offset: 0, limit: 50, selected: new Map(), currentDocument: null, collectionId: null, collectionIds: [], scheduleId: null, refreshing: false, stopped: false, documentRequest: 0, libraryId: null, rendered: {}};
+const state = {token: "", view: "home", libraries: [], collections: [], jobs: [], schedules: [], exports: [], documents: [], documentTotal: 0, offset: 0, limit: 50, selected: new Map(), currentDocument: null, collectionId: null, collectionIds: [], scheduleId: null, refreshing: false, stopped: false, documentRequest: 0, libraryId: null, documentOpener: null, collectionDraft: null, cleanupDocumentId: null, handoffId: null, preflightId: null, rendered: {}};
 const stateLabels = {ok: "読み取り済み", partial: "一部読み取り", empty: "本文なし", error: "読み取りエラー", protected: "保護された資料", needs_conversion: "変換が必要", needs_ocr: "OCRの確認が必要", needs_download: "ダウンロードが必要", pending: "読み取り待ち", deleted: "原本削除", missing: "原本が見つかりません", conflict: "修正の確認待ち", excluded: "収録対象外", queued: "実行待ち", scanning: "資料を探しています", extracting: "読み取り中", exporting: "生成中", completed: "完了", held: "確認待ち", failed: "失敗", stopped: "停止", stopping: "停止しています", ready: "生成済み", published: "生成済み", active: "使用中", running: "実行中", disabled: "停止中", success: "完了", restored_disabled: "復元済み・停止中"};
-const purposeLabels = {overview: "概要把握", compare: "資料比較", questions: "確認事項の洗い出し"};
+const purposeLabels = {overview: "概要把握", compare: "資料比較", questions: "確認事項の洗い出し", procedure: "手順案内", reference: "規程・仕様の照会"};
 const viewLabels = {home: "ホーム", documents: "資料の確認", exports: "Copilotへ渡す", schedules: "定期更新・設定"};
 const terminalStates = new Set(["completed", "held", "failed", "stopped"]);
 
@@ -83,10 +83,11 @@ async function action(element, callback) {
   const dialog = element?.closest("dialog");
   const error = dialog && $(".form-error", dialog);
   if (error) error.textContent = "";
+  const hadFocus = document.activeElement === element; let failed = false;
   if (element) element.disabled = true;
   try { await callback(); }
-  catch (cause) { if (error && dialog.open) error.textContent = cause.message; else toast(cause.message, true); }
-  finally { if (element?.isConnected) element.disabled = false; }
+  catch (cause) { failed = true; if (error && dialog.open) error.textContent = cause.message; else toast(cause.message, true); }
+  finally { if (element?.isConnected) { element.disabled = element.dataset.page === "previous" ? state.offset === 0 : element.dataset.page === "next" ? state.offset + state.limit >= state.documentTotal : false; if (failed && hadFocus && !element.disabled && document.activeElement === document.body) element.focus({preventScroll: true}); } }
 }
 function openDialog(selector) {
   const dialog = $(selector);
@@ -115,7 +116,7 @@ async function refresh() {
     const previousJobs = JSON.stringify(state.jobs);
     const data = await api("/status");
     state.token = data.token; state.libraries = data.libraries || []; state.collections = data.collections || []; state.jobs = data.jobs || []; state.schedules = data.schedules || [];
-    $("#version").textContent = data.version || "0.2.0";
+    $("#version").textContent = data.version || "0.3.0";
     $("#connection").classList.remove("offline"); $("#connection").replaceChildren(node("i"), document.createTextNode("ローカル接続中"));
     $("#global-error").hidden = true;
     for (const key of ["total", "ok", "attention", "excluded"]) { const target = $(`#stat-${key}`); target.replaceChildren(document.createTextNode(countText(data.counts?.[key])), node("small", "", "件")); }
@@ -125,7 +126,7 @@ async function refresh() {
     updateIfChanged("collections", [state.collections, state.libraries], renderCollections);
     updateIfChanged("schedules", [state.schedules, state.libraries], renderSchedules);
     if (state.view === "exports") await loadExports();
-    if (state.view === "documents" && previousJobs !== JSON.stringify(state.jobs)) await loadDocuments();
+    if (state.view === "documents" && previousJobs !== JSON.stringify(state.jobs)) await loadDocuments({passive: true});
   } catch (cause) {
     $("#connection").classList.add("offline"); $("#connection").replaceChildren(node("i"), document.createTextNode("接続を確認してください"));
     $("#global-error").textContent = cause.message; $("#global-error").hidden = false;
@@ -203,33 +204,61 @@ async function upload(files) {
   finally { $("#dropzone").removeAttribute("aria-busy"); $("#upload-files").value = ""; }
 }
 
-async function loadDocuments() {
+async function loadDocuments({offset = state.offset, limit = state.limit, focus = false, passive = false} = {}) {
+  if (passive && ($("#document-dialog").open || state.documentNavigationRequest)) return;
   const request = ++state.documentRequest;
-  const params = new URLSearchParams({q: $("#document-query").value.trim(), library_id: $("#document-library").value, status: $("#document-status").value, offset: state.offset, limit: state.limit});
+  if (focus) state.documentNavigationRequest = request;
+  try {
+  const params = new URLSearchParams({q: $("#document-query").value.trim(), library_id: $("#document-library").value, status: $("#document-status").value, extension: $("#document-extension").value, offset, limit});
   const data = await api(`/documents?${params}`);
   if (request !== state.documentRequest) return;
-  state.documents = data.items || []; state.documentTotal = data.total || 0;
-  renderDocuments();
+  const total = data.total || 0;
+  if (offset && offset >= total) return await loadDocuments({offset: Math.max(0, Math.ceil(total / limit) - 1) * limit, limit, focus, passive});
+  state.offset = offset; state.limit = limit; state.documents = data.items || []; state.documentTotal = total;
+  updateIfChanged("documents", [state.documents, total, offset, limit], renderDocuments);
+  if (focus) {
+    const heading = $("#document-result-count"); heading.focus({preventScroll: true}); heading.scrollIntoView({block: "start", behavior: "auto"});
+    $("#document-announcement").textContent = total ? `${countText(total)}件中 ${offset + 1}から${Math.min(offset + limit, total)}件を表示しました。` : "条件に合う資料はありません。";
+  }
+  } finally { if (state.documentNavigationRequest === request) state.documentNavigationRequest = null; }
 }
 function renderDocuments() {
-  const root = $("#documents"); root.replaceChildren();
+  const root = $("#documents"), active = document.activeElement, activeRow = active?.closest("tr[data-document-id]");
+  const focusKey = activeRow ? [activeRow.dataset.documentId, active.dataset.documentAction] : null;
+  const scroll = window.scrollY;
+  root.replaceChildren();
   $("#document-result-count").textContent = `${countText(state.documentTotal)} 件の資料`;
   $("#documents-empty").hidden = !!state.documents.length;
   for (const doc of state.documents) {
-    const row = node("tr"), checkCell = node("td"), input = document.createElement("input"); input.type = "checkbox"; input.checked = state.selected.has(doc.id); input.setAttribute("aria-label", `${doc.relative_path} を選択`);
+    const row = node("tr"), checkCell = node("td"), input = document.createElement("input"); row.dataset.documentId = doc.id;
+    input.type = "checkbox"; input.checked = state.selected.has(doc.id); input.dataset.documentAction = "select"; input.setAttribute("aria-label", `${doc.relative_path} を選択`);
     input.addEventListener("change", () => { if (input.checked) state.selected.set(doc.id, doc); else state.selected.delete(doc.id); updateSelection(); }); checkCell.append(input);
-    const nameCell = node("td"); const title = button(doc.relative_path, "", () => showDocument(doc.id)); title.className = "doc-title-button";
+    const nameCell = node("td"), title = button(doc.relative_path, "", () => showDocument(doc.id, title)); title.className = "doc-title-button"; title.dataset.documentAction = "title";
     nameCell.append(title, node("p", "help", libraryName(doc.library_id)));
+    if (doc.snippet) nameCell.append(node("p", "document-snippet", doc.snippet));
     const statusCell = node("td"); statusCell.append(badge(doc.status));
     if (doc.excluded) statusCell.append(document.createTextNode(" "), badge("excluded"));
     if (doc.conflict) statusCell.append(document.createTextNode(" "), badge("conflict"));
     if (doc.warning_count) statusCell.append(node("p", "help", `注意事項 ${doc.warning_count} 件`));
-    const dateCell = node("td", "help", dateText(doc.updated_at)), actionCell = node("td"); actionCell.append(button("確認", "subtle small", () => showDocument(doc.id)));
+    const dateCell = node("td", "help", dateText(doc.updated_at)), actionCell = node("td"), review = button("確認", "subtle small", () => showDocument(doc.id, review)); review.dataset.documentAction = "review"; actionCell.append(review);
     row.append(checkCell, nameCell, statusCell, dateCell, actionCell); root.append(row);
   }
-  $("#previous-page").disabled = state.offset === 0; $("#next-page").disabled = state.offset + state.limit >= state.documentTotal;
-  $("#page-info").textContent = state.documentTotal ? `${Math.floor(state.offset / state.limit) + 1} / ${Math.ceil(state.documentTotal / state.limit)} ページ` : "0 / 0";
+  const pages = Math.max(1, Math.ceil(state.documentTotal / state.limit));
+  $$('[data-page="previous"]').forEach(el => { el.disabled = state.offset === 0; });
+  $$('[data-page="next"]').forEach(el => { el.disabled = state.offset + state.limit >= state.documentTotal; });
+  $$(".page-info").forEach(el => { el.textContent = state.documentTotal ? `${Math.floor(state.offset / state.limit) + 1} / ${pages} ページ` : "0 / 0"; });
+  $$(".page-size").forEach(el => { el.value = state.limit; });
+  $$(".page-number").forEach(el => { el.max = pages; el.value = Math.floor(state.offset / state.limit) + 1; });
   updateSelection();
+  if (focusKey) documentControl(...focusKey)?.focus({preventScroll: true});
+  window.scrollTo({top: scroll, behavior: "instant"});
+}
+function documentControl(id, kind = "title") {
+  return $$("#documents tr").find(row => row.dataset.documentId === String(id))?.querySelector(`[data-document-action="${kind}"]`);
+}
+function restoreDocumentFocus() {
+  const opener = state.documentOpener;
+  if (opener) (documentControl(opener.id, opener.kind) || $("#document-result-count")).focus({preventScroll: true});
 }
 function updateSelection() {
   $("#selection-count").textContent = state.selected.size ? `${state.selected.size} 件選択中` : "";
@@ -237,13 +266,15 @@ function updateSelection() {
   $("#select-page").checked = !!state.documents.length && state.documents.every(item => state.selected.has(item.id));
   $("#select-page").indeterminate = state.documents.some(item => state.selected.has(item.id)) && !$("#select-page").checked;
 }
-async function showDocument(id) {
+async function showDocument(id, opener = null) {
+  if (opener) state.documentOpener = {id, kind: opener.dataset.documentAction || "title"};
   const doc = await api(`/documents/${encodeURIComponent(id)}`); state.currentDocument = doc;
   $("#document-title").textContent = doc.relative_path;
   $("#document-meta").textContent = `${libraryName(doc.library_id)} · ${stateLabels[doc.status] || doc.status} · ${dateText(doc.updated_at)}`;
   $("#document-excluded").checked = !!doc.excluded;
   $("#original-text").value = doc.original_text || ""; $("#edited-text").value = doc.edited_text ?? doc.effective_text ?? doc.original_text ?? "";
   $("#document-conflict").hidden = !doc.conflict;
+  $("#history-details").open = false; $("#document-history").replaceChildren(node("p", "help", "開くと履歴を読み込みます。"));
   const warnings = $("#document-warnings"); warnings.replaceChildren();
   for (const warning of doc.warnings || []) warnings.append(node("div", "", typeof warning === "string" ? warning : JSON.stringify(warning)));
   const units = $("#document-units"); units.replaceChildren();
@@ -269,40 +300,163 @@ async function showDocument(id) {
 async function saveDocument(discard = false) {
   const doc = state.currentDocument; if (!doc) return;
   if (discard && !confirm("保存した修正を破棄し、最新の読み取り原文に戻しますか？")) return;
-  const body = {excluded: $("#document-excluded").checked, text: discard ? null : $("#edited-text").value, expected_hash: doc.source_hash};
+  const body = {excluded: $("#document-excluded").checked, text: discard ? null : $("#edited-text").value, expected_hash: doc.source_hash, expected_revision: doc.revision};
   await api(`/documents/${encodeURIComponent(doc.id)}`, {method: "PUT", body});
-  $("#document-dialog").close(); await loadDocuments(); await refresh(); toast(discard ? "修正を破棄し、原文に戻しました。" : "修正を保存しました。原本は変更していません。");
+  $("#document-dialog").close(); await loadDocuments(); await refresh(); restoreDocumentFocus(); toast(discard ? "修正を破棄し、原文に戻しました。" : "修正を保存しました。原本は変更していません。");
 }
 
+function collectionLibraries(collection) { return collection.library_ids?.length ? collection.library_ids : [collection.library_id].filter(Boolean); }
 function renderCollections() {
   const root = $("#collections"); root.replaceChildren();
-  if (!state.collections.length) { root.append(emptyState("▧", "用途に合わせて、資料をまとめる", "まず資料セットを作成してください。対象のフォルダ、検索条件、Copilotにしてほしいことを保存できます。")); return; }
+  if (!state.collections.length) { root.append(emptyState("▧", "用途に合わせて、資料をまとめる", "資料セットに対象資料・登録先・Copilotにしてほしいことを保存できます。")); return; }
   for (const collection of state.collections) {
-    const card = node("article", "collection-card"); card.append(node("div", "collection-type", `▧  ${purposeLabels[collection.purpose] || "資料セット"}`), node("h3", "", collection.name));
-    card.append(node("p", "", `${libraryName(collection.library_id)}${collection.folder ? ` / ${collection.folder}` : ""}`));
-    const conditions = []; if (collection.query) conditions.push(`検索：${collection.query}`); if (collection.document_ids?.length) conditions.push(`個別選択：${collection.document_ids.length} 件`);
-    card.append(node("p", "", conditions.join(" · ") || "フォルダ内の収録対象資料すべて"));
-    const actions = node("div", "button-row"); actions.append(button("ナレッジを生成", "primary", async () => { await api("/exports", {method: "POST", body: {collection_id: collection.id, force: false}}); await refresh(); await loadExports(); toast("ナレッジの生成を開始しました。生成結果は下の一覧に表示されます。"); }), button("編集", "subtle", () => openCollection(collection)));
+    const card = node("article", "collection-card"); card.append(node("div", "collection-type", `${collection.target === "studio" ? "Copilot Studio" : "Agent Builder"} · ${purposeLabels[collection.purpose] || "資料セット"}`), node("h3", "", collection.name));
+    card.append(node("p", "", collectionLibraries(collection).map(libraryName).join(" / ")));
+    const conditions = []; if (collection.query) conditions.push(`検索：${collection.query}`); if (collection.selection_mode === "fixed" || collection.document_ids?.length) conditions.push(`個別選択：${collection.document_ids.length} 件`);
+    card.append(node("p", "", conditions.join(" · ") || "条件に合う収録対象資料"));
+    const actions = node("div", "button-row"); actions.append(button("ナレッジを生成", "primary", () => preflight(collection)), button("編集", "subtle", () => openCollection(collection)));
     card.append(actions); root.append(card);
   }
 }
 function openCollection(collection = null, fromSelection = false) {
   if (!state.libraries.length) { toast("先にホームで資料フォルダを登録してください。", true); return; }
-  state.collectionId = collection?.id || null; state.collectionIds = collection?.document_ids ? [...collection.document_ids] : fromSelection ? [...state.selected.keys()] : [];
-  let selectedLibrary = collection?.library_id || $("#document-library").value || state.libraries[0].id;
-  if (fromSelection) {
-    const libraries = new Set([...state.selected.values()].map(doc => String(doc.library_id)));
-    if (libraries.size > 1) { toast("資料セットはフォルダごとに作成します。選択する資料をひとつの登録フォルダに揃えてください。", true); return; }
-    selectedLibrary = [...libraries][0];
-  }
+  state.collectionId = collection?.id || null; state.collectionDraft = {...(collection || {}), excluded_document_ids: [...(collection?.excluded_document_ids || [])], unit_overrides: {...(collection?.unit_overrides || {})}, unit_override_bases: {...(collection?.unit_override_bases || {})}};
+  state.collectionIds = collection?.document_ids ? [...collection.document_ids] : fromSelection ? [...state.selected.keys()] : [];
+  const selectedLibraries = collection ? collectionLibraries(collection) : fromSelection ? [...new Set([...state.selected.values()].map(doc => doc.library_id))] : [$("#document-library").value || state.libraries[0].id];
+  state.collectionLibraryIds = [...selectedLibraries]; state.collectionPreviewScope = null;
+  $("#collection-form").reset(); $("#collection-preview").replaceChildren(); $("#collection-advanced").open = false;
   $("#collection-title").textContent = collection ? "資料セットを編集" : "資料セットを作成";
-  $("#collection-name").value = collection?.name || ""; fillLibraries($("#collection-library")); $("#collection-library").value = selectedLibrary;
-  $("#collection-folder").value = collection?.folder || ""; $("#collection-query").value = collection?.query || ""; $("#collection-purpose").value = collection?.purpose || "overview"; $("#collection-instructions").value = collection?.instructions || "";
+  $("#collection-name").value = collection?.name || "";
+  const choices = $("#collection-libraries"); choices.replaceChildren();
+  for (const lib of state.libraries) { const label = node("label", "check-label"), input = document.createElement("input"); input.type = "checkbox"; input.value = lib.id; input.checked = selectedLibraries.includes(lib.id); label.append(input, document.createTextNode(lib.name)); choices.append(label); }
+  $("#collection-mode").value = collection?.selection_mode || (state.collectionIds.length ? "fixed" : "dynamic");
+  $("#collection-target").value = collection?.target || (collection ? "builder" : "studio");
+  $("#collection-cleanup").value = collection?.cleanup || (collection ? "none" : "standard");
+  for (const key of ["folder", "query", "instructions", "description", "audience"]) $(`#collection-${key}`).value = collection?.[key] || "";
+  $("#collection-answer-scope").value = collection?.answer_scope || ""; $("#collection-out-of-scope").value = collection?.out_of_scope || "";
+  $("#collection-purpose").value = collection?.purpose || "overview";
+  for (const key of ["hidden", "notes", "embedded"]) $(`#collection-${key}`).checked = collection?.[`include_${key}`] ?? true;
+  $("#evaluation-questions").replaceChildren(); for (const item of collection?.evaluation_questions || []) addEvaluation(item);
   updateCollectionSelection(); openDialog("#collection-dialog");
 }
+function addEvaluation(item = {}) {
+  const row = node("div", "evaluation-row");
+  for (const [key, title] of [["question", "質問"], ["expected_response", "期待する回答・判定基準"], ["source", "確認する出典"]]) { const label = node("label", "", title), input = document.createElement("textarea"); input.rows = 2; input.dataset.evaluation = key; input.value = item[key] || ""; label.append(input); row.append(label); }
+  row.append(button("この質問を削除", "subtle small", () => row.remove())); $("#evaluation-questions").append(row);
+}
+function collectionBody() {
+  const ids = $$("#collection-libraries input:checked").map(el => el.value);
+  if (!ids.length) throw new Error("資料フォルダを1つ以上選択してください。");
+  return {...state.collectionDraft, name: $("#collection-name").value.trim(), library_id: ids[0], library_ids: ids, folder: $("#collection-folder").value.trim(), query: $("#collection-query").value.trim(), document_ids: $("#collection-mode").value === "fixed" ? [...state.collectionIds] : [], selection_mode: $("#collection-mode").value, target: $("#collection-target").value, cleanup: $("#collection-cleanup").value, purpose: $("#collection-purpose").value, instructions: $("#collection-instructions").value, include_hidden: $("#collection-hidden").checked, include_notes: $("#collection-notes").checked, include_embedded: $("#collection-embedded").checked, description: $("#collection-description").value, audience: $("#collection-audience").value, answer_scope: $("#collection-answer-scope").value, out_of_scope: $("#collection-out-of-scope").value, evaluation_questions: $$("#evaluation-questions .evaluation-row").map(row => Object.fromEntries($$("textarea", row).map(el => [el.dataset.evaluation, el.value]))).filter(item => item.question.trim())};
+}
 function updateCollectionSelection() {
-  $("#collection-selection").value = state.collectionIds.length ? `${state.collectionIds.length} 件を個別に指定` : "指定なし：条件に合う資料すべて";
+  $("#collection-selection").value = $("#collection-mode").value === "fixed" ? `${state.collectionIds.length} 件を個別に指定` : `条件に合う資料（このセットで除外 ${state.collectionDraft?.excluded_document_ids?.length || 0} 件）`;
   $("#clear-collection-selection").hidden = !state.collectionIds.length;
+}
+async function previewCollection(offset = 0, scope = null) {
+  const body = collectionBody(), fixed = body.selection_mode === "fixed";
+  body.name ||= "対象資料の確認";
+  scope ||= state.collectionPreviewScope || (fixed && state.collectionIds.length ? "selected" : "candidates");
+  if (scope === "selected" && !state.collectionIds.length) scope = "candidates";
+  state.collectionPreviewScope = scope;
+  const previewBody = scope === "selected" ? body : {...body, selection_mode: "dynamic", document_ids: []};
+  const data = await api(`/collections/preview?offset=${offset}&limit=100`, {method: "POST", body: previewBody});
+  const root = $("#collection-preview"); root.replaceChildren();
+  if (fixed) {
+    const modes = node("div", "button-row");
+    const selected = button("選択済み（削除済みを含む）", scope === "selected" ? "secondary small" : "subtle small", () => previewCollection(0, "selected")); selected.disabled = !state.collectionIds.length;
+    modes.append(selected, button("追加候補を探す", scope === "candidates" ? "secondary small" : "subtle small", () => previewCollection(0, "candidates"))); root.append(modes);
+  }
+  root.append(node("p", "help", `${scope === "selected" ? "選択済み" : "候補"} ${countText(data.total)} 件 · 注意 ${countText(data.warning_count)} 件${data.missing ? ` · 原本削除 ${countText(data.missing)} 件` : ""}`));
+  for (const doc of data.items || []) {
+    const row = node("div", "candidate-row"), label = node("label", "check-label"), input = document.createElement("input"); input.type = "checkbox";
+    input.checked = fixed ? state.collectionIds.includes(doc.id) : !doc.excluded && !state.collectionDraft.excluded_document_ids.includes(doc.id); input.disabled = !!doc.excluded && !fixed;
+    input.addEventListener("change", () => { if ($("#collection-mode").value === "fixed") { state.collectionIds = state.collectionIds.filter(id => id !== doc.id); if (input.checked) { state.collectionIds.push(doc.id); state.collectionDraft.excluded_document_ids = state.collectionDraft.excluded_document_ids.filter(id => id !== doc.id); } } else { state.collectionDraft.excluded_document_ids = state.collectionDraft.excluded_document_ids.filter(id => id !== doc.id); if (!input.checked) state.collectionDraft.excluded_document_ids.push(doc.id); } updateCollectionSelection(); });
+    const info = node("span"); info.append(node("strong", "", doc.relative_path), node("span", "help", ` ${libraryName(doc.library_id)} · ${stateLabels[doc.status] || doc.status || ""}`));
+    if (doc.reason) info.append(node("span", "help", doc.reason)); if (doc.snippet) info.append(node("span", "document-snippet", doc.snippet));
+    label.append(input, info); row.append(label);
+    if (doc.excluded) row.append(badge("excluded", "全セットから除外中"));
+    if (state.collectionId && !doc.missing) row.append(button("整理前後", "subtle small", () => showCleanup(doc.id)));
+    root.append(row);
+  }
+  if (data.total > 100 || offset) {
+    const pages = node("div", "button-row"), previous = button("← 前へ", "subtle small", () => previewCollection(Math.max(0, offset - 100), scope)), next = button("次へ →", "subtle small", () => previewCollection(offset + 100, scope));
+    previous.disabled = offset === 0; next.disabled = offset + 100 >= data.total;
+    pages.append(previous, node("span", "help", `${Math.floor(offset / 100) + 1} / ${Math.max(1, Math.ceil(data.total / 100))} ページ`), next); root.append(pages);
+  }
+  if (!state.collectionId) root.append(node("p", "help", "保存後にセットを編集すると、各資料の整理前後を確認できます。"));
+}
+async function changeCollectionLibraries() {
+  const inputs = $$("#collection-libraries input"), before = state.collectionLibraryIds, selected = inputs.filter(el => el.checked).map(el => el.value);
+  const refs = [...new Set([...state.collectionIds, ...state.collectionDraft.excluded_document_ids])];
+  const submit = $("#collection-form [type=submit]"); submit.disabled = true;
+  inputs.forEach(el => { el.disabled = true; });
+  try {
+    const discarded = new Set();
+    if (refs.length) {
+      const body = {...collectionBodyForLibraries(before), selection_mode: "fixed", document_ids: refs, excluded_document_ids: []};
+      for (let offset = 0; ; offset += 200) {
+        const data = await api(`/collections/preview?offset=${offset}&limit=200`, {method: "POST", body});
+        for (const doc of data.items) if (!selected.includes(doc.library_id)) discarded.add(doc.id);
+        if (offset + 200 >= data.total) break;
+      }
+    }
+    state.collectionIds = state.collectionIds.filter(id => !discarded.has(id));
+    state.collectionDraft.excluded_document_ids = state.collectionDraft.excluded_document_ids.filter(id => !discarded.has(id));
+    state.collectionLibraryIds = selected; state.collectionPreviewScope = null;
+    $("#collection-preview").replaceChildren(); updateCollectionSelection();
+    if (discarded.size) toast(`対象から外したフォルダの ${discarded.size} 件について、個別選択・このセットでの除外指定を解除しました。`);
+  } catch (error) {
+    inputs.forEach(el => { el.checked = before.includes(el.value); }); throw error;
+  } finally { inputs.forEach(el => { el.disabled = false; }); submit.disabled = false; }
+}
+function collectionBodyForLibraries(ids) {
+  // 解除前の登録元で参照IDを調べる。プレビューだけなので設定は保存しない。
+  return {...state.collectionDraft, name: $("#collection-name").value.trim() || "対象資料の確認", library_id: ids[0], library_ids: ids, purpose: $("#collection-purpose").value};
+}
+async function showCleanup(documentId) {
+  state.cleanupDocumentId = documentId;
+  const data = await api(`/collections/${encodeURIComponent(state.collectionId)}/preview-document`, {method: "POST", body: {document_id: documentId, options: collectionBody()}});
+  $("#cleanup-before").value = data.original_text || ""; $("#cleanup-after").value = data.text || "";
+  $("#cleanup-summary").textContent = `${countText(data.before_chars)} 文字 → ${countText(data.after_chars)} 文字。設定の変更は資料セットを保存すると反映されます。`;
+  const changes = $("#cleanup-changes"); changes.replaceChildren(); for (const change of data.changes || []) changes.append(node("div", "", typeof change === "string" ? change : change.detail || change.kind));
+  const root = $("#cleanup-units"); root.replaceChildren(); const available = new Set();
+  for (const unit of data.raw_units || data.units || []) {
+    const key = unit.key || unit.unit_key || `${documentId}:${unit.unit_id}`, row = node("div", "unit-choice"), label = node("label", "", unit.locator || "本文"), select = document.createElement("select"); select.dataset.unitKey = key; available.add(key);
+    select.overrideBasis = unit.override_basis;
+    for (const [value, text] of [["", "設定に従う"], ["include", "必ず含める"], ["exclude", "このセットから除外"]]) { const option = node("option", "", text); option.value = value; select.append(option); }
+    select.value = state.collectionDraft.unit_overrides[key] || "";
+    select.addEventListener("change", () => { select.dataset.confirmed = "true"; });
+    label.append(select); row.append(label, node("p", "document-snippet", unit.text || "本文なし"));
+    if (unit.confirmation_pending) {
+      const message = node("p", "help", "原本更新のため確認が必要です。現在は原文を保持しています。");
+      row.append(message, button("採否を再確認", "secondary small", () => { select.dataset.confirmed = "true"; message.textContent = "再確認しました。資料セットを保存すると反映されます。"; }));
+    }
+    root.append(row);
+  }
+  const missing = new Set((data.changes || []).filter(change => change.kind === "override_confirmation_required").flatMap(change => change.unit_ids || []).filter(key => !available.has(key)));
+  for (const key of missing) {
+    const row = node("div", "unit-choice"), message = node("p", "help", `原本から見つからない指定：${key}`), remove = button("旧指定を解除", "subtle small", () => { remove.dataset.remove = "true"; message.textContent = "この旧指定は資料セットの保存時に解除します。"; });
+    remove.dataset.overrideKey = key; row.append(message, remove); root.append(row);
+  }
+  openDialog("#cleanup-dialog");
+}
+async function preflight(collection) {
+  const data = await api(`/collections/${encodeURIComponent(collection.id)}/preflight`); state.preflightId = collection.id;
+  $("#preflight-summary").textContent = `${collection.name} · 対象 ${countText(data.total)} 件 · 収録候補 ${countText(data.included)} 件 · 注意 ${countText(data.issues)} 件 · 原本更新 ${countText(data.stale)} 件`;
+  const root = $("#preflight-files"); root.replaceChildren();
+  for (const file of data.files || []) { const row = node("div", "candidate-row"); row.append(node("strong", "", file.relative_path || file.name || file.source || file.path || "資料"), node("span", "help", file.reason || stateLabels[file.status] || file.status || "")); root.append(row); }
+  openDialog("#preflight-dialog");
+}
+async function showHandoff(id) {
+  const data = await api(`/exports/${encodeURIComponent(id)}/handoff`); state.handoffId = id;
+  $("#handoff-summary").textContent = `${data.target === "studio" ? "Copilot Studio" : "Agent Builder"} · ナレッジ ${countText(data.knowledge_files?.length)} ファイル · 追加・変更 ${countText(data.changed?.length)} 件`;
+  const root = $("#handoff-files"); root.replaceChildren();
+  for (const file of data.knowledge_files || []) { const path = typeof file === "string" ? file : file.path, label = node("label", "check-label"), input = document.createElement("input"); input.type = "checkbox"; input.value = path; label.append(input, document.createTextNode(path), badge((data.changed || []).includes(path) ? "partial" : "ok", (data.changed || []).includes(path) ? "追加・変更" : "登録記録と一致")); root.append(label); }
+  const removed = $("#handoff-removed"); removed.replaceChildren();
+  if (data.removed?.length) removed.append(node("h3", "", "Copilot側で削除を確認した旧ファイル"));
+  for (const file of data.removed || []) { const path = typeof file === "string" ? file : file.path, label = node("label", "check-label"), input = document.createElement("input"); input.type = "checkbox"; input.value = path; label.append(input, document.createTextNode(path)); removed.append(label); }
+  openDialog("#handoff-dialog");
 }
 async function loadExports() {
   state.exports = await api("/exports"); updateIfChanged("exports", [state.exports, state.collections], renderExports);
@@ -313,11 +467,12 @@ function renderExports() {
   for (const item of state.exports) {
     const row = node("div", "export-row"), info = node("div", "export-info"), title = node("div", "export-title");
     title.append(node("strong", "", collectionName(item.collection_id)), badge(item.state)); if (item.is_active) title.append(badge("active", "現在の出力"));
-    info.append(title, node("p", "help", `${dateText(item.created_at)} · ${countText(item.document_count)} 資料 · 本文 ${countText(item.chunk_count)} ファイル`));
+    info.append(title, node("p", "help", `${dateText(item.created_at)} · ${countText(item.document_count)} 資料 · ${item.file_count != null ? `ナレッジ ${countText(item.file_count)} ファイル` : `${countText(item.chunk_count)} 分割`}`));
     if (item.reason) info.append(node("p", "export-reason", item.reason));
     const actions = node("div", "button-row");
     if (!["failed", "building", "generating"].includes(item.state)) {
       const download = node("a", "button secondary small", "一式をダウンロード"); download.href = `/api/exports/${encodeURIComponent(item.id)}/download`; download.setAttribute("download", ""); actions.append(download);
+      actions.append(button("登録状況", "secondary small", () => showHandoff(item.id)));
       actions.append(button("指示文", "subtle small", async () => { const data = await api(`/exports/${encodeURIComponent(item.id)}/prompt`); $("#prompt-text").value = data.text; openDialog("#prompt-dialog"); }));
       actions.append(button("保存先を開く", "subtle small", async () => { await api(`/exports/${encodeURIComponent(item.id)}/open`, {method: "POST", body: {}}); toast("保存先を開きました。"); }));
       if (!item.is_active) actions.append(button(item.state === "held" ? "確認して使用する" : "この世代を使用", "secondary small", async () => {
@@ -345,7 +500,7 @@ function renderSchedules() {
 }
 function fillScheduleCollections(selected = "") {
   const select = $("#schedule-collection"); select.replaceChildren(); const blank = node("option", "", "読み取りのみ"); blank.value = ""; select.append(blank);
-  for (const collection of state.collections.filter(item => String(item.library_id) === $("#schedule-library").value)) { const option = node("option", "", collection.name); option.value = collection.id; select.append(option); }
+  for (const collection of state.collections.filter(item => collectionLibraries(item).length === 1 && String(collectionLibraries(item)[0]) === $("#schedule-library").value)) { const option = node("option", "", collection.name); option.value = collection.id; select.append(option); }
   select.value = selected || "";
 }
 function frequencyChanged() {
@@ -388,19 +543,63 @@ for (const type of ["dragenter", "dragover"]) $("#dropzone").addEventListener(ty
 for (const type of ["dragleave", "drop"]) $("#dropzone").addEventListener(type, event => { event.preventDefault(); $("#dropzone").classList.remove("dragging"); });
 $("#dropzone").addEventListener("drop", event => { if (!$("#dropzone").hasAttribute("aria-busy")) action(null, () => upload([...event.dataTransfer.files])); });
 document.addEventListener("dragover", event => event.preventDefault()); document.addEventListener("drop", event => event.preventDefault());
-$("#search-form").addEventListener("submit", event => { event.preventDefault(); state.offset = 0; action($("#search-form [type=submit]"), loadDocuments); });
-for (const selector of ["#document-library", "#document-status"]) $(selector).addEventListener("change", () => { state.offset = 0; action(null, loadDocuments); });
-$("#previous-page").addEventListener("click", event => { state.offset = Math.max(0, state.offset - state.limit); action(null, loadDocuments); });
-$("#next-page").addEventListener("click", event => { state.offset += state.limit; action(null, loadDocuments); });
-$("#select-page").addEventListener("change", event => { for (const doc of state.documents) { if (event.target.checked) state.selected.set(doc.id, doc); else state.selected.delete(doc.id); } renderDocuments(); });
+$("#search-form").addEventListener("submit", event => { event.preventDefault(); action($("#search-form [type=submit]"), () => loadDocuments({offset: 0, focus: true})); });
+for (const selector of ["#document-library", "#document-status", "#document-extension"]) $(selector).addEventListener("change", () => action(null, () => loadDocuments({offset: 0, focus: true})));
+$$("[data-page]").forEach(element => element.addEventListener("click", () => action(element, () => loadDocuments({offset: Math.max(0, state.offset + (element.dataset.page === "next" ? state.limit : -state.limit)), focus: true}))));
+$$(".page-size").forEach(element => element.addEventListener("change", () => action(null, async () => { const limit = Number(element.value); try { await loadDocuments({offset: 0, limit, focus: true}); } catch (error) { element.value = state.limit; throw error; } })));
+$$(".page-jump").forEach(form => form.addEventListener("submit", event => { event.preventDefault(); action($("button", form), () => loadDocuments({offset: (Number($("input", form).value) - 1) * state.limit, focus: true})); }));
+$("#select-page").addEventListener("change", event => { for (const doc of state.documents) { if (event.target.checked) state.selected.set(doc.id, doc); else state.selected.delete(doc.id); } $$("#documents input[type=checkbox]").forEach(input => { input.checked = event.target.checked; }); updateSelection(); });
+$("#document-dialog").addEventListener("close", restoreDocumentFocus);
+window.addEventListener("beforeunload", event => { if ($("#document-dialog").open && documentIsDirty()) { event.preventDefault(); event.returnValue = ""; } });
+$("#reextract-document").addEventListener("click", event => action(event.currentTarget, async () => {
+  if (documentIsDirty() && !confirm("未保存の変更があります。変更を破棄して再読み取りしますか？")) return;
+  await api(`/documents/${encodeURIComponent(state.currentDocument.id)}/reextract`, {method: "POST", body: {}}); $("#document-dialog").close(); await refresh(); toast("この資料の再読み取りを開始しました。完了後にもう一度開いてください。");
+}));
+$("#history-details").addEventListener("toggle", () => { if (!$("#history-details").open) return; action(null, async () => {
+  const id = state.currentDocument.id, data = await api(`/documents/${encodeURIComponent(id)}/history`); if (state.currentDocument?.id !== id) return;
+  const root = $("#document-history"); root.replaceChildren();
+  for (const item of data) { const row = node("div", "history-row"); row.append(node("strong", "", `${dateText(item.created_at)} · 修正版 ${item.revision}`), node("p", "document-snippet", item.edited_text ?? "読み取り原文を使用")); row.append(button("この本文を復元", "subtle small", async () => {
+    if (!confirm("この履歴の本文を現在の修正として保存しますか？未保存の入力は置き換わります。")) return;
+    await api(`/documents/${encodeURIComponent(id)}`, {method: "PUT", body: {text: item.edited_text, expected_hash: state.currentDocument.source_hash, expected_revision: state.currentDocument.revision}}); await showDocument(id); toast("履歴の本文を復元しました。");
+  })); root.append(row); }
+  if (!data.length) root.append(node("p", "help", "本文修正の履歴はまだありません。"));
+}); });
+function setFontSize(value) { document.documentElement.dataset.fontSize = value === "large" ? "large" : "standard"; $("#font-size").value = document.documentElement.dataset.fontSize; }
+try { setFontSize(localStorage.getItem("contextgen-font-size") || "standard"); } catch { setFontSize("standard"); }
+$("#font-size").addEventListener("change", event => { setFontSize(event.target.value); try { localStorage.setItem("contextgen-font-size", event.target.value); } catch { /* 保存不可でも現在の表示には反映する。 */ } });
 $("#save-document").addEventListener("click", event => action(event.currentTarget, () => saveDocument(false)));
 $("#discard-edits").addEventListener("click", event => action(event.currentTarget, () => saveDocument(true)));
 $("#open-original").addEventListener("click", event => action(event.currentTarget, async () => { await api(`/documents/${encodeURIComponent(state.currentDocument.id)}/open`, {method: "POST", body: {}}); toast("原本を開きました。"); }));
 $("#add-collection").addEventListener("click", () => openCollection());
 $("#collection-from-selection").addEventListener("click", () => openCollection(null, true));
 $("#clear-collection-selection").addEventListener("click", () => { state.collectionIds = []; updateCollectionSelection(); });
-$("#collection-library").addEventListener("change", () => { state.collectionIds = []; updateCollectionSelection(); });
-$("#collection-form").addEventListener("submit", event => { event.preventDefault(); action($("#collection-form [type=submit]"), async () => { const body = {name: $("#collection-name").value.trim(), library_id: $("#collection-library").value, folder: $("#collection-folder").value.trim(), query: $("#collection-query").value.trim(), document_ids: state.collectionIds, purpose: $("#collection-purpose").value, instructions: $("#collection-instructions").value}; await api(state.collectionId ? `/collections/${encodeURIComponent(state.collectionId)}` : "/collections", {method: state.collectionId ? "PUT" : "POST", body}); $("#collection-dialog").close(); await refresh(); await switchView("exports"); toast("資料セットを保存しました。"); }); });
+$("#collection-mode").addEventListener("change", () => { state.collectionPreviewScope = null; updateCollectionSelection(); $("#collection-preview").replaceChildren(); });
+$("#collection-libraries").addEventListener("change", () => action($("#preview-collection"), changeCollectionLibraries));
+$("#preview-collection").addEventListener("click", event => action(event.currentTarget, () => previewCollection()));
+$("#add-evaluation").addEventListener("click", () => addEvaluation());
+$("#collection-form").addEventListener("submit", event => { event.preventDefault(); action($("#collection-form [type=submit]"), async () => {
+  const body = collectionBody(); if (body.selection_mode === "fixed" && !body.document_ids.length) throw new Error("固定する資料を1件以上選んでください。『対象資料を確認』から選べます。");
+  await api(state.collectionId ? `/collections/${encodeURIComponent(state.collectionId)}` : "/collections", {method: state.collectionId ? "PUT" : "POST", body}); $("#collection-dialog").close(); await refresh(); await switchView("exports"); toast("資料セットを保存しました。");
+}); });
+$("#save-unit-overrides").addEventListener("click", event => action(event.currentTarget, async () => {
+  for (const select of $$("#cleanup-units select")) {
+    const key = select.dataset.unitKey;
+    if (select.value) { state.collectionDraft.unit_overrides[key] = select.value; if (select.dataset.confirmed === "true" && select.overrideBasis) state.collectionDraft.unit_override_bases[key] = select.overrideBasis; }
+    else { delete state.collectionDraft.unit_overrides[key]; delete state.collectionDraft.unit_override_bases[key]; }
+  }
+  for (const item of $$('#cleanup-units [data-remove="true"]')) { delete state.collectionDraft.unit_overrides[item.dataset.overrideKey]; delete state.collectionDraft.unit_override_bases[item.dataset.overrideKey]; }
+  await api(`/collections/${encodeURIComponent(state.collectionId)}`, {method: "PUT", body: collectionBody()}); await showCleanup(state.cleanupDocumentId); toast("ページ・シートごとの採否を資料セットに保存しました。");
+}));
+$("#confirm-export").addEventListener("click", event => action(event.currentTarget, async () => {
+  await api("/exports", {method: "POST", body: {collection_id: state.preflightId, force: false, refresh_sources: true}}); $("#preflight-dialog").close(); await refresh(); await loadExports(); toast("原本の確認とナレッジの生成を開始しました。");
+}));
+$("#handoff-select-all").addEventListener("click", () => $$("#handoff-files input").forEach(input => { input.checked = true; }));
+$("#handoff-select-none").addEventListener("click", () => $$("#handoff-files input").forEach(input => { input.checked = false; }));
+$("#save-handoff").addEventListener("click", event => action(event.currentTarget, async () => {
+  const files = $$("#handoff-files input:checked").map(input => input.value), removed = $$("#handoff-removed input:checked").map(input => input.value);
+  if (!files.length && !removed.length) throw new Error("実際に登録・削除したファイルを選んでください。");
+  await api(`/exports/${encodeURIComponent(state.handoffId)}/handoff`, {method: "POST", body: {files, removed}}); $("#handoff-dialog").close(); toast("Copilot側で実施した登録・削除を記録しました。");
+}));
 $("#copy-prompt").addEventListener("click", event => action(event.currentTarget, async () => { const text = $("#prompt-text").value; if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text); else { $("#prompt-text").select(); if (!document.execCommand("copy")) throw new Error("自動コピーできませんでした。本文を選択してコピーしてください。"); } toast("指示文をコピーしました。"); }));
 $("#add-schedule").addEventListener("click", () => openSchedule());
 $("#schedule-frequency").addEventListener("change", frequencyChanged);

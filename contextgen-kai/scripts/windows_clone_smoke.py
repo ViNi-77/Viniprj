@@ -15,14 +15,14 @@ import urllib.error
 import urllib.request
 
 
-def request(base, path, *, data=None, token=None):
+def request(base, path, *, method=None, data=None, token=None):
     headers = {"Origin": base}
     if token:
         headers["X-Contextgen-Token"] = token
     if data is not None:
         headers["Content-Type"] = "application/json"
     body = json.dumps(data).encode("utf-8") if data is not None else None
-    with urllib.request.urlopen(urllib.request.Request(base + path, data=body, headers=headers), timeout=15) as response:
+    with urllib.request.urlopen(urllib.request.Request(base + path, data=body, headers=headers, method=method), timeout=15) as response:
         return json.load(response)
 
 
@@ -60,6 +60,10 @@ def main():
             checkout.parent.mkdir()
             # 実Git clone。既存.venv/build/distや未追跡のローカルOCRには依存できない。
             subprocess.run(["git", "clone", "--no-local", str(repository), str(checkout)], check=True)
+            original_head = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()
+            cloned_head = subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True).strip()
+            assert cloned_head == original_head, "Fresh clone must test this CI checkout, including detached PR merge refs"
+            evidence["source_revision"] = cloned_head
             root = checkout / "contextgen-kai"
             assert not (root / ".venv").exists()
             ocr = root / "ocr/tesseract.exe"
@@ -118,6 +122,8 @@ def main():
 
                 status = wait_for(ready)
                 token = status["token"]
+                from contextgen_kai import __version__
+                assert status["version"] == __version__
                 evidence["version"] = status["version"]
                 checked("BAT launches the browser application from a Japanese and spaced clone path")
                 update_attempt = subprocess.run([cmd, "/d", "/c", "更新.bat"], cwd=root, env=env,
@@ -141,7 +147,11 @@ def main():
                 assert len(docs) == 1 and docs[0]["status"] == "ok", docs
                 detail = request(base, "/api/documents/" + docs[0]["id"])
                 assert "CLONE" in detail["effective_text"], detail
-                checked("cloned app reads an image with its bundled OCR and preserves document text")
+                assert all(unit.get("unit_id") and unit.get("source_refs") for unit in detail["units"])
+                checked("cloned app reads an image with bundled OCR and structured source units")
+                from windows_smoke import verify_edit_revision_api
+                verify_edit_revision_api(base, token, detail["id"], call=request)
+                checked("cloned app enforces edit revisions and restores text from history")
                 request(base, "/api/shutdown", data={}, token=token)
                 assert process.wait(timeout=30) == 0
                 process = None

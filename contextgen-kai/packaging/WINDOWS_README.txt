@@ -1,4 +1,4 @@
-contextgen 改 0.2.1 / Windows 11 64bit
+contextgen 改 0.3.0 / Windows 11 64bit
 
 【はじめに】
 1. ZIPを任意のフォルダにすべて展開します。ZIPの中から直接起動しないでください。

@@ -164,13 +164,80 @@ def wait_for(callback, *, seconds=180, label='operation'):
     raise AssertionError(f'Timeout waiting for {label}')
 
 
+def verify_edit_revision_api(base, token, doc_id, call=request):
+    """配布EXE・Git起動版の両方で同じ編集契約を検査する。"""
+    route = '/api/documents/' + doc_id
+    original = call(base, route)
+    assert isinstance(original['revision'], int)
+    edited_text = original['effective_text'] + '\nCI revision acceptance correction'
+    body = dict(text=edited_text, expected_hash=original['source_hash'], expected_revision=original['revision'])
+    saved = call(base, route, method='PUT', data=body, token=token)
+    assert saved['revision'] > original['revision'] and saved['edited_text'] == edited_text
+    try:
+        call(base, route, method='PUT', data={**body, 'text': 'stale overwrite must not be applied'}, token=token)
+    except urllib.error.HTTPError as error:
+        assert error.code == 409, error.code
+    else:
+        raise AssertionError('A stale editor must receive HTTP 409')
+    assert call(base, route)['edited_text'] == edited_text
+    history = call(base, route + '/history')
+    assert history and history[0]['edited_text'] == original['edited_text']
+    restored = call(base, route, method='PUT', token=token, data=dict(
+        text=history[0]['edited_text'], expected_hash=saved['source_hash'], expected_revision=saved['revision']))
+    assert restored['edited_text'] == original['edited_text']
+    assert restored['effective_text'] == original['effective_text']
+    return restored
+
+
+def verify_collection_preview_api(base, token, collection, doc, call=request):
+    """未保存の整理オプションは永続化せず、除外後も同じ単位を戻せる。"""
+    route = '/api/collections/' + collection['id']
+    preview = call(base, '/api/collections/preview', method='POST', data=collection, token=token)
+    assert preview['total'] >= 1 and any(item['id'] == doc['id'] for item in preview['items'])
+    prepared = call(base, route + '/preview-document', method='POST', data={'document_id': doc['id']}, token=token)
+    assert prepared['text'].strip() and prepared['raw_units']
+    overrides = {unit['unit_key']: 'exclude' for unit in prepared['raw_units']}
+    omitted = call(base, route + '/preview-document', method='POST', token=token,
+                   data={'document_id': doc['id'], 'options': {**collection, 'unit_overrides': overrides,
+                         'unit_override_bases': {unit['unit_key']: unit['override_basis'] for unit in prepared['raw_units']}}})
+    assert not omitted['text'].strip() and omitted['raw_units']
+    assert any(change['kind'] == 'excluded' for change in omitted['changes'])
+    same = call(base, route + '/preview-document', method='POST', data={'document_id': doc['id']}, token=token)
+    assert same['text'] == prepared['text'], 'Preview options must not silently change the saved collection'
+    preflight = call(base, route + '/preflight')
+    assert preflight['total'] >= 1 and preflight['stale'] == 0, preflight
+    return preflight
+
+
+def verify_knowledge_archive(archive, generation, target):
+    """配布EXE出力にも全チャンクの出典・実ファイル数・登録先を要求する。"""
+    with zipfile.ZipFile(io.BytesIO(archive)) as zip_out:
+        manifest_name = next(name for name in zip_out.namelist() if name.endswith('manifest.json'))
+        prefix = manifest_name[:-len('manifest.json')]
+        manifest = json.loads(zip_out.read(manifest_name))
+        assert manifest['schema_version'] >= 2 and manifest['target'] == target
+        assert generation['file_count'] == len(manifest['knowledge_files']) > 0
+        for name, digest in manifest['knowledge_files'].items():
+            assert name.startswith('Studio/' if target == 'studio' else 'M365/'), name
+            assert hashlib.sha256(zip_out.read(prefix + name)).hexdigest() == digest
+        rows = [json.loads(line) for line in zip_out.read(prefix + 'context.jsonl').decode('utf-8').splitlines()]
+        assert rows and all(row['source_refs'] and row['source_unit_ids'] for row in rows)
+        if target == 'studio':
+            for name in ('knowledge-descriptions.md', 'studio-evaluation.csv'):
+                assert prefix + name in zip_out.namelist(), name
+        return manifest
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--exe', type=Path, required=True)
-    exe = parser.parse_args().exe.resolve()
+    parser.add_argument('--output', type=Path, default=Path('build/windows-smoke.json'))
+    args = parser.parse_args()
+    exe = args.exe.resolve()
+    evidence_path = args.output.resolve()
     evidence = {'version': __version__, 'checks': [], 'user_machine_acceptance': 'pending'}
-    output = Path('build')
-    output.mkdir(exist_ok=True)
+    output = evidence_path.parent
+    output.mkdir(parents=True, exist_ok=True)
     def checked(name):
         evidence['checks'].append(name)
         print(name, flush=True)
@@ -247,9 +314,22 @@ def main():
                     assert detail['status'] == 'ok', detail
                     assert detail['effective_text'].strip(), detail
                     assert detail['units'], detail
+                    assert isinstance(detail['revision'], int)
+                    assert all(unit.get('unit_id') and unit.get('source_refs') for unit in detail['units']), detail
+                    assert len({unit['unit_id'] for unit in detail['units']}) == len(detail['units'])
                     if doc['relative_path'] == '混在.pdf':
                         assert 'SAFETY' in detail['effective_text'] and 'text page' in detail['effective_text'], detail
-                checked('packaged Office/text/mixed-PDF/image/ZIP extraction and provenance')
+                checked('packaged Office/text/mixed-PDF/image/ZIP extraction and structured unit provenance')
+                plain = next(doc for doc in docs if doc['relative_path'] == '基本 資料.txt')
+                original = verify_edit_revision_api(base, token, plain['id'])
+                checked('packaged revision conflict rejects stale edits and history restores prior text')
+                reextract = request(base, '/api/documents/' + plain['id'] + '/reextract', method='POST', data={}, token=token)
+                rescanned = wait_for(lambda: job_done(reextract['id']), label='single-document reextract')
+                assert rescanned['state'] == 'completed' and rescanned['processed'] == 1, rescanned
+                after = request(base, '/api/documents/' + plain['id'])
+                assert after['source_hash'] == original['source_hash']
+                assert [unit['unit_id'] for unit in after['units']] == [unit['unit_id'] for unit in original['units']]
+                checked('packaged single-document reextract retains stable unit IDs')
                 collection = request(base, '/api/collections', method='POST', data={'name': '受入セット', 'library_id': library['id'], 'purpose': 'overview'}, token=token)
                 exported = request(base, '/api/exports', method='POST', data={'collection_id': collection['id']}, token=token)
                 completed = wait_for(lambda: job_done(exported['id']), label='export')
@@ -261,7 +341,37 @@ def main():
                 with zipfile.ZipFile(io.BytesIO(archive)) as zip_out:
                     assert any(p.lower().endswith('.txt') for p in zip_out.namelist())
                     assert any(p.lower().endswith('.jsonl') for p in zip_out.namelist())
-                checked('packaged export automatically published and ZIP downloaded')
+                verify_knowledge_archive(archive, generation, 'builder')
+                checked('packaged Agent Builder export has truthful file counts and chunk source references')
+                additional = root / '案件 追加資料'
+                additional.mkdir()
+                (additional / '案件.txt').write_text('Second library knowledge evidence.', encoding='utf-8')
+                second = request(base, '/api/libraries', method='POST', data={'name': '案件資料', 'path': str(additional)}, token=token)
+                scan = request(base, '/api/jobs', method='POST', data={'library_id': second['id']}, token=token)
+                assert wait_for(lambda: job_done(scan['id']), label='second library scan')['state'] == 'completed'
+                studio = request(base, '/api/collections', method='POST', token=token, data={
+                    'name': '案件別 Studio ナレッジ', 'library_ids': [library['id'], second['id']],
+                    'selection_mode': 'dynamic', 'target': 'studio', 'cleanup': 'standard', 'purpose': 'procedure',
+                    'audience': '設備点検担当者', 'answer_scope': '点検手順', 'out_of_scope': '修理作業の指示',
+                    'evaluation_questions': [{'question': '点検の頻度は？', 'expected_response': '毎日。出典を示す。', 'source': '基本 資料.txt'}]})
+                assert len(studio['library_ids']) == 2
+                verify_collection_preview_api(base, token, studio, plain)
+                checked('packaged multi-library Studio selection, unsaved cleanup preview and preflight')
+                studio_job = request(base, '/api/exports', method='POST', data={'collection_id': studio['id'], 'refresh_sources': True}, token=token)
+                studio_done = wait_for(lambda: job_done(studio_job['id']), label='Studio export')
+                assert studio_done['state'] == 'completed', studio_done
+                studio_generation = next(row for row in request(base, '/api/exports') if row['id'] == studio_done['export_id'])
+                studio_archive = request(base, '/api/exports/' + studio_generation['id'] + '/download')
+                verify_knowledge_archive(studio_archive, studio_generation, 'studio')
+                handoff_path = '/api/exports/' + studio_generation['id'] + '/handoff'
+                handoff = request(base, handoff_path)
+                paths = [item['path'] for item in handoff['knowledge_files']]
+                assert paths and len(handoff['changed']) == len(paths)
+                partial = request(base, handoff_path, method='POST', data={'files': paths[:1], 'removed': []}, token=token)
+                assert paths[0] not in partial['changed'] and len(partial['changed']) == len(paths) - 1
+                current = request(base, handoff_path, method='POST', data={'files': paths, 'removed': []}, token=token)
+                assert not current['changed'] and not current['removed']
+                checked('packaged Studio knowledge, evaluation CSV and partial/manual registration record')
                 # 最初は翌日の予約にし、起動中 tick と競合しないようにする。
                 schedule = request(base, '/api/schedules', method='POST', token=token, data={
                     'name': 'CI 一時予約', 'library_id': library['id'], 'collection_id': collection['id'],
@@ -302,6 +412,11 @@ def main():
                 scheduler.delete(schedule_id)
                 task_name = None
                 checked('temporary Windows task unregistered')
+        evidence['status'] = 'passed'
+    except BaseException as error:
+        evidence['status'] = 'failed'
+        evidence['error'] = str(error)
+        raise
     finally:
         if process and process.poll() is None:
             process.terminate()
@@ -317,7 +432,7 @@ def main():
                 shutil.copy2(app_log, output / 'windows-app.log')
         if temporary_root:
             temporary_root.cleanup()
-        (output / 'windows-smoke.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
+        evidence_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(evidence, ensure_ascii=False, indent=2))
 
 

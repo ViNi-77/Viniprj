@@ -29,6 +29,7 @@ MANUAL_ASSETS = {
     "01_home.png", "02_register.png", "03_read_complete.png", "04_documents.png", "05_edit.png",
     "06_collection.png", "07_exports.png", "08_prompt.png", "09_schedule.png", "10_settings.png",
     "11_conflict.png", "12_held.png", "13_upload.png", "manual.js",
+    "14_multifolder.png", "15_cleanup.png", "16_preflight.png", "17_studio.png", "18_handoff.png",
 }
 
 
@@ -47,11 +48,27 @@ class EditInput(BaseModel):
     text: str | None = Field(default=None, max_length=20_000_000)
     expected_hash: str | None = None
     excluded: bool | None = None
+    expected_revision: int = Field(default=0, ge=0)
 
 
 class CollectionInput(BaseModel):
     name: str = Field(min_length=1, max_length=160)
-    library_id: str
+    library_id: str = ""
+    library_ids: list[str] = Field(default_factory=list, max_length=1000)
+    selection_mode: str = "dynamic"
+    excluded_document_ids: list[str] = Field(default_factory=list, max_length=100_000)
+    target: str = "builder"
+    cleanup: str = "standard"
+    include_hidden: bool = True
+    include_notes: bool = True
+    include_embedded: bool = True
+    unit_overrides: dict[str, str] = Field(default_factory=dict, max_length=100_000)
+    unit_override_bases: dict[str, dict[str, str]] = Field(default_factory=dict, max_length=100_000)
+    audience: str = Field(default="", max_length=2000)
+    answer_scope: str = Field(default="", max_length=10000)
+    out_of_scope: str = Field(default="", max_length=10000)
+    description: str = Field(default="", max_length=10000)
+    evaluation_questions: list[dict[str, str]] = Field(default_factory=list, max_length=100)
     query: str = Field(default="", max_length=500)
     folder: str = Field(default="", max_length=4096)
     document_ids: list[str] = Field(default_factory=list, max_length=100_000)
@@ -62,6 +79,7 @@ class CollectionInput(BaseModel):
 class ExportInput(BaseModel):
     collection_id: str
     force: bool = False
+    refresh_sources: bool = True
 
 
 def runtime_command(*args):
@@ -140,7 +158,7 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
 
     @app.put("/api/libraries/{library_id}")
     def change_library(library_id: str, data: LibraryInput):
-        if store.one("SELECT id FROM jobs WHERE library_id=? AND state IN ('queued','scanning','extracting','exporting')", (library_id,)):
+        if store.one("SELECT id FROM jobs WHERE state IN ('queued','scanning','extracting','exporting')"):
             raise ValueError("処理を停止してから登録を変更してください")
         target = Path(data.path).expanduser().resolve()
         if not target.is_dir() or target == store.root or store.root in target.parents:
@@ -156,10 +174,12 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
 
     @app.delete("/api/libraries/{library_id}")
     def remove_library(library_id: str):
-        if store.one("SELECT id FROM jobs WHERE library_id=? AND state IN ('queued','scanning','extracting','exporting')", (library_id,)):
+        if store.one("SELECT id FROM jobs WHERE state IN ('queued','scanning','extracting','exporting')"):
             raise ValueError("処理を停止してから登録を解除してください")
         if any(s["library_id"] == library_id for s in scheduler.list()):
             raise ValueError("このフォルダの実行予約を削除してから登録を解除してください")
+        if any(library_id in c["library_ids"] and len(c["library_ids"]) > 1 for c in store.collections()):
+            raise ValueError("案件用セットの登録元からこのフォルダを外してから解除してください")
         store.execute("DELETE FROM libraries WHERE id=?", (library_id,))
         return {"ok": True}
 
@@ -212,8 +232,8 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
     @app.post("/api/jobs")
     def start_job(data: JobInput):
         if data.export_after:
-            coll = store.one("SELECT * FROM collections WHERE id=? AND library_id=?", (data.collection_id, data.library_id))
-            if not coll:
+            coll = store.collection(data.collection_id)
+            if not coll or coll["library_ids"] != [data.library_id]:
                 raise ValueError("同じ登録フォルダの資料セットを選択してください")
         return jobs.start(**data.model_dump())
 
@@ -227,10 +247,10 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
         return jobs.resume(job_id)
 
     @app.get("/api/documents")
-    def documents(library_id="", q="", status="", offset: int = 0, limit: int = 50):
+    def documents(library_id="", q="", status="", offset: int = 0, limit: int = 50, extension=""):
         if not (0 <= offset and 1 <= limit <= 200) or len(q) > 500:
             raise ValueError("検索条件を確認してください")
-        return store.list_documents(library_id, q, status, offset, limit)
+        return store.list_documents(library_id, q, status, offset, limit, extension)
 
     @app.get("/api/documents/{doc_id}")
     def document(doc_id: str):
@@ -242,11 +262,21 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
     @app.put("/api/documents/{doc_id}")
     def edit_document(doc_id: str, data: EditInput):
         try:
-            return store.edit_document(doc_id, data.model_dump(exclude_unset=True))
+            return store.edit_document(doc_id, {**data.model_dump(exclude_unset=True), "expected_revision": data.expected_revision})
         except RuntimeError as exc:
             raise HTTPException(409, str(exc))
         except LookupError as exc:
             raise HTTPException(404, str(exc))
+
+    @app.get("/api/documents/{doc_id}/history")
+    def edit_history(doc_id: str):
+        document(doc_id)
+        return store.all("SELECT id,revision,edited_text,source_hash,created_at FROM edit_history WHERE document_id=? ORDER BY rowid DESC LIMIT 100", (doc_id,))
+
+    @app.post("/api/documents/{doc_id}/reextract")
+    def reextract(doc_id: str):
+        doc = document(doc_id)
+        return jobs.start(doc["library_id"], document_id=doc_id, force_extract=True)
 
     def source_path(doc_id):
         doc = document(doc_id)
@@ -289,33 +319,79 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
         return store.collections()
 
     def validate_collection(data):
-        if data.purpose not in ("overview", "compare", "questions"):
-            raise ValueError("利用目的を選択してください")
-        if data.document_ids:
-            count = store.one("SELECT count(*) n FROM documents WHERE library_id=? AND id IN (SELECT value FROM json_each(?))", (data.library_id, json.dumps(data.document_ids)))["n"]
-            if count != len(set(data.document_ids)):
-                raise ValueError("同じ登録フォルダの資料を選択してください")
+        parsed = data.model_dump()
+        if "selection_mode" not in data.model_fields_set and data.document_ids:
+            parsed["selection_mode"] = "fixed"
+        for question in data.evaluation_questions:
+            if not question.get("question", "").strip() or len(question["question"]) > 1000 or any(len(v) > 20000 for v in question.values()):
+                raise ValueError("評価質問は1〜1000文字で入力してください")
+        return store.validate_collection(parsed)
 
     @app.post("/api/collections")
     def add_collection(data: CollectionInput):
-        validate_collection(data)
-        return store.save_collection(data.model_dump())
+        return store.save_collection(validate_collection(data))
 
     @app.put("/api/collections/{collection_id}")
     def update_collection(collection_id: str, data: CollectionInput):
-        validate_collection(data)
-        return store.save_collection(data.model_dump(), collection_id)
+        existing = store.collection(collection_id)
+        if not existing:
+            raise HTTPException(404, "資料セットが見つかりません")
+        incoming = data.model_dump(exclude_unset=True)
+        if "library_id" in incoming and "library_ids" not in incoming and incoming["library_id"] != existing["library_id"]:
+            incoming["library_ids"] = [incoming["library_id"]]
+        if "document_ids" in incoming and "selection_mode" not in incoming:
+            incoming["selection_mode"] = "fixed" if incoming["document_ids"] else "dynamic"
+        parsed = validate_collection(CollectionInput.model_validate({**existing, **incoming}))
+        if store.one("SELECT id FROM jobs WHERE json_extract(payload,'$.collection_id')=? AND state IN ('queued','scanning','extracting','exporting')", (collection_id,)):
+            raise ValueError("セットの処理が終わってから設定を変更してください")
+        if any(s.get("collection_id") == collection_id for s in scheduler.list()) and len(parsed["library_ids"]) != 1:
+            raise ValueError("複数フォルダに変更する前に、このセットの実行予約を削除してください")
+        return store.save_collection(parsed, collection_id)
+
+    @app.post("/api/collections/preview")
+    def collection_preview(data: CollectionInput, offset: int = 0, limit: int = 100):
+        from .review import preview_collection
+        if offset < 0 or not 1 <= limit <= 200:
+            raise ValueError("表示範囲を確認してください")
+        return preview_collection(store, validate_collection(data), offset, limit)
+
+    @app.post("/api/collections/{collection_id}/preview-document")
+    def collection_preview_document(collection_id: str, data: dict):
+        from .curation import prepare_document
+        coll = store.collection(collection_id)
+        if not coll:
+            raise HTTPException(404, "資料セットが見つかりません")
+        if "options" in data:
+            coll = validate_collection(CollectionInput.model_validate(data["options"]))
+        doc = document(data.get("document_id", ""))
+        if doc["library_id"] not in coll["library_ids"]:
+            raise ValueError("セットの登録元に含まれない資料です")
+        result = prepare_document(doc, coll)
+        return result
+
+    @app.get("/api/collections/{collection_id}/preflight")
+    def preflight(collection_id: str):
+        from .review import preflight_collection
+        coll = store.collection(collection_id)
+        if not coll:
+            raise HTTPException(404, "資料セットが見つかりません")
+        return preflight_collection(store, coll)
 
     @app.get("/api/exports")
     def exports():
-        return store.all("SELECT id,collection_id,state,created_at,document_count,chunk_count,reason,is_active FROM exports ORDER BY created_at DESC,rowid DESC LIMIT 100")
+        rows = store.all("SELECT * FROM exports ORDER BY created_at DESC,rowid DESC LIMIT 100")
+        for row in rows:
+            manifest = json.loads(row.pop("manifest"))
+            row["file_count"] = len(manifest.get("knowledge_files", {name: digest for name, digest in manifest.get("files", {}).items() if name.startswith("M365/")}))
+            row["target"] = manifest.get("target", "builder")
+        return rows
 
     @app.post("/api/exports")
     def export(data: ExportInput):
-        coll = store.one("SELECT * FROM collections WHERE id=?", (data.collection_id,))
+        coll = store.collection(data.collection_id)
         if not coll:
             raise ValueError("資料セットを選択してください")
-        return jobs.start(coll["library_id"], kind="export", collection_id=data.collection_id, force=data.force)
+        return jobs.start(coll["library_id"], kind="export", collection_id=data.collection_id, force=data.force, refresh_sources=data.refresh_sources)
 
     @app.post("/api/exports/{export_id}/activate")
     def activate(export_id: str):
@@ -323,7 +399,7 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
         if not lock.acquire():
             raise ValueError("処理が終わってから確定してください")
         try:
-            return activate_export(store, export_id)
+            return activate_export(store, export_id, verify_sources=True)
         finally:
             lock.release()
 
@@ -332,6 +408,22 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
         if not item:
             raise HTTPException(404, "出力が見つかりません")
         return item
+
+    @app.get("/api/exports/{export_id}/handoff")
+    def handoff_info(export_id: str):
+        from .review import handoff_status
+        return handoff_status(store, get_export(export_id))
+
+    @app.post("/api/exports/{export_id}/handoff")
+    def record_handoff(export_id: str, data: dict):
+        from .review import record_handoff as record
+        lock = ProcessLock(store.root)
+        if not lock.acquire():
+            raise ValueError("処理が終わってから登録済み版を記録してください")
+        try:
+            return record(store, get_export(export_id), data)
+        finally:
+            lock.release()
 
     @app.get("/api/exports/{export_id}/download")
     def download(export_id: str):
@@ -353,8 +445,10 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
     def save_schedule(data):
         if not store.one("SELECT id FROM libraries WHERE id=?", (data.get("library_id"),)):
             raise ValueError("登録フォルダを選択してください")
-        if data.get("collection_id") and not store.one("SELECT id FROM collections WHERE id=? AND library_id=?", (data["collection_id"], data["library_id"])):
-            raise ValueError("同じ登録フォルダの資料セットを選択してください")
+        if data.get("collection_id"):
+            coll = store.collection(data["collection_id"])
+            if not coll or coll["library_ids"] != [data["library_id"]]:
+                raise ValueError("定期更新は同じ登録フォルダだけの資料セットを選択してください")
         try:
             return scheduler.save(data)
         except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
@@ -379,48 +473,25 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
 
     @app.get("/api/backup")
     def backup():
-        backup_data = dict(schema_version=1, application="contextgen-kai", created_at=now(), libraries=libraries(), collections=collections(), schedules=schedules(), documents=store.all("SELECT id,library_id,relative_path,source_hash,edited_text,edit_base_hash,excluded FROM documents"), note="原本資料・抽出キャッシュ・出力世代は含みません。原本は別に保管してください。復元後は読み取りを実行してください。")
-        return Response(json.dumps(backup_data, ensure_ascii=False), media_type="application/json", headers={"Content-Disposition": 'attachment; filename="contextgen-kai-backup.json"'})
+        from .backups import make_backup
+        return Response(make_backup(store, scheduler), media_type="application/json", headers={"Content-Disposition": 'attachment; filename="contextgen-kai-backup.json"'})
 
     @app.post("/api/restore")
     async def restore(file: UploadFile = File(...)):
-        data = await file.read(128 * 1024 * 1024 + 1)
-        if len(data) > 128 * 1024 * 1024:
-            raise ValueError("バックアップが128MBを超えています")
+        from .backups import MAX_BACKUP_BYTES, restore_backup
+        raw = await file.read(MAX_BACKUP_BYTES + 1)
+        if len(raw) > MAX_BACKUP_BYTES:
+            raise ValueError("バックアップが512MBを超えています")
         try:
-            data = json.loads(data)
+            data = json.loads(raw)
         except (ValueError, UnicodeDecodeError):
             raise ValueError("JSONバックアップを読み込めません")
-        if data.get("application") != "contextgen-kai" or data.get("schema_version") != 1:
-            raise ValueError("対応していないバックアップ形式です")
-        if libraries() or schedules():
-            raise ValueError("復元は登録フォルダのない空の保存領域で実行してください")
         lock = ProcessLock(store.root)
         if not lock.acquire():
             raise ValueError("実行中の処理が終わってから復元してください")
         try:
-            with store.connect() as con:
-                roots = {}
-                for lib in data.get("libraries", []):
-                    validate_identifier(lib["id"])
-                    path = Path(lib["path"]).expanduser().resolve()
-                    roots[lib["id"]] = path
-                    con.execute("INSERT INTO libraries VALUES (?,?,?,?,?)", (lib["id"], lib["name"], str(path), lib.get("kind", "folder"), now()))
-                for doc in data.get("documents", []):
-                    validate_identifier(doc["id"])
-                    root = roots[doc["library_id"]]
-                    path = (root / doc["relative_path"]).resolve()
-                    if root not in path.parents:
-                        raise ValueError("バックアップの資料パスが不正です")
-                    con.execute("INSERT INTO documents(id,library_id,relative_path,source_path,size,mtime_ns,source_hash,edited_text,edit_base_hash,effective_text,excluded,status,updated_at) VALUES(?,?,?,?,0,0,?,?,?,?,?,'pending',?)", (doc["id"], doc["library_id"], doc["relative_path"], str(path), doc["source_hash"], doc.get("edited_text"), doc.get("edit_base_hash"), doc.get("edited_text") or "", int(doc.get("excluded", False)), now()))
-                for collection in data.get("collections", []):
-                    validate_identifier(collection["id"])
-                    parsed = CollectionInput.model_validate(collection).model_dump()
-                    con.execute("INSERT INTO collections VALUES(?,?,?,?,?,?,?,?,?)", (collection["id"], parsed["name"], parsed["library_id"], parsed["query"], parsed["folder"], json.dumps(parsed["document_ids"]), parsed["purpose"], parsed["instructions"], now()))
-                scheduler.restore(data.get("schedules", []))
+            restore_backup(store, scheduler, data, CollectionInput)
             return {"ok": True, "message": "復元しました。原本の場所を確認して読み取りを実行してください。予約は停止しています"}
-        except (KeyError, TypeError) as exc:
-            raise ValueError("バックアップの構造が不正です") from exc
         finally:
             lock.release()
 

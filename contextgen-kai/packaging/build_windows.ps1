@@ -52,7 +52,7 @@ $Manual = [System.IO.File]::ReadAllText("$ProjectRoot\$ManualName", [System.Text
 $Manual = $Manual.Replace('src="images/', 'src="_internal/manual/images/').Replace("src='images/", "src='_internal/manual/images/")
 $Manual = $Manual.Replace('href="images/', 'href="_internal/manual/images/').Replace("href='images/", "href='_internal/manual/images/")
 [System.IO.File]::WriteAllText("$Dist\$ManualName", $Manual, ([System.Text.UTF8Encoding]::new($false)))
-# APIと同一の13枚+JS許可リストだけをコピー。撮影記録や追加PNGを自動では混ぜない。
+# APIと同一の18枚+JS許可リストだけをコピー。撮影記録や追加PNGを自動では混ぜない。
 $ManualAssets = @(& python -c 'from contextgen_kai.api import MANUAL_ASSETS; print(chr(10).join(sorted(MANUAL_ASSETS)))')
 if ($LASTEXITCODE -ne 0) { throw 'Cannot read manual asset allowlist' }
 foreach ($Asset in $ManualAssets) {

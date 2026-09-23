@@ -51,6 +51,11 @@ def verify(output: Path, exe: Path | None = None):
         page.route("**/*", resources)
         page.goto(manual.as_uri(), wait_until="networkidle")
         expect(page.get_by_role("heading", level=1)).to_contain_text("contextgen 改 操作マニュアル")
+        body = page.locator("body").inner_text()
+        for forbidden in ("git clone", "Gitで", "Python", "macOS", "Windows CI", "仕様書兼要件", "/Users/"):
+            assert forbidden not in body, forbidden
+        for required in ("ZIP", "Studio", "整理前後", "投入済み", "512MB", "100問", "原本"):
+            assert required in body, required
         figures = page.locator("main img")
         image_count = figures.count()
         assert image_count >= 10

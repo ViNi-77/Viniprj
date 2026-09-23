@@ -16,6 +16,7 @@ import tempfile
 
 from docx import Document
 from openpyxl import Workbook
+from openpyxl.worksheet.table import Table, TableStyleInfo
 from playwright.sync_api import expect, sync_playwright
 
 from ui_smoke import ROOT, assert_laptop, browser_path, reserve_port, wait_jobs, wait_server
@@ -65,6 +66,9 @@ def capture(output: Path, workspace: Path | None = None, record: Path | None = N
         sheet.title = "点検一覧"
         for row in (["対象", "結果", "確認事項"], ["設備A", "異常なし", "次回は月曜日"], ["設備B", "要確認", "交換部品の在庫"]):
             sheet.append(row)
+        equipment_table = Table(displayName="EquipmentChecks", ref="A1:C3")
+        equipment_table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
+        sheet.add_table(equipment_table)
         book.save(sources / "03_点検一覧.xlsx")
         upload = temp / "今回の確認事項.txt"
         upload.write_text("今回だけの資料（操作例）\n改善案AとBの共通点・相違点を整理する。", encoding="utf-8")
@@ -112,11 +116,17 @@ def capture(output: Path, workspace: Path | None = None, record: Path | None = N
                     page.locator("#collection-from-selection").click()
                     page.locator("#collection-name").fill("点検前に確認したいこと")
                     page.locator("#collection-purpose").select_option("questions")
+                    page.locator("#collection-target").select_option("builder")
+                    page.locator("#collection-advanced > summary").click()
+                    page.locator("#collection-audience").fill("設備の点検担当者")
+                    page.locator("#collection-answer-scope").fill("始業前の確認事項と記録方法")
+                    page.locator("#collection-out-of-scope").fill("設備の設計変更と故障原因の断定")
                     page.locator("#collection-instructions").fill("未確認の事項を箇条書きにし、根拠となる資料を示してください。")
                     shot("06_collection.png")
                     page.locator("#collection-form [type=submit]").click()
                     expect(page.locator("#collection-dialog")).not_to_be_visible()
                     page.get_by_role("button", name="ナレッジを生成", exact=True).click()
+                    page.locator("#confirm-export").click()
                     wait_jobs(page)
                     page.locator("#refresh-exports").click()
                     expect(page.get_by_role("link", name="一式をダウンロード")).to_be_visible()
@@ -150,6 +160,7 @@ def capture(output: Path, workspace: Path | None = None, record: Path | None = N
                     page.locator("#document-dialog [data-close]").first.click()
                     page.locator('[data-view="exports"]').click()
                     page.get_by_role("button", name="ナレッジを生成", exact=True).click()
+                    page.locator("#confirm-export").click()
                     wait_jobs(page)
                     page.locator("#refresh-exports").click()
                     expect(page.locator("#exports")).to_contain_text("確認待ち")
@@ -160,6 +171,53 @@ def capture(output: Path, workspace: Path | None = None, record: Path | None = N
                     page.locator("#refresh-status").click()
                     expect(page.locator("#stat-total")).to_contain_text("4")
                     shot("13_upload.png")
+                    # 既存Officeの抽出結果と別登録元の単発資料を、実画面で選び直す。
+                    page.locator('[data-view="exports"]').click()
+                    page.locator("#add-collection").click()
+                    page.locator("#collection-name").fill("設備点検と改善案の案件セット")
+                    for choice in page.locator("#collection-libraries input").all():
+                        choice.check()
+                    page.locator("#collection-mode").select_option("fixed")
+                    page.locator("#collection-target").select_option("studio")
+                    page.locator("#collection-cleanup").select_option("standard")
+                    page.locator("#collection-purpose").select_option("compare")
+                    page.locator("#collection-advanced > summary").click()
+                    page.locator("#collection-description").fill("設備点検一覧と、今回の改善案確認事項を集めた資料です。")
+                    page.locator("#collection-audience").fill("点検担当者と改善案の確認者")
+                    page.locator("#collection-answer-scope").fill("点検結果、改善案の共通点・相違点、追加確認事項")
+                    page.locator("#collection-out-of-scope").fill("資料に記載のない数値や故障原因の推測")
+                    page.locator("#preview-collection").click()
+                    expect(page.locator("#collection-preview .candidate-row")).to_have_count(4)
+                    for name in ("03_点検一覧.xlsx", "今回の確認事項.txt"):
+                        page.locator("#collection-preview .candidate-row").filter(has_text=name).locator("input").check()
+                    page.locator("#collection-preview").scroll_into_view_if_needed()
+                    shot("14_multifolder.png")
+                    page.locator("#collection-form [type=submit]").click()
+                    card = page.locator("#collections .collection-card").filter(has_text="設備点検と改善案の案件セット")
+                    card.get_by_role("button", name="編集", exact=True).click()
+                    page.locator("#preview-collection").click()
+                    page.locator("#collection-preview .candidate-row").filter(has_text="03_点検一覧.xlsx").get_by_role("button", name="整理前後", exact=True).click()
+                    expect(page.locator("#cleanup-before")).not_to_have_value("")
+                    expect(page.locator("#cleanup-after")).not_to_have_value("")
+                    assert page.locator("#cleanup-before").input_value() != page.locator("#cleanup-after").input_value()
+                    shot("15_cleanup.png")
+                    page.locator("#cleanup-dialog [data-close]").first.click()
+                    page.locator("#collection-form [type=submit]").click()
+                    card.get_by_role("button", name="ナレッジを生成", exact=True).click()
+                    expect(page.locator("#preflight-summary")).to_contain_text("設備点検と改善案")
+                    shot("16_preflight.png")
+                    page.locator("#confirm-export").click()
+                    wait_jobs(page)
+                    page.locator("#refresh-exports").click()
+                    expect(page.locator("#exports .export-row").first).to_contain_text("現在の出力")
+                    shot("17_studio.png")
+                    page.locator("#exports .export-row").first.get_by_role("button", name="登録状況", exact=True).click()
+                    expect(page.locator("#handoff-summary")).to_contain_text("Copilot Studio")
+                    page.locator("#handoff-select-all").click()
+                    shot("18_handoff.png")
+                    # 合成資料だけの記録例。外部Copilotへの接続・アップロードは行わない。
+                    page.locator("#save-handoff").click()
+                    expect(page.locator("#handoff-dialog")).not_to_be_visible()
                     assert not errors, errors
                     version = page.locator("#version").inner_text()
                     browser.close()

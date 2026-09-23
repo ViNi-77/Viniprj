@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#142b49">
-  <title>contextgen 改 操作マニュアル — 0.2.1</title>
+  <title>contextgen 改 操作マニュアル — 0.3.0</title>
   <link rel="icon" href="data:,">
   <style>
     :root{--ink:#152b47;--body:#34445a;--muted:#64748b;--blue:#225bb1;--border:#dbe3ee;--bg:#f4f7fb;--green:#13745d;--amber:#966011;--rail:282px}
@@ -21,7 +21,7 @@
 <a class="skip" href="#content">本文へ移動</a>
 <aside class="sidebar" aria-label="操作マニュアルの目次">
   <a class="brand" href="#intro"><span class="symbol" aria-hidden="true">c›</span><span>contextgen <b>改</b><small>OPERATION MANUAL</small></span></a>
-  <div class="rail-meta"><span class="pill">0.2.1</span>画像付き・オフライン対応</div>
+  <div class="rail-meta"><span class="pill">0.3.0</span>画像付き・オフライン対応</div>
   <nav>
     <a href="#intro"><span>00</span>このアプリでできること</a>
     <a href="#files"><span>01</span>配布フォルダの見方</a>
@@ -46,7 +46,7 @@
     <p class="eyebrow">LOCAL KNOWLEDGE WORKSPACE / USER GUIDE</p>
     <h1>資料を、使える知識に。<small>contextgen 改 操作マニュアル</small></h1>
     <p class="lead">資料の登録から、読み取り結果の確認・修正、Copilot用の出力、定期更新まで。実際の画面を見ながら操作を進められます。</p>
-    <div class="meta"><span>対象アプリ：0.2.1</span><span>文書版：0.3</span><span>更新日：2026-09-23</span><span>対象：Windows 11・64bit</span></div>
+    <div class="meta"><span>対象アプリ：0.3.0</span><span>文書版：0.4</span><span>更新日：2026-09-24</span><span>対象：Windows 11・64bit</span></div>
     <div class="hero-actions"><a class="button" href="#install">初めて使う方はこちら</a><a class="button secondary" href="#register">資料の登録から読む</a><button class="button secondary" type="button" id="print-button">印刷 / PDF保存</button></div>
   </header>
 
@@ -82,7 +82,7 @@
 
   <section id="launch">
     <h2><span class="number">03</span>起動する・OCRを使う</h2>
-    <div class="card"><ol class="steps"><li><strong>ContextgenKai.exe をダブルクリックする</strong><p>前回使ったアプリフォルダを開いて起動します。ホーム画面が表示されるまで待ちます。</p></li><li><strong>右上の「ローカル接続中」を確認する</strong><p>ブラウザとアプリ本体が接続すると表示されます。この画面から資料の登録と読み取りを始められます。</p></li><li><strong>画像やPDFを含む資料を読み取る</strong><p>OCRを使うための追加操作はありません。文字PDFは本文を直接読み取り、文字が少ないページはOCRで読み取ります。</p></li></ol>
+    <div class="card"><ol class="steps"><li><strong>ContextgenKai.exe をダブルクリックする</strong><p>前回使ったアプリフォルダを開いて起動します。ホーム画面が表示されるまで待ちます。</p></li><li><strong>右上の「ローカル接続中」を確認する</strong><p>ブラウザとアプリ本体が接続すると表示されます。この画面から資料の登録と読み取りを始められます。</p></li><li><strong>画像やPDFを含む資料を読み取る</strong><p>OCRを使うための追加操作はありません。PDFは本文の文字と、そのページに含まれる画像内の文字を読み取ります。文字ページとスキャンページが混じる資料も対象です。</p></li></ol>
     <h3>OCRで読み取れるもの・確認が必要なもの</h3><div class="table-wrap"><table><thead><tr><th>対象</th><th>動作と注意</th></tr></thead><tbody><tr><td>画像PDF・画像ファイル</td><td>日本語・英語の文字を読み取ります。文字ページとスキャンページが混ざるPDFはページごとに処理します。</td></tr><tr><td>Office内の画像</td><td>画像中の文字を読み取ります。抽出された内容と原本を照らし合わせて確認してください。</td></tr><tr><td>低解像度・手書き・傾き</td><td>誤字・読み落としが生じます。認識できた文字も原本と照らし合わせます。</td></tr><tr><td>図・写真・画像内の表</td><td>文字の読み取りが対象です。図の意味、写真の状況、表のセル構造は正しく再現できない場合があります。</td></tr></tbody></table></div>
     <p>読み取り結果には誤りや欠落が含まれる場合があります。特に数値・日付・固有名詞は、「資料の確認」で原本と見比べてください。</p></div>
   </section>
@@ -91,7 +91,7 @@
     <h2><span class="number">04</span>画面の見方</h2>
     <div class="card"><p>左側のメニューから4つの画面へ移動します。右上の「ローカル接続中」は、ブラウザとアプリ本体が接続している印です。左下に現在のアプリ版を表示します。</p>
     <figure class="figure"><button class="screenshot" type="button" aria-label="ホーム画面を拡大"><img src="images/01_home.png" alt="contextgen 改の起動直後。左に4つのメニュー、右に資料フォルダ登録と単発取り込みの領域があるホーム画面" width="1440" height="940"></button><figcaption>図1　起動直後のホーム画面。最初は登録した資料が0件です。</figcaption></figure>
-    <div class="table-wrap"><table><thead><tr><th>メニュー</th><th>ここで行うこと</th></tr></thead><tbody><tr><td>ホーム</td><td>フォルダ登録、単発取り込み、読み取り開始、件数・進捗の確認、停止・再開。</td></tr><tr><td>資料の確認</td><td>検索・絞り込み、本文と出典の確認、OCR誤字の修正、除外、個別選択。</td></tr><tr><td>Copilotへ渡す</td><td>用途別セットの作成、出力の生成・取得、指示文、出力世代の切替。</td></tr><tr><td>定期更新・設定</td><td>予約の追加・変更・停止、バックアップ・復元、アプリ本体の終了。</td></tr></tbody></table></div></div>
+    <div class="table-wrap"><table><thead><tr><th>メニュー</th><th>ここで行うこと</th></tr></thead><tbody><tr><td>ホーム</td><td>フォルダ登録、単発取り込み、読み取り開始、件数・進捗の確認、停止・再開。</td></tr><tr><td>資料の確認</td><td>検索・絞り込み、本文と出典の確認、OCR誤字の修正、警告資料の再読み取り、除外、個別選択。</td></tr><tr><td>Copilotへ渡す</td><td>複数フォルダの資料セット、整理前後、出力前確認、Builder/Studio用出力、投入済みの記録。</td></tr><tr><td>定期更新・設定</td><td>予約の追加・変更・停止、バックアップ・復元、アプリ本体の終了。</td></tr></tbody></table></div></div>
   </section>
 
   <section id="register">
@@ -101,6 +101,7 @@
     <div class="callout warning"><strong>Box・OneDriveは先にダウンロード。</strong> オンラインにしか存在しない資料は、エクスプローラーから「このデバイス上に常に保持」などを選び、同期が完了してから読み取ってください。</div>
     <h3>更新・移動・停止・再開</h3><p>原本を追加・変更・削除した後は、該当フォルダの「読み取る」を押します。変更のない資料は再抽出を省略します。保存場所を移したときは「変更」から参照先を直します。</p><p>長い処理は「停止」を押して中断できます。処理中のファイルが完了するまで待つことがあります。停止・失敗した処理には「再開」が表示され、完了済みの処理結果を利用して続行します。</p>
     <figure class="figure"><button class="screenshot" type="button" aria-label="読み取り完了のホーム画面を拡大"><img src="images/03_read_complete.png" alt="3件の資料の読み取りが完了し、登録フォルダと実際の処理件数が表示されたホーム" width="1440" height="940" loading="lazy"></button><figcaption>図3　読み取り完了。「登録した資料」「読み取り済み」「確認が必要」の件数を確認します。</figcaption></figure>
+    <p>画面の文字が小さい場合は画面上部の文字サイズを変更できます。一覧はページを切り替えて表示し、形式・状態・キーワードで絞り込めます。</p>
     <h3>今回だけの資料を取り込む</h3><p>ホームの「今回だけの資料」にファイルをドロップするか、枠をクリックして複数のファイルを選択します。アプリ専用の作業領域へコピーし、自動で読み取りを開始します。取り込み後に手元の原本を変更しても、そのコピーには自動反映されません。</p>
     <figure class="figure"><button class="screenshot" type="button" aria-label="単発資料の取り込み後を拡大"><img src="images/13_upload.png" alt="今回の確認事項.txtを単発取り込みし、登録フォルダとは別の取り込み資料として表示したホーム画面" width="1440" height="940" loading="lazy"></button><figcaption>図4　単発ファイルも読み取り後に資料一覧から確認できます。</figcaption></figure>
     <h3>対応する主な形式</h3><div class="table-wrap"><table><thead><tr><th>形式</th><th>読み取る内容</th></tr></thead><tbody><tr><td>Word / Excel / PowerPoint</td><td><code>.docx .docm .xlsx .xlsm .pptx .pptm</code>。本文・表、画像OCR、対応する埋め込みOffice文書。マクロは実行しません。</td></tr><tr><td>PDF</td><td>文字の抽出と、文字が少ないページのOCR。ページ番号を保持します。</td></tr><tr><td>画像</td><td><code>.png .jpg .jpeg .tif .tiff .bmp .webp</code> の文字OCR。</td></tr><tr><td>テキスト・表データ</td><td><code>.txt .md .csv .tsv .json .jsonl .log</code>。</td></tr><tr><td>ZIP</td><td>内部の対応資料を読み取ります。展開量・深さなどの上限に達した部分は注意事項で示します。</td></tr><tr><td>旧形式・保護された資料</td><td><code>.doc .xls .ppt</code> などは新形式へ変換します。暗号化・保護・破損で読めない資料は状態と案内を確認してください。</td></tr></tbody></table></div></div>
@@ -125,34 +126,46 @@
   </section>
 
   <section id="collections">
-    <h2><span class="number">08</span>用途別の資料セット</h2>
-    <div class="card"><p>資料セットは「どの資料を」「何のためにCopilotへ渡すか」を保存する設定です。セット名だけで自動的に資料を分類する機能ではありません。</p><ol class="steps"><li><strong>対象を決める</strong><p>「Copilotへ渡す」→「＋ 資料セットを作成」でフォルダ・検索条件を指定します。個別に選ぶ場合は「資料の確認」のチェックボックスから「選択資料でセットを作成」を押します。</p></li><li><strong>セット名・範囲・目的を入力</strong><p>登録フォルダを選び、必要なら配下フォルダ名、検索語、個別選択で絞ります。1つの資料セットは1つの登録フォルダに対応します。</p></li><li><strong>「セットを保存」を押す</strong><p>目的は「概要把握」「資料比較」「確認事項の洗い出し」の3種類です。「追加の指示」で観点を補えます。</p></li></ol>
-    <figure class="figure"><button class="screenshot" type="button" aria-label="資料セット設定を拡大"><img src="images/06_collection.png" alt="1件を個別指定して点検前に確認したいことという資料セットを作成。目的は確認事項の洗い出し" width="1440" height="940" loading="lazy"></button><figcaption>図8　資料セット。範囲の条件と、Copilotにしてほしいことを一緒に保存します。</figcaption></figure>
-    <div class="callout"><strong>条件に合う資料すべて / 個別に指定した資料。</strong> 個別選択なしのセットでは、新たに追加され条件に合った資料も次回生成に含まれます。個別に指定したセットでは、新しい資料は自動追加されません。必要に応じて選び直してください。</div></div>
+    <h2><span class="number">08</span>用途別の資料セットを作る</h2>
+    <div class="card"><p>別々のフォルダにある設計資料・点検記録・今回だけの資料を、一つの案件セットにまとめられます。資料セット名だけで自動分類することはありません。</p>
+    <ol class="steps"><li><strong>「Copilotへ渡す」→「資料セットを作成」</strong><p>名前、対象の資料フォルダ、登録先「Agent Builder」または「Copilot Studio」を選びます。</p></li><li><strong>選び方と用途を決める</strong><p>条件に合う資料を継続して含める「条件に合う資料」か、指定した資料だけを使う「固定選択」を選びます。用途は「概要把握」「資料比較」「確認事項の洗い出し」「手順案内」「規程・仕様の照会」の5種類です。</p></li><li><strong>「対象資料を確認」で中身を確かめる</strong><p>フォルダを横断した候補と警告を確認し、不要な資料のチェックを外します。このセットでの除外と、資料確認画面で全セットから除外する操作は別です。</p></li><li><strong>説明と回答範囲を保存する</strong><p>資料の説明・対象者・答える範囲・対象外・追加指示を入力すると、定型文で登録先向けの指示文を組み立てます。</p></li></ol><figure class="figure"><button class="screenshot" type="button" aria-label="図8　資料セットの設定。登録先と、資料を使う目的を保存します。を拡大"><img src="images/06_collection.png" alt="図8　資料セットの設定。登録先と、資料を使う目的を保存します。" width="1440" height="940" loading="lazy"></button><figcaption>図8　資料セットの設定。登録先と、資料を使う目的を保存します。</figcaption></figure><figure class="figure"><button class="screenshot" type="button" aria-label="図9　複数フォルダの資料を確認し、案件に必要なものを固定選択する例。を拡大"><img src="images/14_multifolder.png" alt="図9　複数フォルダの資料を確認し、案件に必要なものを固定選択する例。" width="1440" height="940" loading="lazy"></button><figcaption>図9　複数フォルダの資料を確認し、案件に必要なものを固定選択する例。</figcaption></figure>
+    <div class="callout"><strong>固定選択と、条件に合わせる選び方の違い。</strong> 固定選択は指定した資料を使い続け、新しい資料を自動追加しません。選んだ原本が削除・移動された場合も、対象確認や未収録一覧に残り、出力は確認待ちになります。原本を元の場所へ戻して再読み取りするか、対象資料を選び直してください。「条件に合う資料」は現在のフォルダ・検索条件に追従し、削除済みの原本は収録対象から外れます。</div>
+    <h3>整理前後を見比べる</h3><p>保存済みセットを「編集」し、「対象資料を確認」→対象資料の「整理前後」を開きます。「整理なし」は読み取った本文を維持し、「標準」は表の列をそろえ、完全一致する共通のヘッダー・フッターや同じ画像をまとめます。似た意味の本文を自動で削除することはありません。</p><figure class="figure"><button class="screenshot" type="button" aria-label="図10　整理前後と変更内容。ページ・シートなどの単位ごとに採否を指定できます。を拡大"><img src="images/15_cleanup.png" alt="図10　整理前後と変更内容。ページ・シートなどの単位ごとに採否を指定できます。" width="1440" height="940" loading="lazy"></button><figcaption>図10　整理前後と変更内容。ページ・シートなどの単位ごとに採否を指定できます。</figcaption></figure>
+    <p>非表示箇所・ノート・埋め込み資料は初期状態では含めます。詳細設定で外した内容も、各単位の「必ず含める」で戻せます。「このセットから除外」は原本を消しません。Excelの正式な表、Wordの見出し行設定、PowerPointの見出し行設定から列名を識別します。明示されていない列名は推測せず、本文を保持します。全文を手修正した資料は位置を断定できないため、文書全体の修正として扱います。</p>
+    <h3>原本が変わったら、ページごとの採否も再確認する</h3><p>以前「必ず含める」「このセットから除外」を指定した原本や再読み取りの結果が変わると、古い指定を新しい内容へそのまま適用せず、確認待ちにします。再確認までは該当箇所の原文を保持します。</p><ol class="steps"><li><strong>セットを編集し、対象資料の「整理前後」を開く</strong><p>「ページ・シートごとの採否」で「原本更新のため確認が必要」の箇所を確認します。</p></li><li><strong>現在の内容と採否を見比べる</strong><p>内容を確認して「採否を再確認」を押すか、採否を選び直します。原本から見つからなくなった指定は「旧指定を解除」で外せます。</p></li><li><strong>「資料セットへ保存して確認」を押す</strong><p>最新の原本に対する採否として保存し、再生成します。セット名などを保存しただけでは、この再確認を済ませたことにはなりません。再確認が必要な採否は、出力を「確認して使用する」だけでも解除できません。</p></li></ol>
+    <h3>評価に使う質問を保存する（任意）</h3><p>詳細設定で、利用者が考えた質問・期待回答・確認する出典を入力できます。出力後にCopilotで確かめるための控えです。質問の自動生成、実行、採点は行いません。</p></div>
   </section>
 
   <section id="export">
-    <h2><span class="number">09</span>Copilot用ファイルを生成</h2>
-    <div class="card"><ol class="steps"><li><strong>セットの「ナレッジを生成」を押す</strong><p>読み取り済みの内容から、その用途に合う出力を作ります。原本の最新変更を含める場合は、先にホームから読み取りを行います。</p></li><li><strong>「生成したナレッジ」の状態を確認</strong><p>正常なら新しい世代が「現在の出力」になります。読み取りエラー、修正競合、収録量の大幅減少などがあれば「確認待ち」となり、前回の出力を保持します。</p></li><li><strong>「一式をダウンロード」を押す</strong><p>ZIPを保存・展開します。「保存先を開く」からPC内の生成フォルダを直接開くこともできます。</p></li></ol>
-    <figure class="figure"><button class="screenshot" type="button" aria-label="生成済みナレッジを拡大"><img src="images/07_exports.png" alt="資料セットと生成したナレッジの画面。生成済み・現在の出力、ダウンロード、指示文、保存先ボタンを表示" width="1440" height="940" loading="lazy"></button><figcaption>図9　生成済みの出力。「現在の出力」が、そのセットの有効な世代です。</figcaption></figure>
-    <h3>出力一式の見方</h3><div class="table-wrap"><table><thead><tr><th>ファイル・フォルダ</th><th>用途</th></tr></thead><tbody><tr><td><code>M365/set_001/</code></td><td>M365向けTXT。INDEX 1ファイル＋本文最大19ファイル。超過分は <code>set_002</code> 以降へ分割します。</td></tr><tr><td><code>prompt.txt</code></td><td>選んだ目的と追加指示を含む、Copilotへの指示文。</td></tr><tr><td><code>context.md</code> / <code>context.jsonl</code></td><td>収録本文のMarkdown・JSONL。JSONLには分割先なども記録します。</td></tr><tr><td><code>sources.jsonl</code></td><td>出典一覧。未収録理由や同一本文の重複元も含みます。</td></tr><tr><td><code>extraction-report.md</code></td><td>読み取り結果、警告、未収録資料を確認します。</td></tr><tr><td><code>health.md</code></td><td>収録件数・警告・修正競合などの文書健康診断。</td></tr><tr><td><code>upload-changes.md</code></td><td>前回の有効な出力から追加・変更されたM365用ファイル、今回なくなったファイル。</td></tr></tbody></table></div>
-    <h3>「確認待ち」になったら</h3><figure class="figure"><button class="screenshot" type="button" aria-label="前回出力を保持した確認待ちの世代を拡大"><img src="images/12_held.png" alt="修正競合により最新世代が確認待ちとなり、前回の正常な世代を現在の出力として保持する画面" width="1440" height="940" loading="lazy"></button><figcaption>図10　確認待ちの世代と、保持された前回の出力。表示された理由を確認します。</figcaption></figure>
-    <p>まず理由と <code>extraction-report.md</code> を確認します。読み取りや競合を直したら再生成してください。未収録を含む現状の出力を意図して使う場合に限り「確認して使用する」で切り替えます。過去の有効な世代へ戻すときは「この世代を使用」を押します。</p>
-    <div class="callout warning"><strong>出力の切替は、Copilotの添付を変更しません。</strong> 出力が更新されても、Copilotへは利用者がファイルを差し替えます。修正前の内容を残さないよう、古い添付も確認してください。</div></div>
+    <h2><span class="number">09</span>出力前に確認して生成する</h2>
+    <div class="card"><ol class="steps"><li><strong>セットの「ナレッジを生成」を押す</strong><p>出力前確認に、原本の更新・読み取りの注意・修正競合などが表示されます。対象件数と注意内容を確認してください。</p></li><li><strong>原本の確認と生成を開始する</strong><p>更新された原本を確認・再読み取りしてから出力を生成します。競合や読み取りエラーがある場合は、生成後も自動確定せず確認待ちになることがあります。</p></li><li><strong>生成結果を確認してダウンロードする</strong><p>正常なら新しい世代が「現在の出力」になります。「一式をダウンロード」でZIPを保存・展開します。「保存先を開く」で生成フォルダも確認できます。</p></li></ol><figure class="figure"><button class="screenshot" type="button" aria-label="図11　出力前確認。選定済み資料の鮮度と、注意が必要な状態を確かめます。を拡大"><img src="images/16_preflight.png" alt="図11　出力前確認。選定済み資料の鮮度と、注意が必要な状態を確かめます。" width="1440" height="940" loading="lazy"></button><figcaption>図11　出力前確認。選定済み資料の鮮度と、注意が必要な状態を確かめます。</figcaption></figure><figure class="figure"><button class="screenshot" type="button" aria-label="図12　Builder用とStudio用を資料セットごとに分けて管理する例。を拡大"><img src="images/17_studio.png" alt="図12　Builder用とStudio用を資料セットごとに分けて管理する例。" width="1440" height="940" loading="lazy"></button><figcaption>図12　Builder用とStudio用を資料セットごとに分けて管理する例。</figcaption></figure>
+    <h3>出力一式の見方</h3><div class="table-wrap"><table><thead><tr><th>ファイル・フォルダ</th><th>用途</th></tr></thead><tbody>
+    <tr><td><code>M365/set_001/</code></td><td>Agent Builder用TXT。INDEX＋本文最大19ファイル。超過は複数セットに分けます。複数セットを同じエージェントに無制限に登録できるわけではありません。</td></tr>
+    <tr><td><code>Studio/</code></td><td>Copilot Studio用Markdown。INDEXを含め500ファイル以内、各512MB以内。超過すると全成果物を保持して確認待ちにします。対象を絞って再生成してください。</td></tr>
+    <tr><td><code>instructions.txt</code> / <code>prompt.txt</code></td><td>目的・対象者・回答範囲・対象外・追加指示を含む指示文。</td></tr>
+    <tr><td><code>knowledge-descriptions.md</code> / <code>registration-guide.md</code></td><td>資料説明と登録手順。</td></tr>
+    <tr><td><code>context.md</code> / <code>context.jsonl</code></td><td>収録本文。分割後も出典位置と、表として識別できた見出しを保持します。</td></tr>
+    <tr><td><code>sources.jsonl</code> / <code>extraction-report.md</code></td><td>出典・重複元・警告・未収録理由。</td></tr>
+    <tr><td><code>health.md</code> / <code>curation-changes.json</code></td><td>読み取りの健康診断と整理内容の控え。</td></tr>
+    <tr><td><code>upload-changes.md</code></td><td>利用者が投入済みと記録したファイルの状態に対する追加・差し替え・削除一覧。未記録なら全件が追加です。</td></tr>
+    <tr><td><code>evaluation-questions.csv</code></td><td>任意入力した質問・期待回答・出典。Studio用2列CSVも出力します。Studio用は100問・質問1〜1000文字の範囲で作られます。</td></tr>
+    </tbody></table></div>
+    <h3>「確認待ち」になったら</h3><figure class="figure"><button class="screenshot" type="button" aria-label="図13　確認待ちの世代と、保持された前回の出力。を拡大"><img src="images/12_held.png" alt="図13　確認待ちの世代と、保持された前回の出力。" width="1440" height="940" loading="lazy"></button><figcaption>図13　確認待ちの世代と、保持された前回の出力。</figcaption></figure>
+    <p>理由と読み取り結果を確認し、修正後に再生成します。「確認して使用する」は、未収録などを理解した上でその世代を採用する操作です。生成後に原本や設定が変わっている場合、またStudioの登録上限を超えた場合は、再生成が必要です。</p>
+    <div class="callout warning"><strong>アプリ内の出力切替だけではCopilotの登録は変わりません。</strong> 「現在の出力」と「投入済み」は別です。古い内容を残さないよう、Copilot側での差し替えと削除も確認してください。</div></div>
   </section>
 
   <section id="handoff">
-    <h2><span class="number">10</span>Copilotへ渡す</h2>
-    <div class="card"><ol class="steps"><li><strong>出力ZIPを展開し、対象セットを選ぶ</strong><p><code>M365/set_001</code> など、使うセット内のINDEXと本文をまとめて選びます。INDEXだけでは本文は渡りません。</p></li><li><strong>利用中のCopilotへファイルを添付・登録する</strong><p>使っているCopilotのファイル添付、またはエージェントのナレッジ登録画面で行います。登録できる形式・容量・操作は、利用している製品と組織の設定に従います。</p></li><li><strong>アプリの「指示文」→「指示文をコピー」</strong><p>コピーした指示文をCopilotへ渡します。出力内の <code>prompt.txt</code> も同じ用途に使えます。</p></li><li><strong>回答の出典を原本と照合する</strong><p>重要な判断はファイル名・ページ・シートなどを確認します。OCRの数値や固有名詞は特に確認してください。</p></li></ol>
-    <figure class="figure"><button class="screenshot" type="button" aria-label="Copilot用指示文を拡大"><img src="images/08_prompt.png" alt="添付資料を根拠とし、事実・推測・不明と出典を区別する指示文を表示したコピー用ダイアログ" width="1440" height="940" loading="lazy"></button><figcaption>図11　指示文。利用目的と追加指示を含めて生成します。</figcaption></figure>
-    <div class="callout"><strong>複数セットに分かれた場合。</strong> 同じフォルダのINDEXと本文を一組として扱います。すべてのセットを一度に登録できるという意味ではありません。用途ごとに別エージェントへ登録するか、対象資料を絞って再生成します。</div>
-    <p class="small">20ファイルは本アプリの既定の分割単位です。Copilot側の仕様は変更されるため、投入先で表示される上限・制約を確認してください。このマニュアルはCopilotの画面操作やアカウント設定を代行するものではありません。</p></div>
+    <h2><span class="number">10</span>Copilotへ渡し、投入済みを記録する</h2>
+    <div class="card"><ol class="steps"><li><strong>選んだ登録先用のファイルを用意する</strong><p>Agent Builderは使う <code>M365/set_XXX</code> のINDEXと本文、Copilot Studioは <code>Studio</code> 内のMarkdownを選びます。INDEXだけでは本文は渡りません。</p></li><li><strong>Copilotのナレッジ画面で登録する</strong><p>組織の権限や画面に表示される制限を確認し、アップロード後の処理完了を確認します。アプリがCopilotへ接続することはありません。</p></li><li><strong>指示文と資料説明を設定する</strong><p>アプリの「指示文」で内容を確認・コピーし、登録先の指示欄へ貼り付けます。資料説明は <code>knowledge-descriptions.md</code> を参考にします。</p></li><li><strong>回答の出典を確かめる</strong><p>保存した評価質問などを手動で試し、ファイル名・ページ・シート・数値を原本と照合します。Excelの数式は保存値であり、このアプリでは再計算していません。</p></li><li><strong>アプリの「登録状況」で実施済みだけ記録する</strong><p>今回実際に登録したファイルと、Copilot側で削除を確認した旧ファイルにチェックして保存します。一部だけ登録した場合も、その範囲だけ記録できます。</p></li></ol><figure class="figure"><button class="screenshot" type="button" aria-label="図14　目的と回答範囲を反映した指示文。を拡大"><img src="images/08_prompt.png" alt="図14　目的と回答範囲を反映した指示文。" width="1440" height="940" loading="lazy"></button><figcaption>図14　目的と回答範囲を反映した指示文。</figcaption></figure><figure class="figure"><button class="screenshot" type="button" aria-label="図15　実際に登録・削除したファイルを確認して記録する画面。を拡大"><img src="images/18_handoff.png" alt="図15　実際に登録・削除したファイルを確認して記録する画面。" width="1440" height="940" loading="lazy"></button><figcaption>図15　実際に登録・削除したファイルを確認して記録する画面。</figcaption></figure>
+    <div class="callout"><strong>生成しただけで投入済みにはなりません。</strong> 次の差し替え一覧は、ここで記録した登録状態を基準にします。記録を誤ると一覧も実際の状態とずれるため、Copilot側を確認してから保存してください。</div>
+    <p>評価用CSVの取り込みも任意です。自動採点や質問の外部送信は行いません。Studio用の問数・文字数を超えた場合、汎用CSVに全質問を保存し、Studio用CSVを作らなかった理由を出力内に示します。</p></div>
   </section>
 
   <section id="schedule">
     <h2><span class="number">11</span>定期更新を設定する</h2>
-    <div class="card"><ol class="steps"><li><strong>「定期更新・設定」→「＋ 定期更新を追加」</strong><p>更新名と、対象の資料フォルダを選びます。読み取り後に出力も生成したい場合は資料セットを選びます。</p></li><li><strong>実行モードと繰り返しを選ぶ</strong><p>「毎日」「曜日を指定」「一定の間隔」を選び、時刻または分単位の間隔を入力します。</p></li><li><strong>有効・停止を確認して「設定を保存」</strong><p>Windowsの予約登録に失敗した場合は、成功として保存されません。画面のエラーを確認してください。</p></li></ol>
-    <figure class="figure"><button class="screenshot" type="button" aria-label="定期更新設定を拡大"><img src="images/09_schedule.png" alt="平日9時に点検資料を読み取り、用途別セットを生成する予約設定。アプリ内とWindowsバックグラウンドの2モードを表示" width="1440" height="940" loading="lazy"></button><figcaption>図12　定期更新の設定。対象の資料、実行するモード、曜日と時刻を指定します。</figcaption></figure>
+    <div class="card"><ol class="steps"><li><strong>「定期更新・設定」→「＋ 定期更新を追加」</strong><p>更新名と、対象の資料フォルダを選びます。読み取り後の生成は、その1フォルダだけを使う資料セットが対象です。複数フォルダの案件セットは出力画面から生成します。</p></li><li><strong>実行モードと繰り返しを選ぶ</strong><p>「毎日」「曜日を指定」「一定の間隔」を選び、時刻または分単位の間隔を入力します。</p></li><li><strong>有効・停止を確認して「設定を保存」</strong><p>Windowsの予約登録に失敗した場合は、成功として保存されません。画面のエラーを確認してください。</p></li></ol>
+    <figure class="figure"><button class="screenshot" type="button" aria-label="定期更新設定を拡大"><img src="images/09_schedule.png" alt="平日9時に点検資料を読み取り、用途別セットを生成する予約設定。アプリ内とWindowsバックグラウンドの2モードを表示" width="1440" height="940" loading="lazy"></button><figcaption>図16　定期更新の設定。対象の資料、実行するモード、曜日と時刻を指定します。</figcaption></figure>
     <div class="table-wrap"><table><thead><tr><th>モード</th><th>動作する条件</th><th>終了時の扱い</th></tr></thead><tbody><tr><td>アプリ起動中のみ</td><td>アプリ本体が動作している間。</td><td>ブラウザを閉じても継続。アプリ本体を終了すると停止します。</td></tr><tr><td>アプリ終了後も実行</td><td>Windowsのタスクスケジューラへ登録。利用者がログイン中で、PCが稼働している間。</td><td>アプリ本体を終了しても予約は残ります。停止・削除・モード変更をアプリから行うとOS予約も連動します。</td></tr></tbody></table></div>
     <h3>実行結果と予約の管理</h3><p>予約一覧に「次回」「前回」「結果」「失敗理由」を表示します。「今すぐ実行」で動作を確かめられます。「編集」で日時・モードを変更し、「停止」で無効化、「削除」で予約を解除します。</p><p>同じ予約の二重実行を防止し、実行できなかった分は次に実行可能になった時点で1回にまとめます。エラー・競合・収録量の急減がある出力は自動確定せず、確認待ちになります。</p>
     <div class="callout warning"><strong>PCの電源OFF・スリープ・ログアウト中は実行されません。</strong> この版ではPCを自動で起こしません。Windowsの予約処理を続ける場合は、アプリフォルダを移動・削除しないでください。移動後は予約を停止・再設定し、結果を確認します。</div></div>
@@ -161,8 +174,8 @@
   <section id="backup">
     <h2><span class="number">12</span>バックアップと復元</h2>
     <div class="card"><p>「定期更新・設定」画面の「バックアップを保存」で、設定・資料の参照情報・手修正をJSONに保存できます。保存先とファイル名はブラウザのダウンロード設定に従います。</p>
-    <figure class="figure"><button class="screenshot" type="button" aria-label="バックアップと終了の設定画面を拡大"><img src="images/10_settings.png" alt="定期更新一覧と、バックアップを保存、JSONから復元、アプリを終了する操作を表示した設定画面" width="1440" height="940" loading="lazy"></button><figcaption>図13　バックアップ・復元・終了は「定期更新・設定」画面から行います。</figcaption></figure>
-    <div class="callout warning"><strong>原本資料のバックアップとは別です。</strong> JSONだけではWord・PDF・単発取り込みの実ファイルや生成済み出力を丸ごと保管したことにはなりません。原本と必要な出力ZIPも別に保存してください。</div>
+    <figure class="figure"><button class="screenshot" type="button" aria-label="バックアップと終了の設定画面を拡大"><img src="images/10_settings.png" alt="定期更新一覧と、バックアップを保存、JSONから復元、アプリを終了する操作を表示した設定画面" width="1440" height="940" loading="lazy"></button><figcaption>図17　バックアップ・復元・終了は「定期更新・設定」画面から行います。</figcaption></figure>
+    <div class="callout warning"><strong>原本資料のバックアップとは別です。</strong> 設定・本文修正と履歴・投入済みの記録を保存しますが、JSONだけではWord・PDF・単発取り込みの実ファイルや生成済み出力を丸ごと保管したことにはなりません。原本と必要な出力ZIPも別に保存してください。</div>
     <h3>別のPCなどへ復元する</h3><ol class="steps"><li><strong>原本資料とバックアップを移動先のPCへ用意する</strong><p>復元先は、まだ資料や設定が登録されていないアプリである必要があります。現在使用中のデータに上書きすることはできません。</p></li><li><strong>「JSONから復元」でバックアップを選ぶ</strong><p>「定期更新・設定」を開き、保存しておいたJSONファイルを指定します。すでに資料がある環境へ復元したい場合は、現在のデータを削除せず、配布担当者に確認してください。</p></li><li><strong>資料の場所を確認して再読み取りする</strong><p>保存場所が変わった場合はホームの「変更」で直し、「読み取る」を実行します。定期更新は停止状態で復元されるので、内容を確認して有効にします。</p></li></ol>
     <h3>設定・履歴の保存先</h3><p class="path"><code>%LOCALAPPDATA%\ContextgenKai</code></p><p>設定・履歴・手修正は、Windowsの利用者ごとに上記の場所へ保存します。アプリフォルダを入れ替えても、この保存先は変わりません。別のWindowsユーザーで起動した場合は、そのユーザー用のデータが表示されます。</p><p>保存先を確認するときは、エクスプローラーのアドレス欄に上記の文字列を貼り付けて開きます。通常の利用では中のファイルを直接編集・削除する必要はありません。</p></div>
   </section>
@@ -180,7 +193,7 @@
       <details class="faq" open><summary>アプリを更新するにはどうすればよいですか？</summary><p>配布担当者から新しいZIPを受け取り、<a href="#install">新しい版を受け取ったときの手順</a>で入れ替えます。古い版は終了してから更新し、アプリフォルダの場所が変わったらバックグラウンド予約を登録し直します。</p></details>
       <details class="faq" open><summary>OCRが使えない・日本語が認識されません。</summary><p>OCRは配布ZIPに含まれています。フォルダ一式を展開し直し、EXEだけを移動していないか確認してください。画像が小さい、傾いている、画質が低い場合は読み誤りがあるため、鮮明な原本を用意するか「資料の確認」で本文を修正します。</p></details>
       <details class="faq" open><summary>ブラウザに接続できない・画面が開きません。</summary><p><code>ContextgenKai.exe</code> から起動し、自動で開いたブラウザ画面を使ってください。表示されたエラーメッセージと操作の状況を控え、配布担当者へ伝えてください。ブラウザだけを閉じた場合は、アプリ本体が動作したままのことがあります。</p></details>
-      <details class="faq" open><summary>資料が「ダウンロードが必要」「読み取りエラー」になります。</summary><p>Box・OneDriveなどの同期状態、参照先の移動、アクセス権、ファイル破損・保護を確認します。資料を開ける状態にしてからホームの「読み取る」を実行してください。詳細の注意事項も確認します。</p></details>
+      <details class="faq" open><summary>資料が「ダウンロードが必要」「読み取りエラー」になります。</summary><p>Box・OneDriveなどの同期状態、参照先の移動、アクセス権、ファイル破損・保護を確認します。資料を開ける状態にし、「資料の確認」で注意がある資料を絞り込み、詳細の「この資料を再読み取り」を使います。原本の保護・破損は先に解消してください。</p></details>
       <details class="faq" open><summary>修正したのにCopilotの回答が変わりません。</summary><p>修正の保存後、資料セットを再生成し、生成した最新ファイルをCopilotで差し替えます。アプリの保存だけでは既存出力やCopilotの添付は変更されません。</p></details>
       <details class="faq" open><summary>出力が確認待ち・収録件数が減りました。</summary><p>競合、読み取りエラー、除外、原本削除などを確認します。<code>extraction-report.md</code> と <code>health.md</code> を読み、原因を直して再生成します。前回の出力は保持されています。</p></details>
       <details class="faq" open><summary>Windowsの予約が登録できない・予定時刻に動きません。</summary><p>登録時のエラーと前回結果を確認します。組織のPC制限、PCの電源・スリープ、ログイン状態、アプリの移動・削除が影響します。「今すぐ実行」の結果を確かめ、実行しなかった時刻と表示された理由を配布担当者に伝えてください。</p></details>
@@ -188,7 +201,7 @@
       <details class="faq" open><summary>マニュアルの画像が出ません。</summary><p>アプリフォルダ内の <code>_internal</code> に画像が入っています。マニュアルだけを移動せず、アプリフォルダ一式で保管してください。アプリ左下の「画像付き操作マニュアル」からも開けます。</p></details>
     </div>
   </section>
-  <footer class="footer"><p><strong>contextgen 改 操作マニュアル</strong>　アプリ0.2.1 / 文書0.3 / 2026-09-23</p><p>分からないことやエラーがある場合は、アプリの版と表示されたメッセージを配布担当者に伝えてください。</p></footer>
+  <footer class="footer"><p><strong>contextgen 改 操作マニュアル</strong>　アプリ0.3.0 / 文書0.4 / 2026-09-24</p><p>分からないことやエラーがある場合は、アプリの版と表示されたメッセージを配布担当者に伝えてください。</p></footer>
 </main>
 <dialog id="image-viewer" aria-label="操作画面の拡大"><header><span id="image-caption"></span><button id="image-close" type="button">閉じる</button></header><div class="image-scroll"><img id="image-large" alt=""></div></dialog>
 <script src="images/manual.js"></script>

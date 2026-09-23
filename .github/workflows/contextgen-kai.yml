@@ -70,12 +70,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged application smoke failed' }
           python scripts/verify_manual.py --exe dist/ContextgenKai/ContextgenKai.exe --output build/packaged-manual-verification
           if ($LASTEXITCODE -ne 0) { throw 'Packaged offline and HTTP manual verification failed' }
+      - name: Full packaged UI acceptance
+        run: |
+          python scripts/ui_smoke.py --exe dist/ContextgenKai/ContextgenKai.exe --output build/ui-smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged UI acceptance failed' }
       - name: ZIP distributable
-        run: Compress-Archive -Path dist/ContextgenKai -DestinationPath dist/contextgen-kai-0.2.1-windows-x64.zip -Force
+        run: |
+          Compress-Archive -Path dist/ContextgenKai -DestinationPath dist/contextgen-kai-0.3.0-windows-x64.zip -Force
+          python scripts/audit_distribution.py dist/contextgen-kai-0.3.0-windows-x64.zip --output build/distribution-audit.json
+          if ($LASTEXITCODE -ne 0) { throw 'Distributable ZIP audit failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: contextgen-kai-windows
-          path: contextgen-kai/dist/contextgen-kai-0.2.1-windows-x64.zip
+          path: contextgen-kai/dist/contextgen-kai-0.3.0-windows-x64.zip
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4
@@ -100,6 +107,8 @@ jobs:
             contextgen-kai/build/manual-capture.json
             contextgen-kai/build/manual-verification/verification.json
             contextgen-kai/build/packaged-manual-verification/verification.json
+            contextgen-kai/build/ui-smoke/**
+            contextgen-kai/build/distribution-audit.json
             contextgen-kai/build/tesseract-*.manifest
             contextgen-kai/build/windows/warn-windows.txt
             .contextgen-build/vcpkg/buildtrees/**/*.log

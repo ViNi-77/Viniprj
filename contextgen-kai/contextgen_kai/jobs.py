@@ -9,7 +9,6 @@ import threading
 import time
 from pathlib import Path
 
-from . import __version__
 from .storage import Store, identifier, now
 
 ACTIVE = ("queued", "scanning", "extracting", "exporting")
@@ -147,10 +146,10 @@ class JobManager:
     def list(self):
         return self.store.all("SELECT id,library_id,kind,state,stage,processed,total,errors,message,created_at,updated_at,export_id FROM jobs ORDER BY created_at DESC,rowid DESC LIMIT 100")
 
-    def start(self, library_id: str, *, collection_id=None, export_after=False, kind="scan", force=False, schedule_id=None):
+    def start(self, library_id: str, *, collection_id=None, export_after=False, kind="scan", force=False, schedule_id=None, refresh_sources=False, document_id=None, force_extract=False):
         if not self.store.one("SELECT id FROM libraries WHERE id=?", (library_id,)):
             raise ValueError("登録フォルダが見つかりません")
-        payload = dict(collection_id=collection_id, export_after=export_after, force=force, schedule_id=schedule_id)
+        payload = dict(collection_id=collection_id, export_after=export_after, force=force, schedule_id=schedule_id, refresh_sources=refresh_sources, document_id=document_id, force_extract=force_extract)
         job_id = identifier()
         self.store.execute("INSERT INTO jobs(id,library_id,kind,created_at,updated_at,payload,owner_pid) VALUES (?,?,?,?,?,?,?)", (job_id, library_id, kind, now(), now(), json.dumps(payload), os.getpid()))
         self._launch(job_id)
@@ -216,12 +215,20 @@ class JobManager:
             job = self.store.one("SELECT * FROM jobs WHERE id=?", (job_id,))
             self.store.update_job(job_id, owner_pid=os.getpid())
             if job["kind"] == "scan":
-                self._scan(job, event)
+                self._scan(job, event, verify_hash=bool(payload.get("export_after")))
+            elif job["kind"] == "export" and payload.get("refresh_sources"):
+                collection = self.store.collection(payload["collection_id"])
+                for lib_id in collection["library_ids"]:
+                    self._check_stop(job_id, event)
+                    # 再開時も全登録元を再走査するが、完了した抽出は内容hashで再利用する。
+                    self.store.update_job(job_id, scan_complete=0, errors=0, processed=0, total=0)
+                    self._scan({**job, "library_id": lib_id, "scan_complete": 0}, event, verify_hash=True)
             if job["kind"] == "export" or payload.get("export_after"):
                 from .exporting import build_export
                 self._check_stop(job_id, event)
                 self.store.update_job(job_id, state="exporting", stage="用途別ファイルを生成")
                 result = build_export(self.store, payload["collection_id"], force=payload.get("force", False),
+                                      verify_sources=True,
                                       cancelled=lambda: self._check_stop(job_id, event))
                 self.store.update_job(job_id, state="held" if result["state"] == "held" else "completed", stage="出力完了", export_id=result["id"], message=result["reason"] or "Copilot用ファイルを生成しました")
             else:
@@ -236,14 +243,35 @@ class JobManager:
                 job = self.store.one("SELECT * FROM jobs WHERE id=?", (job_id,))
                 self.complete_callback(payload["schedule_id"], job_id, job["state"], job["message"] if job["state"] in ("failed", "held") else "")
 
-    def _scan(self, job, event):
+    def _scan(self, job, event, verify_hash=False):
+        from . import extractors
         from .extractors import SUPPORTED_EXTENSIONS, extract_document
+        version = getattr(extractors, "EXTRACTOR_VERSION", "2")
+        ocr = extractors.tesseract_path()
+        engine = str(ocr or "unavailable") + ":" + os.environ.get("CONTEXTGEN_OCR_LANG", "jpn+eng") + ":" + os.environ.get("TESSDATA_PREFIX", "")
+        if ocr:
+            data_root = Path(os.environ.get("TESSDATA_PREFIX") or Path(ocr).parent / "tessdata")
+            for component in [Path(ocr), *(data_root / (lang + ".traineddata") for lang in os.environ.get("CONTEXTGEN_OCR_LANG", "jpn+eng").split("+"))]:
+                try:
+                    st = component.stat()
+                    engine += f":{st.st_size}:{st.st_mtime_ns}"
+                except OSError:
+                    engine += ":missing"
+        signature = str(version) + ":" + engine
+        payload = json.loads(job["payload"])
         library = self.store.one("SELECT * FROM libraries WHERE id=?", (job["library_id"],))
         root = Path(library["path"]).resolve()
         if not root.is_dir():
             raise ValueError("参照元フォルダが見つかりません。前回データを保持しています")
-        if not job["scan_complete"]:
-            self.store.update_job(job["id"], state="scanning", stage="資料を探しています", processed=0, total=0)
+        if not job["scan_complete"] and payload.get("document_id"):
+            doc = self.store.document(payload["document_id"])
+            if not doc or doc["library_id"] != library["id"]:
+                raise ValueError("再読み取りする資料が見つかりません")
+            self.store.execute("DELETE FROM job_files WHERE job_id=?", (job["id"],))
+            self.store.execute("INSERT INTO job_files(job_id,relative_path,source_path,size,mtime_ns) VALUES(?,?,?,?,?)", (job["id"], doc["relative_path"], str(root / doc["relative_path"]), doc["size"], doc["mtime_ns"]))
+            self.store.update_job(job["id"], scan_complete=1, total=1)
+        elif not job["scan_complete"]:
+            self.store.update_job(job["id"], state="scanning", stage=f"資料を探しています: {library['name']}", processed=0, total=0)
             # 途中の走査結果は作り直すが、文書抽出キャッシュは保持する。
             self.store.execute("DELETE FROM job_files WHERE job_id=?", (job["id"],))
             stack = [root]
@@ -276,7 +304,7 @@ class JobManager:
             self.store.update_job(job["id"], scan_complete=1)
             # フォルダ全体の走査成功後だけ消えた資料を無効化する。
             self.store.execute("UPDATE documents SET active=0 WHERE library_id=? AND relative_path NOT IN (SELECT relative_path FROM job_files WHERE job_id=?)", (library["id"], job["id"]))
-        self.store.update_job(job["id"], state="extracting", stage="本文と出典を読み取り")
+        self.store.update_job(job["id"], state="extracting", stage=f"本文と出典を読み取り: {library['name']}")
         worker = ExtractionWorker(event, lambda: self._check_stop(job["id"], event)) if self.use_process else None
         done = self.store.one("SELECT count(*) n FROM job_files WHERE job_id=? AND processed=1", (job["id"],))["n"]
         errors = self.store.one("SELECT errors FROM jobs WHERE id=?", (job["id"],))["errors"]
@@ -311,17 +339,21 @@ class JobManager:
                         if cloud:
                             extracted = dict(text="", status="needs_download", warnings=["クラウド上のみの資料です。端末に取得してから再実行してください"], units=[], metadata={})
                             sha = old["source_hash"] if old else ""
-                        elif old and old["size"] == stat.st_size and old["mtime_ns"] == stat.st_mtime_ns and old["status"] in ("ok", "empty") and json.loads(old["metadata"]).get("extractor_version") == __version__:
+                        elif (not verify_hash and not payload.get("force_extract") and old and old["size"] == stat.st_size and old["mtime_ns"] == stat.st_mtime_ns and old["status"] in ("ok", "empty", "partial") and not json.loads(old["metadata"]).get("retryable") and json.loads(old["metadata"]).get("extractor_signature") == signature):
                             extracted = None
                         else:
                             self._check_stop(job["id"], event)
                             sha = file_hash(path)
-                            extracted = worker.extract(path) if worker else extract_document(path, ocr=True, max_pages=500, timeout=60).as_dict()
+                            if (not payload.get("force_extract") and old and old["source_hash"] == sha and old["status"] in ("ok", "empty", "partial") and not json.loads(old["metadata"]).get("retryable") and json.loads(old["metadata"]).get("extractor_signature") == signature):
+                                extracted = None
+                                self.store.execute("UPDATE documents SET size=?,mtime_ns=? WHERE id=?", (stat.st_size, stat.st_mtime_ns, item["old_id"]))
+                            else:
+                                extracted = worker.extract(path) if worker else extract_document(path, ocr=True, max_pages=500, timeout=60).as_dict()
                             after = path.stat()
                             if (stat.st_size, stat.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
                                 extracted = dict(text="", status="error", warnings=["読み取り中に原本が変わりました。再実行してください"], units=[], metadata={})
                         if extracted is not None:
-                            extracted.setdefault("metadata", {})["extractor_version"] = __version__
+                            extracted.setdefault("metadata", {}).update(extractor_version=version, extractor_signature=signature)
                             self.store.upsert_extraction(library["id"], item["relative_path"], path, stat.st_size, stat.st_mtime_ns, sha, extracted)
                             errors += int(extracted["status"] not in ("ok", "empty"))
                     except InterruptedError:

@@ -1,6 +1,26 @@
 # 検証記録とWindows受入
 
-対象: contextgen 改 0.2.1 / 文書版0.3 / 2026-09-23
+対象: contextgen 改 0.3.0 / 文書版0.4 / 2026-09-24
+
+## 0.3.0 検証の進行状況
+
+2026-09-24、ローカルの統合試験を実施。Windows配布物を検証中。以下の過去版実績は0.3.0の合格を意味しない。
+
+- ローカル: 実OCRを含む全自動試験142件成功、Windows専用1件スキップ。[結果](evidence/local-tests-0.3.0.json)。
+- 1万件: 初回49.093秒、無変更1.555秒（再抽出0件）、20件変更1.806秒（再抽出20件）。検索40回の95%点19.699ms。一時テキスト資料の測定で、画像主体の業務資料の所要時間を保証しない。[測定](evidence/local-benchmark-10000-0.3.0.json)。
+- 旧プロジェクト: ソース差分0。同一旧PPTXソースで[Linux CI再実行](https://github.com/ViNi-77/Viniprj/actions/runs/35827127899/attempts/2)の単体73件・E2E18件・UI34件成功。
+- マニュアル: 合成Word・正式テーブル付きExcel・単発資料を実アプリで操作し、ローカル撮影18枚。HTML掲載17画像・21リンク、file/HTTPの画像拡大、5幅、印刷25ページを確認。横溢れ・外部リクエスト・ブラウザエラー0。ローカル記録は `artifacts/manual-0.3.0-source/verification.json`。配布用はWindowsで再撮影し、配布EXEによる検証を別途行う。
+- Windows CI: 新版は未確認。配布物の実行・OCR・タスク予約・マニュアルの結果を別途記録する。
+- 利用予定Windows11 PC: 未実施。125〜150%表示、実業務資料、Builder/Studioでの手動登録と出典確認は利用先で実施する。
+
+| 追加受入項目 | 検証場所 |
+|---|---|
+| 両profile・全5用途・説明項目・評価CSV | `tests/test_export_profiles.py` |
+| 整理なしの原文維持、完全一致の集約・全参照、採否 | `tests/test_export_profiles.py` |
+| 全分割の位置・表見出し、全文修正の位置未特定 | `tests/test_export_profiles.py` |
+| 未投入/一部投入を基準にした追加変更削除 | `tests/test_export_profiles.py` とAPI統合試験 |
+| Studio上限で全成果物保持、強制確定拒否 | `tests/test_export_profiles.py` |
+| 混在PDF・Excel保存値・未読再読・revision競合 | 抽出・APIの追加試験 |
 
 ## 0.2.1 配布整理の検証
 

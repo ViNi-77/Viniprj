@@ -32,6 +32,22 @@ def default_state_dir() -> Path:
     return Path.home() / "Library/Application Support/ContextgenKai" if sys.platform == "darwin" else Path.home() / ".local/share/contextgen-kai"
 
 
+COLLECTION_DEFAULTS = dict(library_ids=[], selection_mode="dynamic", excluded_document_ids=[],
+    target="builder", cleanup="none", include_hidden=True, include_notes=True, include_embedded=True,
+    unit_overrides={}, unit_override_bases={}, audience="", answer_scope="", out_of_scope="", description="", evaluation_questions=[])
+
+
+def validate_override_bases(data):
+    bases = data.get("unit_override_bases", {})
+    if not isinstance(bases, dict):
+        raise ValueError("個別の整理設定の確認基準が不正です")
+    for key, basis in bases.items():
+        if not isinstance(key, str) or not isinstance(basis, dict) or set(basis) != {"source_hash", "text_hash"}:
+            raise ValueError("個別の整理設定の確認基準が不正です")
+        if (not isinstance(basis["source_hash"], str) or not re.fullmatch(r"(?:[0-9a-f]{64})?", basis["source_hash"])
+                or not isinstance(basis["text_hash"], str) or not re.fullmatch(r"[0-9a-f]{64}", basis["text_hash"])):
+            raise ValueError("個別の整理設定の確認基準が不正です")
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 INSERT OR IGNORE INTO meta VALUES('schema_version','1');
@@ -79,6 +95,23 @@ class Store:
         self.db_path = self.root / "catalog.sqlite3"
         with self.connect() as con:
             con.executescript(SCHEMA)
+            # 0.2.x の本文・修正・セットをそのまま保持する追加型の移行。
+            if "revision" not in {r[1] for r in con.execute("PRAGMA table_info(documents)")}:
+                con.execute("ALTER TABLE documents ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
+            con.executescript("""
+              CREATE TABLE IF NOT EXISTS collection_options(
+                collection_id TEXT PRIMARY KEY REFERENCES collections(id) ON DELETE CASCADE,
+                settings TEXT NOT NULL);
+              CREATE TABLE IF NOT EXISTS edit_history(
+                id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                revision INTEGER NOT NULL,edited_text TEXT,source_hash TEXT NOT NULL,created_at TEXT NOT NULL);
+              CREATE INDEX IF NOT EXISTS history_document ON edit_history(document_id,revision);
+              CREATE TABLE IF NOT EXISTS handoffs(
+                id TEXT PRIMARY KEY,collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+                target TEXT NOT NULL,generation_id TEXT NOT NULL,recorded_at TEXT NOT NULL,files TEXT NOT NULL);
+              CREATE INDEX IF NOT EXISTS handoff_target ON handoffs(collection_id,target,recorded_at);
+            """)
+            con.execute("UPDATE meta SET value='2' WHERE key='schema_version'")
             con.execute("CREATE VIRTUAL TABLE IF NOT EXISTS document_search USING fts5(document_id UNINDEXED, body, tokenize='trigram')")
             con.executescript("""
               CREATE TRIGGER IF NOT EXISTS search_insert AFTER INSERT ON documents BEGIN
@@ -174,7 +207,7 @@ class Store:
             args.append(json.dumps(document_ids))
         return " AND ".join(clauses), args
 
-    def list_documents(self, library_id="", query="", status="", offset=0, limit=50):
+    def list_documents(self, library_id="", query="", status="", offset=0, limit=50, extension=""):
         where, args = self.filters(library_id, query)
         if status == "deleted":
             where = where.replace("d.active=1", "d.active=0", 1)
@@ -187,57 +220,118 @@ class Store:
         elif status:
             where += " AND d.status=?"
             args.append(status)
+        if extension:
+            if not re.fullmatch(r"\.?[A-Za-z0-9]{1,12}", extension):
+                raise ValueError("形式を確認してください")
+            where += " AND lower(d.relative_path) LIKE ?"
+            args.append("%." + extension.lower().lstrip("."))
         with self.connect() as con:
             total = con.execute("SELECT count(*) FROM documents d WHERE " + where, args).fetchone()[0]
-            rows = con.execute("SELECT d.id,d.library_id,d.relative_path,d.status,d.excluded,d.conflict,d.updated_at,json_array_length(d.warnings) warning_count FROM documents d WHERE " + where + " ORDER BY d.relative_path LIMIT ? OFFSET ?", (*args, limit, offset))
+            rows = con.execute("SELECT d.id,d.library_id,d.relative_path,d.status,d.excluded,d.conflict,d.updated_at,json_array_length(d.warnings) warning_count, substr(d.effective_text,max(1,instr(lower(d.effective_text),lower(?))-60),220) snippet FROM documents d WHERE " + where + " ORDER BY d.relative_path,d.id LIMIT ? OFFSET ?", (query, *args, limit, offset))
             return dict(total=total, items=[dict(r) for r in rows])
 
     def upsert_extraction(self, library_id: str, relative_path: str, path: Path, size: int, mtime_ns: int, source_hash: str, extracted: dict):
         with self.connect() as con:
+            con.execute("BEGIN IMMEDIATE")
             old = con.execute("SELECT * FROM documents WHERE library_id=? AND relative_path=?", (library_id, relative_path)).fetchone()
-            conflict = bool(old and old["edited_text"] is not None and old["edit_base_hash"] != source_hash)
             text = extracted.get("text", "")
+            conflict = bool(old and old["edited_text"] is not None and (old["edit_base_hash"] != source_hash or (old["original_text"] and old["original_text"] != text)))
             effective = old["edited_text"] if old and old["edited_text"] is not None and not conflict else text
             values = (str(path), size, mtime_ns, source_hash, extracted["status"], text, effective, int(conflict),
                       json.dumps(extracted.get("warnings", []), ensure_ascii=False), json.dumps(extracted.get("units", []), ensure_ascii=False),
                       json.dumps(extracted.get("metadata", {}), ensure_ascii=False), now())
             if old:
-                con.execute("UPDATE documents SET source_path=?,size=?,mtime_ns=?,source_hash=?,status=?,original_text=?,effective_text=?,conflict=?,warnings=?,units=?,metadata=?,updated_at=?,active=1 WHERE id=?", (*values, old["id"]))
+                con.execute("UPDATE documents SET source_path=?,size=?,mtime_ns=?,source_hash=?,status=?,original_text=?,effective_text=?,conflict=?,warnings=?,units=?,metadata=?,updated_at=?,active=1,revision=revision+1 WHERE id=?", (*values, old["id"]))
             else:
                 con.execute("INSERT INTO documents(source_path,size,mtime_ns,source_hash,status,original_text,effective_text,conflict,warnings,units,metadata,updated_at,id,library_id,relative_path) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (*values, identifier(), library_id, relative_path))
 
     def edit_document(self, doc_id: str, data: dict):
         with self.connect() as con:
+            con.execute("BEGIN IMMEDIATE")
             doc = con.execute("SELECT * FROM documents WHERE id=?", (doc_id,)).fetchone()
             if not doc:
                 raise LookupError("資料が見つかりません")
+            if "expected_revision" in data and data["expected_revision"] != doc["revision"]:
+                raise RuntimeError("別の画面または再読み取りで内容が更新されました。入力を控えて最新の内容と比較してください")
             if "text" in data:
                 text = data["text"]
-                if text is not None and data.get("expected_hash") != doc["source_hash"]:
+                if (text is not None or "expected_revision" in data) and data.get("expected_hash") != doc["source_hash"]:
                     raise RuntimeError("原本が更新されています。読み直してから修正してください")
+                con.execute("INSERT INTO edit_history VALUES(?,?,?,?,?,?)", (identifier(), doc_id, doc["revision"], doc["edited_text"], doc["source_hash"], now()))
                 con.execute("UPDATE documents SET edited_text=?,edit_base_hash=?,effective_text=?,conflict=0,updated_at=? WHERE id=?",
                             (text, doc["source_hash"] if text is not None else None, text if text is not None else doc["original_text"], now(), doc_id))
             if "excluded" in data:
                 con.execute("UPDATE documents SET excluded=?,updated_at=? WHERE id=?", (int(data["excluded"]), now(), doc_id))
+            con.execute("UPDATE documents SET revision=revision+1 WHERE id=?", (doc_id,))
         return self.document(doc_id)
 
     def save_collection(self, data: dict, collection_id=None):
         if collection_id is not None:
             validate_identifier(collection_id)
-        if not self.one("SELECT id FROM libraries WHERE id=?", (data["library_id"],)):
-            raise ValueError("登録フォルダを選択してください")
+        data = self.validate_collection(data)
         row = {"id": collection_id or identifier(), "name": data["name"], "library_id": data["library_id"], "query": data.get("query", ""),
                "folder": data.get("folder", ""), "document_ids": json.dumps(data.get("document_ids", [])), "purpose": data.get("purpose", "overview"),
                "instructions": data.get("instructions", ""), "updated_at": now()}
-        self.execute("INSERT INTO collections VALUES(:id,:name,:library_id,:query,:folder,:document_ids,:purpose,:instructions,:updated_at) ON CONFLICT(id) DO UPDATE SET name=excluded.name,library_id=excluded.library_id,query=excluded.query,folder=excluded.folder,document_ids=excluded.document_ids,purpose=excluded.purpose,instructions=excluded.instructions,updated_at=excluded.updated_at", row)
+        with self.connect() as con:
+            con.execute("INSERT INTO collections VALUES(:id,:name,:library_id,:query,:folder,:document_ids,:purpose,:instructions,:updated_at) ON CONFLICT(id) DO UPDATE SET name=excluded.name,library_id=excluded.library_id,query=excluded.query,folder=excluded.folder,document_ids=excluded.document_ids,purpose=excluded.purpose,instructions=excluded.instructions,updated_at=excluded.updated_at", row)
+            con.execute("INSERT INTO collection_options VALUES(?,?) ON CONFLICT(collection_id) DO UPDATE SET settings=excluded.settings", (row["id"], json.dumps({key: data[key] for key in COLLECTION_DEFAULTS}, ensure_ascii=False)))
+        return self.collection(row["id"])
+
+    def validate_collection(self, data):
+        if "selection_mode" not in data and data.get("document_ids"):
+            data = {**data, "selection_mode": "fixed"}
+        data = {**COLLECTION_DEFAULTS, **data}
+        libs = list(dict.fromkeys(data.get("library_ids") or [data.get("library_id")]))
+        if not libs or any(not self.one("SELECT id FROM libraries WHERE id=?", (lib,)) for lib in libs):
+            raise ValueError("登録フォルダを選択してください")
+        data["library_ids"], data["library_id"] = libs, libs[0]
+        if data["selection_mode"] == "fixed" and not data.get("document_ids"):
+            raise ValueError("固定選択の資料を1件以上選択してください")
+        if data["target"] not in ("builder", "studio") or data["cleanup"] not in ("none", "standard"):
+            raise ValueError("登録先と整理方法を選択してください")
+        if data["selection_mode"] not in ("fixed", "dynamic") or data.get("purpose", "overview") not in ("overview", "compare", "questions", "procedure", "reference"):
+            raise ValueError("資料の選択方法と用途を確認してください")
+        for key in ("document_ids", "excluded_document_ids"):
+            ids = data.get(key, [])
+            found = self.one("SELECT count(*) n FROM documents WHERE library_id IN (SELECT value FROM json_each(?)) AND id IN (SELECT value FROM json_each(?))", (json.dumps(libs), json.dumps(ids)))["n"]
+            if found != len(set(ids)):
+                raise ValueError("選択した登録フォルダ内の資料を指定してください")
+        if any(value not in ("include", "exclude") for value in data["unit_overrides"].values()):
+            raise ValueError("個別の整理設定が不正です")
+        validate_override_bases(data)
+        return data
+
+    def collection(self, collection_id):
+        row = self.one("SELECT * FROM collections WHERE id=?", (collection_id,))
+        if not row:
+            return None
         row["document_ids"] = json.loads(row["document_ids"])
+        options = self.one("SELECT settings FROM collection_options WHERE collection_id=?", (collection_id,))
+        return {**COLLECTION_DEFAULTS, **row, "library_ids": [row["library_id"]], "selection_mode": "fixed" if row["document_ids"] else "dynamic", **(json.loads(options["settings"]) if options else {})}
+
+    def collection_filters(self, collection, *, include_excluded=False):
+        fixed = collection.get("selection_mode") == "fixed"
+        where, args = self.filters("", "" if fixed else collection.get("query", ""), "" if fixed else collection.get("folder", ""), (collection.get("document_ids") or []) if fixed else [])
+        if fixed:
+            # 利用者が固定選択した資料は、原本削除後も未収録理由を示すため候補に残す。
+            where = where.replace("d.active=1", "1=1", 1)
+        where += " AND d.library_id IN (SELECT value FROM json_each(?))"
+        args.append(json.dumps(collection.get("library_ids") or [collection["library_id"]]))
+        if collection.get("selection_mode") == "fixed" and not collection.get("document_ids"):
+            where += " AND 0"
+        if not include_excluded:
+            where += " AND d.id NOT IN (SELECT value FROM json_each(?))"
+            args.append(json.dumps(collection.get("excluded_document_ids", [])))
+        return where, args
+
+    def handoff(self, collection_id, target):
+        row = self.one("SELECT * FROM handoffs WHERE collection_id=? AND target=? ORDER BY recorded_at DESC,rowid DESC LIMIT 1", (collection_id, target))
+        if row:
+            row["files"] = json.loads(row["files"])
         return row
 
     def collections(self):
-        rows = self.all("SELECT * FROM collections ORDER BY updated_at DESC")
-        for r in rows:
-            r["document_ids"] = json.loads(r["document_ids"])
-        return rows
+        return [self.collection(r["id"]) for r in self.all("SELECT id FROM collections ORDER BY updated_at DESC")]
 
     def counts(self):
         return self.one("SELECT count(*) total,coalesce(sum(status='ok'),0) ok,coalesce(sum(status NOT IN ('ok','empty') OR conflict=1),0) attention,coalesce(sum(excluded),0) excluded FROM documents WHERE active=1")
