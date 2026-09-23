@@ -1,0 +1,15 @@
+{
+  "version": "0.2.1",
+  "checks": [
+    "distribution has exactly four user-facing root items and no developer evidence",
+    "bundled English/Japanese OCR under system-only PATH",
+    "standalone EXE serves local UI/API without developer Python PATH",
+    "packaged illustrated manual serves internal images and blocks non-manual files",
+    "packaged Office/text/mixed-PDF/image/ZIP extraction and provenance",
+    "packaged export automatically published and ZIP downloaded",
+    "real Windows InteractiveToken limited-privilege task registration",
+    "background task scans/exports with app closed and reports completion",
+    "temporary Windows task unregistered"
+  ],
+  "user_machine_acceptance": "pending"
+}

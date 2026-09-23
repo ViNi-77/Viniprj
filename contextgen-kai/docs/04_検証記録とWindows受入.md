@@ -6,10 +6,16 @@
 
 利用者ZIPを4点構成へ整理し、開発情報をソース側に分離。HTMLマニュアルをZIP展開からの手順へ変更。Windows上で画面画像を撮影する工程を追加した。利用予定Windows11 PCの受入は未実施。
 
-- ローカル自動試験: 78件成功・Windows専用1件スキップ（ライセンス収集の新規5件を含む）。実OCR、APIのsource/frozen両配置、実行時ライセンスの保持とコード誤混入拒否を含む。
+- ローカル自動試験: 79件成功・Windows専用1件スキップ（ライセンス収集の新規6件を含む）。実OCR、APIのsource/frozen両配置、実行時ライセンスの保持とコード誤混入拒否を含む。
 - マニュアル: 実画像13枚、内部リンク21件。5画面幅・拡大・HTTP表示・オフライン表示・印刷を確認。
 - 旧PPTXアプリ: ソース差分0を確認した上で[既存CIループを再実行](https://github.com/ViNi-77/Viniprj/actions/runs/35815961908/attempts/2)。2026-09-23、全工程成功。v3とpptx-web-bridgeを編集していない。
-- Windows上の再撮影、新ZIPのEXE/OCR/実予約・マニュアル表示は今回のCI結果を確認後に記録する。工程の追加だけを合格とは扱わない。
+- [Windows CI 35826419586](https://github.com/ViNi-77/Viniprj/actions/runs/35826419586)（6fa344a、Windows Server2022 / Python3.12）成功。80件成功・失敗0・スキップ0。
+- Windowsで合成資料を操作し、マニュアル画像13枚を撮影。資料登録先は撮影用の `C:\ContextgenKai-Example`。個人資料・個人のパスは使用していない。[撮影記録](evidence/manual-capture-0.2.1.json)。
+- 新ZIPの入口4点、OCRの内部配置、開発文書・来歴・外出しPythonソース・キャッシュ・デバッグ記号・Macメタデータの非同梱を確認。実EXEの抽出・自動出力・日本語/英語OCR・アプリ終了後の実Windows予約まで9項目成功。[配布試験](evidence/windows-smoke-0.2.1.json)。
+- 配布EXEのHTMLマニュアルをfile://と実EXEのHTTP配信の両方で検査。13画像・21リンク・拡大・5画面幅・印刷19ページ、外部リクエスト0・ブラウザエラー0。[配布マニュアル検証](evidence/manual-packaged-windows-0.2.1.json)。
+- ソースからのclone直後の起動・OCR・依存再取得なしの再起動・実行中の更新拒否も継続成功。[clone試験](evidence/windows-clone-smoke-0.2.1.json)。
+- 完成ZIPを実アーカイブから再監査。41項目成功、外出しPythonソース/キャッシュ/デバッグ記号/Macメタデータ/開発資料0、画像13枚にメタデータなし、実収録の第三者コンポーネントと権利表示を照合。[配布内容の監査](evidence/distribution-audit-0.2.1.json)。
+- ビルド来歴は利用者ZIPに含めず、[開発者用記録](evidence/windows-build-0.2.1.json)へ保持。初回CIで発見した新規テストのCRLF比較の不一致は、実ファイルとHTTPのバイト列比較に修正して解消。
 
 ## 0.2.0 追加検証
 
