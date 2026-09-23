@@ -30,7 +30,7 @@
 
 ### Windows自動試験
 
-[CI実行35799444347](https://github.com/ViNi-77/Viniprj/actions/runs/35799444347)（コミット8352bb1、Windows Server2022 x64 / Python3.12）で、EXE・OCRビルドと同梱OCRを使う59件の試験が成功した（失敗0・スキップ0）。
+[CI実行35800929238](https://github.com/ViNi-77/Viniprj/actions/runs/35800929238)（コミット7c136ca、Windows Server2022 x64 / Python3.12）で、EXE・OCRビルドと同梱OCRを使う60件の試験が成功した（失敗0・スキップ0）。
 
 配布一式を日本語・空白入りフォルダへ移し、開発用Python/OCRのPATHを除いた状態で次を確認した。
 
@@ -40,7 +40,7 @@
 - 実際のWindowsタスクスケジューラへInteractiveToken・通常権限で予約登録。
 - アプリ終了後にOS予約が走査と出力を完了し、履歴へ結果を記録。試験後に予約解除。
 
-[機械可読証跡](evidence/windows-smoke.json)。初回の配布試験で検出した日本語パスの文字化けは、既存manifestを保持したUTF-8コードページ設定で解消した。本文文字数の急減ガードなど、その後の追加試験を含む結果は[専用CI一覧](https://github.com/ViNi-77/Viniprj/actions/workflows/contextgen-kai.yml?query=branch%3Acodex%2Fcontextgen-kai)から確認できる。
+[機械可読証跡](evidence/windows-smoke.json)。初回の配布試験で検出した日本語パスの文字化けは、既存manifestを保持したUTF-8コードページ設定で解消した。本文文字数の急減ガードも含めて成功している。最新の実行結果は[専用CI一覧](https://github.com/ViNi-77/Viniprj/actions/workflows/contextgen-kai.yml?query=branch%3Acodex%2Fcontextgen-kai)から確認できる。
 
 Windows CIは実際の利用予定Windows11 PCとは別環境。ダブルクリックからの既定ブラウザ起動、フォルダ選択、表示倍率、Box/OneDrive等の実運用は下記の実機受入で確認する。1.0.0へは昇格していない。
 

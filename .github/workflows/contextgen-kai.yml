@@ -1,7 +1,7 @@
 name: contextgen-kai Windows
 on:
   push:
-    branches: [main, 'codex/**']
+    branches: [main]
     paths: ['contextgen-kai/**', '.github/workflows/contextgen-kai.yml']
   pull_request:
     paths: ['contextgen-kai/**', '.github/workflows/contextgen-kai.yml']
