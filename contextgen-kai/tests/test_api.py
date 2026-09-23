@@ -221,7 +221,7 @@ def test_packaged_manual_uses_executable_sibling_directory(tmp_path, monkeypatch
     monkeypatch.setattr(sys, '_MEIPASS', str(internal), raising=False)
     app = create_app(tmp_path / 'state', use_process=False, enable_scheduler=False)
     with TestClient(app) as client:
-        assert client.get('/manual/').text == manual
+        assert client.get('/manual/').content == (bundle / 'contextgen改_操作マニュアル.html').read_bytes()
         assert smoke.verify_manual_assets(bundle, lambda route: client.get(route).content, packaged=True) >= 4
         assert client.get('/manual/最初にお読みください.txt').status_code == 200
         # 実体を紛れ込ませても、許可されたマニュアル画像以外はAPIから読めない。
