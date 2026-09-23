@@ -115,7 +115,7 @@ async function refresh() {
     const previousJobs = JSON.stringify(state.jobs);
     const data = await api("/status");
     state.token = data.token; state.libraries = data.libraries || []; state.collections = data.collections || []; state.jobs = data.jobs || []; state.schedules = data.schedules || [];
-    $("#version").textContent = data.version || "0.1.0";
+    $("#version").textContent = data.version || "0.2.0";
     $("#connection").classList.remove("offline"); $("#connection").replaceChildren(node("i"), document.createTextNode("ローカル接続中"));
     $("#global-error").hidden = true;
     for (const key of ["total", "ok", "attention", "excluded"]) { const target = $(`#stat-${key}`); target.replaceChildren(document.createTextNode(countText(data.counts?.[key])), node("small", "", "件")); }

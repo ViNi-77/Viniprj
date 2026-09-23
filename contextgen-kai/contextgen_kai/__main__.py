@@ -15,6 +15,16 @@ from pathlib import Path
 
 def main():
     multiprocessing.freeze_support()
+    from .installation import InstallationBusy, installation_lock
+    try:
+        with installation_lock():
+            return _main()
+    except InstallationBusy as error:
+        print(str(error), file=sys.stderr)
+        return 2
+
+
+def _main():
     parser = argparse.ArgumentParser(description="contextgen 改 — 手元の資料をCopilotへ")
     parser.add_argument("--state-dir", type=Path)
     parser.add_argument("--port", type=int, default=8766)

@@ -1,4 +1,4 @@
-# 実装境界（0.1.0）
+# 実装境界（0.2.0）
 
 旧2プロジェクトは編集禁止。アプリは `contextgen_kai` パッケージで完結。
 
@@ -32,4 +32,7 @@ Document list: id,library_id,relative_path,status,excluded,conflict,updated_at,w
 `POST /api/shutdown {}` requests graceful shutdown; GET `/api/health`, `/api/version` available.
 
 ## Runtime / packaging
-Entry `python -m contextgen_kai [--state-dir PATH] [--port 8766] [--no-browser] [--run-schedule ID]`. launch.py at project root calls main after freeze_support. Resource lookup from package `static/`, OCR directory relative bundled EXE `ocr/` or CONTEXTGEN_TESSERACT env path. Runtime version contextgen_kai.__version__ = 0.1.0 until actual Windows acceptance. Dependencies root owned pyproject.toml. Build packages onedir, tests excluded, Japanese+English tessdata included, NOTICE files bundled. CI `.github/workflows/contextgen-kai.yml` only new app.
+Entry `python -m contextgen_kai [--state-dir PATH] [--port 8766] [--no-browser] [--run-schedule ID]`. launch.py at project root calls main after freeze_support. Resource lookup from package `static/`, OCR directory relative bundled EXE `ocr/` or CONTEXTGEN_TESSERACT env path. Runtime version contextgen_kai.__version__ = 0.2.0 (development; 1.0.0 awaits actual Windows acceptance). Dependencies root owned pyproject.toml. Build packages onedir, tests excluded, Japanese+English tessdata included, NOTICE files bundled. CI `.github/workflows/contextgen-kai.yml` only new app.
+
+## Documentation
+Root documents: 仕様書兼要件定義書.md / アプリ概要とバージョン履歴.md / アプリ基本設計基準書.md. `GET /manual/` serves contextgen改_操作マニュアル.html; sibling images are local, documentation filenames are allowlisted. Git contains Windows OCR runtime and language data with checksums and licenses. Source setup needs Python3.12; EXE distribution needs no installed Python.

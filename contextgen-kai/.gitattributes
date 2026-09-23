@@ -1,0 +1,11 @@
+# OCRのSHA-256をmacOS/Windowsのclone後も保持する（core.autocrlfに依存しない）。
+ocr/tesseract.exe binary
+ocr/tessdata/*.traineddata binary
+ocr/tessdata/LICENSE -text
+# 上流の権利表示はCRLF・末尾空白も含め原文のバイト列を保持する。
+ocr/licenses/* -text -whitespace
+ocr/BUNDLE-MANIFEST.json -text
+
+# コマンドプロンプト向け入口。PowerShellはUTF-8 BOM付きでWindows PowerShell 5.1にも対応。
+*.bat text eol=crlf
+packaging/*.ps1 text eol=crlf

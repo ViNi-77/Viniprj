@@ -426,6 +426,25 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
     static_dir = Path(__file__).resolve().parent / "static"
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
+    # Git版と配布EXEのどちらでも、利用者に見えるアプリ直下を文書の正本にする。
+    document_root = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
+    manual_files = {"contextgen改_操作マニュアル.html", "README.md", "仕様書兼要件定義書.md", "アプリ概要とバージョン履歴.md", "アプリ基本設計基準書.md"}
+
+    @app.get("/manual/")
+    def manual():
+        path = document_root / "contextgen改_操作マニュアル.html"
+        if not path.is_file():
+            raise HTTPException(404, "マニュアルが見つかりません。アプリ一式を更新してください")
+        return FileResponse(path)
+
+    @app.get("/manual/{filename}")
+    def design_document(filename: str):
+        if filename not in manual_files or not (document_root / filename).is_file():
+            raise HTTPException(404, "文書が見つかりません")
+        return FileResponse(document_root / filename)
+
+    app.mount("/manual/images", StaticFiles(directory=document_root / "images", check_dir=False), name="manual-images")
+
     @app.get("/")
     def index():
         return FileResponse(static_dir / "index.html")

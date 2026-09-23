@@ -7,7 +7,7 @@
 |---|---|---|---|
 | PPTX ⇄ Web図解 双方向変換アプリ | [`pptx-web-bridge/`](pptx-web-bridge/) | PowerPoint と Web図解を Presentation JSON で双方向変換するローカル Web アプリ | `cd pptx-web-bridge && start_windows.bat`（Linux / WSL は `./start.sh`）→ [README](pptx-web-bridge/README.md) |
 | contextgen（M365 Copilot コンテキスト生成ツール） | [`copilot-context-generator/`](copilot-context-generator/) | フォルダ内の Word / Excel / PowerPoint / PDF から本文を抽出し、M365 Copilot エージェント用ナレッジ・人間向け読解キット・文書健康診断を生成 | [README](copilot-context-generator/README.md) → 本体は `work1_improvement/`、横展開は `work2_cross_ai/` |
-| contextgen 改 | [`contextgen-kai/`](contextgen-kai/) | 大量資料の確認・訂正・用途別出力・定期更新を行う独立アプリ（開発版0.1.0） | [README](contextgen-kai/README.md) / [要件定義](contextgen-kai/docs/01_要件定義書.md) |
+| contextgen 改 | [`contextgen-kai/`](contextgen-kai/) | 大量資料の確認・訂正・用途別出力・定期更新を行う独立アプリ（開発版0.2.0） | [README](contextgen-kai/README.md) / [要件定義](contextgen-kai/仕様書兼要件定義書.md) |
 
 ## はじめかた（clone して起動）
 

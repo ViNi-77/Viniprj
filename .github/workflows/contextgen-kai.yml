@@ -36,29 +36,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Locked dependency installation failed' }
           python -m pip install -e . --no-deps --no-build-isolation
           if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
-      - name: Unit and integration tests
+      - name: Verify Git-bundled Japanese-English OCR
         run: |
-          python -m pytest -q --junitxml=build/test-results.xml
-          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
-      - uses: actions/checkout@v4
-        with:
-          repository: microsoft/vcpkg
-          ref: ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0
-          path: .contextgen-build/vcpkg
-      - uses: actions/cache/restore@v4
-        id: vcpkg_cache
-        with:
-          path: ~/AppData/Local/vcpkg/archives
-          key: contextgen-kai-vcpkg-static-${{ runner.os }}-ef7dbf94-${{ hashFiles('contextgen-kai/packaging/triplets/*') }}
+          python packaging/verify_ocr_bundle.py --root ocr
+          if ($LASTEXITCODE -ne 0) { throw 'Git-bundled OCR verification failed' }
+      - name: Fresh clone startup, cached restart and real OCR
+        run: |
+          python scripts/prepare_test_font.py
+          if ($LASTEXITCODE -ne 0) { throw 'OCR test font preparation failed' }
+          $env:CONTEXTGEN_TEST_JAPANESE_FONT = (Resolve-Path 'build/NotoSansCJKjp-Regular.otf').Path
+          python scripts/windows_clone_smoke.py --output build/windows-clone-smoke.json
+          if ($LASTEXITCODE -ne 0) { throw 'Fresh clone startup smoke failed' }
       - name: Build standalone EXE and bundled Japanese-English OCR
-        id: native_build
-        run: ./packaging/build_windows.ps1 -VcpkgRoot '${{ github.workspace }}/.contextgen-build/vcpkg'
-      - name: Preserve successful native build cache
-        uses: actions/cache/save@v4
-        if: always() && steps.native_build.outputs.ocr_cache_ready == 'true' && steps.vcpkg_cache.outputs.cache-hit != 'true'
-        with:
-          path: ~/AppData/Local/vcpkg/archives
-          key: contextgen-kai-vcpkg-static-${{ runner.os }}-ef7dbf94-${{ hashFiles('contextgen-kai/packaging/triplets/*') }}
+        run: ./packaging/build_windows.ps1
       - name: All tests with bundled OCR
         run: |
           python scripts/prepare_test_font.py
@@ -73,11 +63,11 @@ jobs:
           python scripts/windows_smoke.py --exe dist/ContextgenKai/ContextgenKai.exe
           if ($LASTEXITCODE -ne 0) { throw 'Packaged application smoke failed' }
       - name: ZIP distributable
-        run: Compress-Archive -Path dist/ContextgenKai -DestinationPath dist/contextgen-kai-0.1.0-windows-x64.zip -Force
+        run: Compress-Archive -Path dist/ContextgenKai -DestinationPath dist/contextgen-kai-0.2.0-windows-x64.zip -Force
       - uses: actions/upload-artifact@v4
         with:
           name: contextgen-kai-windows
-          path: contextgen-kai/dist/contextgen-kai-0.1.0-windows-x64.zip
+          path: contextgen-kai/dist/contextgen-kai-0.2.0-windows-x64.zip
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4
@@ -90,6 +80,8 @@ jobs:
             contextgen-kai/build/windows-smoke.log
             contextgen-kai/build/windows-app.log
             contextgen-kai/build/windows-task-details.txt
+            contextgen-kai/build/windows-clone-smoke.json
+            contextgen-kai/build/windows-clone-*.log
             contextgen-kai/build/tesseract-*.manifest
             contextgen-kai/build/windows/warn-windows.txt
             .contextgen-build/vcpkg/buildtrees/**/*.log

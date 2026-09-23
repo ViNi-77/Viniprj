@@ -188,7 +188,8 @@ def tesseract_path() -> str | None:
     configured = os.environ.get("CONTEXTGEN_TESSERACT")
     if configured:
         return str(Path(configured)) if Path(configured).is_file() else None
-    names = ("tesseract.exe", "tesseract")
+    # GitにはWindows用の実体も同梱する。macOS開発時はその.exeを実行しない。
+    names = ("tesseract.exe", "tesseract") if sys.platform == "win32" else ("tesseract",)
     bases = [Path(sys.executable).parent / "ocr", Path(__file__).resolve().parents[1] / "ocr"]
     if getattr(sys, "_MEIPASS", None):
         bases.append(Path(sys._MEIPASS) / "ocr")

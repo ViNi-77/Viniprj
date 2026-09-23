@@ -144,3 +144,36 @@ def test_real_process_extraction(tmp_path):
         assert store.one("SELECT original_text FROM documents")["original_text"].strip().endswith("実プロセスで読み取り")
     finally:
         manager.close()
+
+
+def test_manual_serves_only_bundled_documents_and_images(client):
+    """画面から開く手引きの相対画像が読め、同階層の実装・原本は公開されない。"""
+    import re
+    from urllib.parse import unquote
+    response = client.get('/manual/')
+    assert response.status_code == 200
+    assert 'text/html' in response.headers['content-type']
+    paths = re.findall(r'<img\b[^>]*\bsrc=["\']([^"\']+)', response.text)
+    assert len(paths) >= 4
+    for path in paths:
+        assert path.startswith('images/')
+        image = client.get('/manual/' + unquote(path))
+        assert image.status_code == 200, path
+        assert image.headers['content-type'].startswith('image/')
+        assert len(image.content) > 1000
+    for name in ['仕様書兼要件定義書.md', 'アプリ概要とバージョン履歴.md', 'アプリ基本設計基準書.md']:
+        assert client.get('/manual/' + name).status_code == 200
+    for path in ['/manual/pyproject.toml', '/manual/api.py', '/manual/images/%2e%2e/pyproject.toml']:
+        assert client.get(path).status_code == 404
+
+
+def test_packaged_manual_uses_executable_sibling_directory(tmp_path, monkeypatch):
+    import sys
+    bundle = tmp_path / '日本語 配布'
+    bundle.mkdir()
+    (bundle / 'contextgen改_操作マニュアル.html').write_text('<h1>bundled manual</h1>', encoding='utf-8')
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(sys, 'executable', str(bundle / 'ContextgenKai.exe'))
+    app = create_app(tmp_path / 'state', use_process=False, enable_scheduler=False)
+    with TestClient(app) as client:
+        assert client.get('/manual/').text == '<h1>bundled manual</h1>'

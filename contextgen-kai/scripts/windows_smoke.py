@@ -5,6 +5,7 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 import io
 import hashlib
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
@@ -17,8 +18,21 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import quote
 import zipfile
 import xml.etree.ElementTree as ET
+
+from contextgen_kai import __version__
+
+
+class ManualImages(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.sources = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == 'img':
+            self.sources.append(dict(attrs).get('src', ''))
 
 
 def fixtures(folder):
@@ -96,7 +110,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--exe', type=Path, required=True)
     exe = parser.parse_args().exe.resolve()
-    evidence = {'version': '0.1.0', 'checks': [], 'user_machine_acceptance': 'pending'}
+    evidence = {'version': __version__, 'checks': [], 'user_machine_acceptance': 'pending'}
     output = Path('build')
     output.mkdir(exist_ok=True)
     def checked(name):
@@ -143,9 +157,26 @@ def main():
                         return None
                 status = wait_for(ready, seconds=60, label='packaged API')
                 token = status['token']
-                assert status['version'] == '0.1.0'
+                assert status['version'] == __version__
                 assert b'contextgen' in request(base, '/').lower()
                 checked('standalone EXE serves local UI/API without developer Python PATH')
+                # 配布ZIPでHTML・画像・日本語ファイル名の文書が揃い、アプリから開けること。
+                manual = request(base, '/manual/').decode('utf-8')
+                assert (exe.parent / 'contextgen改_操作マニュアル.html').read_text(encoding='utf-8') == manual
+                parser = ManualImages()
+                parser.feed(manual)
+                assert len(parser.sources) >= 4, 'Manual must include actual app screenshots'
+                for image_source in parser.sources:
+                    assert image_source.startswith('images/') and '..' not in image_source
+                    image_file = exe.parent / image_source
+                    assert image_file.is_file()
+                    image_bytes = request(base, '/manual/' + quote(image_source))
+                    assert image_bytes == image_file.read_bytes()
+                    assert image_bytes.startswith(b'\x89PNG\r\n\x1a\n'), image_source
+                for document in ('README.md', '仕様書兼要件定義書.md', 'アプリ概要とバージョン履歴.md', 'アプリ基本設計基準書.md'):
+                    assert (exe.parent / document).is_file()
+                    assert request(base, '/manual/' + quote(document))
+                checked('packaged root documents and illustrated manual served with all screenshots')
                 library = request(base, '/api/libraries', method='POST', data={'name': 'Windows 受入資料', 'path': str(source)}, token=token)
                 job = request(base, '/api/jobs', method='POST', data={'library_id': library['id'], 'export_after': False}, token=token)
                 def job_done(job_id):
