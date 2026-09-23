@@ -161,8 +161,10 @@ def main():
                 assert b'contextgen' in request(base, '/').lower()
                 checked('standalone EXE serves local UI/API without developer Python PATH')
                 # 配布ZIPでHTML・画像・日本語ファイル名の文書が揃い、アプリから開けること。
-                manual = request(base, '/manual/').decode('utf-8')
-                assert (exe.parent / 'contextgen改_操作マニュアル.html').read_text(encoding='utf-8') == manual
+                manual_bytes = request(base, '/manual/')
+                # Windowsのread_textはCRLFをLFへ変換するため、配信実体はバイト列で照合する。
+                assert (exe.parent / 'contextgen改_操作マニュアル.html').read_bytes() == manual_bytes
+                manual = manual_bytes.decode('utf-8')
                 parser = ManualImages()
                 parser.feed(manual)
                 assert len(parser.sources) >= 4, 'Manual must include actual app screenshots'
