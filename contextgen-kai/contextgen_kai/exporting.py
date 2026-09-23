@@ -83,9 +83,11 @@ def build_export(store: Store, collection_id: str, *, force=False, cancelled=lam
     destination = base / export_id
     staging.mkdir(parents=True)
     old = store.one("SELECT * FROM exports WHERE collection_id=? AND is_active=1", (collection_id,))
-    old_files = json.loads(old["manifest"]).get("files", {}) if old else {}
+    old_manifest = json.loads(old["manifest"]) if old else {}
+    old_files = old_manifest.get("files", {})
     where, args = store.filters(collection["library_id"], collection["query"], collection["folder"], json.loads(collection["document_ids"]))
     document_count = chunk_count = omitted = issues = conflicts = duplicates = sensitive = 0
+    text_char_count = 0
     seen: dict[str, str] = {}
     set_no = 1
     part_no = 1
@@ -139,6 +141,7 @@ def build_export(store: Store, collection_id: str, *, force=False, cancelled=lam
                     continue
                 seen[digest] = doc["relative_path"]
                 document_count += 1
+                text_char_count += len(text)
                 sensitive += bool(re.search(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|\b0\d{1,4}-\d{1,4}-\d{3,4}\b", text))
                 md.write(f"## {doc['relative_path']}\n\n{text}\n\n")
                 for n, piece in enumerate(chunks(text), 1):
@@ -170,7 +173,8 @@ def build_export(store: Store, collection_id: str, *, force=False, cancelled=lam
         unseen_risks = store.one("SELECT count(*) n FROM documents d WHERE " + risk_where + " AND excluded=0 AND (status NOT IN ('ok','empty') OR conflict=1)", risk_args)["n"]
         if unseen_risks and not (issues or conflicts):
             reasons.append(f"対象範囲に読取未完了・競合が{unseen_risks}件あります（検索で除外された資料も含む）")
-        if old and (document_count < old["document_count"] * 0.5 or chunk_count < old["chunk_count"] * 0.5):
+        # ファイル数・分割数が同じでも、本文だけ大幅に欠落した世代は確定しない。
+        if old and (document_count < old["document_count"] * 0.5 or chunk_count < old["chunk_count"] * 0.5 or text_char_count < old_manifest.get("text_char_count", 0) * 0.5):
             reasons.append("収録量が前回の50%未満です")
         state = "held" if reasons and not force else "published"
         reason = " / ".join(reasons)
@@ -185,7 +189,7 @@ def build_export(store: Store, collection_id: str, *, force=False, cancelled=lam
         removed = [name for name in old_files if name.startswith("M365/") and name not in hashes]
         _write(staging / "upload-changes.md", "# Copilotへの差し替え一覧\n\n## 追加・変更\n" + ("\n".join(f"- {s}" for s in changed) or "変更なし") + "\n\n## 今回なくなったファイル\n" + ("\n".join(f"- {s}" for s in removed) or "なし") + "\n")
         hashes["upload-changes.md"] = hashlib.sha256((staging / "upload-changes.md").read_bytes()).hexdigest()
-        manifest = dict(schema_version=1, collection=collection["name"], files=hashes, assignments=assignments, omitted=omitted, duplicates=duplicates)
+        manifest = dict(schema_version=1, collection=collection["name"], files=hashes, assignments=assignments, omitted=omitted, duplicates=duplicates, text_char_count=text_char_count)
         _write(staging / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         cancelled()
         staging.rename(destination)

@@ -209,6 +209,22 @@ def test_warning_conflict_and_large_drop_hold_previous_generation(workspace):
     assert warning["state"] == "held" and "読取警告" in warning["reason"]
 
 
+def test_text_volume_drop_holds_even_when_file_and_chunk_counts_do_not_change(workspace):
+    sources, store, library, manager = workspace
+    path = sources / "source.txt"
+    path.write_text("設備の保全点検記録。" * 100, encoding="utf-8")
+    scan(manager, library["id"])
+    target = collection(store, library)
+    first = build_export(store, target["id"])
+    path.write_text("短い抽出結果", encoding="utf-8")
+    scan(manager, library["id"])
+    second = build_export(store, target["id"])
+    assert second["document_count"] == first["document_count"] == 1
+    assert second["chunk_count"] == first["chunk_count"] == 1
+    assert second["state"] == "held" and "50%未満" in second["reason"]
+    assert store.one("SELECT id FROM exports WHERE is_active=1")["id"] == first["id"]
+
+
 def test_corrupt_or_failed_new_export_never_replaces_previous(workspace, monkeypatch):
     from contextgen_kai import exporting
     sources, store, library, manager = workspace
