@@ -165,6 +165,14 @@ def test_manual_serves_only_bundled_documents_and_images(client):
         assert client.get('/manual/' + name).status_code == 200
     for path in ['/manual/pyproject.toml', '/manual/api.py', '/manual/images/%2e%2e/pyproject.toml']:
         assert client.get(path).status_code == 404
+    # Windows配布試験と同じHTML解析・画像/JS/文書照合を実APIでも通す。
+    import importlib.util
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location('windows_smoke', root / 'scripts/windows_smoke.py')
+    smoke = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(smoke)
+    assert smoke.verify_manual_assets(root, lambda route: client.get(route).content) == len(paths)
 
 
 def test_packaged_manual_uses_executable_sibling_directory(tmp_path, monkeypatch):

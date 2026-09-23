@@ -32,7 +32,30 @@ class ManualImages(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         if tag == 'img':
-            self.sources.append(dict(attrs).get('src', ''))
+            attributes = dict(attrs)
+            # 拡大用の空imgにはクリック後に選択した画像を設定する。
+            if attributes.get('id') == 'image-large' and not attributes.get('src'):
+                return
+            self.sources.append(attributes.get('src', ''))
+
+
+def verify_manual_assets(root: Path, fetch):
+    """配布ファイルと実HTTPの一致を照合。OS固有処理から分けてローカルでも検証する。"""
+    manual_bytes = fetch('/manual/')
+    # read_textによるWindows改行変換を避け、配信実体をそのまま比べる。
+    assert (root / 'contextgen改_操作マニュアル.html').read_bytes() == manual_bytes
+    parser = ManualImages()
+    parser.feed(manual_bytes.decode('utf-8'))
+    assert len(parser.sources) >= 4, 'Manual must include actual app screenshots'
+    for source in parser.sources:
+        assert source.startswith('images/') and '..' not in source, source
+        image_bytes = fetch('/manual/' + quote(source))
+        assert image_bytes == (root / source).read_bytes()
+        assert image_bytes.startswith(b'\x89PNG\r\n\x1a\n'), source
+    assert fetch('/manual/images/manual.js') == (root / 'images/manual.js').read_bytes()
+    for document in ('README.md', '仕様書兼要件定義書.md', 'アプリ概要とバージョン履歴.md', 'アプリ基本設計基準書.md'):
+        assert fetch('/manual/' + quote(document)) == (root / document).read_bytes()
+    return len(parser.sources)
 
 
 def fixtures(folder):
@@ -161,23 +184,7 @@ def main():
                 assert b'contextgen' in request(base, '/').lower()
                 checked('standalone EXE serves local UI/API without developer Python PATH')
                 # 配布ZIPでHTML・画像・日本語ファイル名の文書が揃い、アプリから開けること。
-                manual_bytes = request(base, '/manual/')
-                # Windowsのread_textはCRLFをLFへ変換するため、配信実体はバイト列で照合する。
-                assert (exe.parent / 'contextgen改_操作マニュアル.html').read_bytes() == manual_bytes
-                manual = manual_bytes.decode('utf-8')
-                parser = ManualImages()
-                parser.feed(manual)
-                assert len(parser.sources) >= 4, 'Manual must include actual app screenshots'
-                for image_source in parser.sources:
-                    assert image_source.startswith('images/') and '..' not in image_source
-                    image_file = exe.parent / image_source
-                    assert image_file.is_file()
-                    image_bytes = request(base, '/manual/' + quote(image_source))
-                    assert image_bytes == image_file.read_bytes()
-                    assert image_bytes.startswith(b'\x89PNG\r\n\x1a\n'), image_source
-                for document in ('README.md', '仕様書兼要件定義書.md', 'アプリ概要とバージョン履歴.md', 'アプリ基本設計基準書.md'):
-                    assert (exe.parent / document).is_file()
-                    assert request(base, '/manual/' + quote(document))
+                verify_manual_assets(exe.parent, lambda route: request(base, route))
                 checked('packaged root documents and illustrated manual served with all screenshots')
                 library = request(base, '/api/libraries', method='POST', data={'name': 'Windows 受入資料', 'path': str(source)}, token=token)
                 job = request(base, '/api/jobs', method='POST', data={'library_id': library['id'], 'export_after': False}, token=token)
