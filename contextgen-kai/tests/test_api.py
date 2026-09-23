@@ -163,7 +163,9 @@ def test_manual_serves_only_bundled_documents_and_images(client):
         assert len(image.content) > 1000
     for name in ['仕様書兼要件定義書.md', 'アプリ概要とバージョン履歴.md', 'アプリ基本設計基準書.md']:
         assert client.get('/manual/' + name).status_code == 200
-    for path in ['/manual/pyproject.toml', '/manual/api.py', '/manual/images/%2e%2e/pyproject.toml']:
+    for path in ['/manual/pyproject.toml', '/manual/api.py', '/manual/images/%2e%2e/pyproject.toml',
+                 '/manual/images/capture-record.json', '/manual/images/unknown.png',
+                 '/manual/_internal/manual/images/01_home.png']:
         assert client.get(path).status_code == 404
     # Windows配布試験と同じHTML解析・画像/JS/文書照合を実APIでも通す。
     import importlib.util
@@ -176,12 +178,60 @@ def test_manual_serves_only_bundled_documents_and_images(client):
 
 
 def test_packaged_manual_uses_executable_sibling_directory(tmp_path, monkeypatch):
+    import importlib.util
+    from pathlib import Path
+    import shutil
     import sys
+
+    source = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location('windows_smoke', source / 'scripts/windows_smoke.py')
+    smoke = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(smoke)
     bundle = tmp_path / '日本語 配布'
     bundle.mkdir()
-    (bundle / 'contextgen改_操作マニュアル.html').write_text('<h1>bundled manual</h1>', encoding='utf-8')
+    internal = bundle / '_internal'
+    images = internal / 'manual/images'
+    images.mkdir(parents=True)
+    for image in (source / 'images').iterdir():
+        if image.suffix == '.png' or image.name == 'manual.js':
+            shutil.copy2(image, images / image.name)
+    manual = (source / 'contextgen改_操作マニュアル.html').read_text(encoding='utf-8')
+    manual = manual.replace('src="images/', 'src="_internal/manual/images/')
+    manual = manual.replace("src='images/", "src='_internal/manual/images/")
+    (bundle / 'contextgen改_操作マニュアル.html').write_text(manual, encoding='utf-8')
+    for filename in ('ContextgenKai.exe', '最初にお読みください.txt', '_internal/ocr/tesseract.exe',
+                     '_internal/ocr/tessdata/eng.traineddata', '_internal/ocr/tessdata/jpn.traineddata',
+                     '_internal/ocr/tessdata/LICENSE', '_internal/THIRD_PARTY_LICENSES/tesseract-LICENSE.txt',
+                     '_internal/THIRD_PARTY_LICENSES/tessdata-LICENSE.txt',
+                     '_internal/THIRD_PARTY_LICENSES/Tcl-LICENSE.txt',
+                     '_internal/THIRD_PARTY_LICENSES/Tk-LICENSE.txt',
+                     '_internal/THIRD_PARTY_LICENSES/python/Python-LICENSE.txt'):
+        path = bundle / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('test fixture', encoding='utf-8')
+    smoke.verify_distribution_layout(bundle)
+    for name in ('leaked.py', 'leaked.pyc', 'leaked.pdb', '.DS_Store', '__MACOSX', '._resource', '__pycache__'):
+        leaked = internal / name
+        leaked.write_text('must not be distributed', encoding='utf-8')
+        with pytest.raises(AssertionError):
+            smoke.verify_distribution_layout(bundle)
+        leaked.unlink()
     monkeypatch.setattr(sys, 'frozen', True, raising=False)
     monkeypatch.setattr(sys, 'executable', str(bundle / 'ContextgenKai.exe'))
+    monkeypatch.setattr(sys, '_MEIPASS', str(internal), raising=False)
     app = create_app(tmp_path / 'state', use_process=False, enable_scheduler=False)
     with TestClient(app) as client:
-        assert client.get('/manual/').text == '<h1>bundled manual</h1>'
+        assert client.get('/manual/').text == manual
+        assert smoke.verify_manual_assets(bundle, lambda route: client.get(route).content, packaged=True) >= 4
+        assert client.get('/manual/最初にお読みください.txt').status_code == 200
+        # 実体を紛れ込ませても、許可されたマニュアル画像以外はAPIから読めない。
+        (bundle / 'README.md').write_text('not for the user package', encoding='utf-8')
+        (images / 'capture-record.json').write_text('private capture metadata', encoding='utf-8')
+        (images / 'unknown.png').write_bytes(b'not an allowed screenshot')
+        for path in ('README.md', '仕様書兼要件定義書.md', 'images/01_home.png',
+                     '_internal/manual/images/capture-record.json', '_internal/manual/images/unknown.png',
+                     '_internal/ocr/tesseract.exe', '_internal/THIRD_PARTY_LICENSES/tesseract-LICENSE.txt',
+                     '_internal/manual/images/%2e%2e/%2e%2e/ocr/tesseract.exe'):
+            assert client.get('/manual/' + path).status_code == 404, path
+        with pytest.raises(AssertionError, match='four user-facing items'):
+            smoke.verify_distribution_layout(bundle)

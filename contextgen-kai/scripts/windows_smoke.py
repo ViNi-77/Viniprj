@@ -39,7 +39,40 @@ class ManualImages(HTMLParser):
             self.sources.append(attributes.get('src', ''))
 
 
-def verify_manual_assets(root: Path, fetch):
+def verify_distribution_layout(root: Path):
+    """利用者ZIPの入口は4点だけ。開発用文書・検証来歴が紛れたら不合格にする。"""
+    from contextgen_kai.api import MANUAL_ASSETS
+    assert {path.name for path in root.iterdir()} == {
+        'ContextgenKai.exe', 'contextgen改_操作マニュアル.html', '最初にお読みください.txt', '_internal',
+    }, 'Distribution root must contain exactly the four user-facing items'
+    internal = root / '_internal'
+    assert internal.is_dir()
+    ocr = internal / 'ocr'
+    assert {path.name for path in ocr.iterdir()} == {'tesseract.exe', 'tessdata'}
+    assert {path.name for path in (ocr / 'tessdata').iterdir()} == {'eng.traineddata', 'jpn.traineddata', 'LICENSE'}
+    licenses = internal / 'THIRD_PARTY_LICENSES'
+    assert (licenses / 'tesseract-LICENSE.txt').is_file()
+    assert (licenses / 'tessdata-LICENSE.txt').is_file()
+    assert (licenses / 'Tcl-LICENSE.txt').is_file()
+    assert (licenses / 'Tk-LICENSE.txt').is_file()
+    assert (licenses / 'python/Python-LICENSE.txt').is_file()
+    images = internal / 'manual/images'
+    assert images.is_dir()
+    assert {path.name for path in images.iterdir()} == MANUAL_ASSETS
+    assert all(path.is_file() for path in images.iterdir())
+    for name in ('BUILD-MANIFEST.json', 'BUNDLE-MANIFEST.json', 'capture-record.json', 'IMPLEMENTATION_CONTRACT.md',
+                 '仕様書兼要件定義書.md', 'アプリ概要とバージョン履歴.md', 'アプリ基本設計基準書.md',
+                 'start_windows.bat', 'update_windows.bat', '起動.bat', '更新.bat'):
+        assert not list(root.rglob(name)), f'Developer evidence must not be included: {name}'
+    # 展開された配布ファイルだけを確認。Python実行に必要なPYZ/base_library.zip内部は対象外。
+    for path in root.rglob('*'):
+        assert not any(part in {'.DS_Store', '__MACOSX', '__pycache__'} or part.startswith('._')
+                       for part in path.relative_to(root).parts), f'Unwanted host metadata in distribution: {path}'
+        if path.is_file():
+            assert path.suffix.lower() not in {'.py', '.pyc', '.pdb'}, f'Developer source/cache/symbol file in distribution: {path}'
+
+
+def verify_manual_assets(root: Path, fetch, *, packaged=False):
     """配布ファイルと実HTTPの一致を照合。OS固有処理から分けてローカルでも検証する。"""
     manual_bytes = fetch('/manual/')
     # read_textによるWindows改行変換を避け、配信実体をそのまま比べる。
@@ -47,14 +80,16 @@ def verify_manual_assets(root: Path, fetch):
     parser = ManualImages()
     parser.feed(manual_bytes.decode('utf-8'))
     assert len(parser.sources) >= 4, 'Manual must include actual app screenshots'
+    prefix = '_internal/manual/images/' if packaged else 'images/'
     for source in parser.sources:
-        assert source.startswith('images/') and '..' not in source, source
+        assert source.startswith(prefix) and '/' not in source[len(prefix):] and '..' not in source, source
         image_bytes = fetch('/manual/' + quote(source))
         assert image_bytes == (root / source).read_bytes()
         assert image_bytes.startswith(b'\x89PNG\r\n\x1a\n'), source
-    assert fetch('/manual/images/manual.js') == (root / 'images/manual.js').read_bytes()
-    for document in ('README.md', '仕様書兼要件定義書.md', 'アプリ概要とバージョン履歴.md', 'アプリ基本設計基準書.md'):
-        assert fetch('/manual/' + quote(document)) == (root / document).read_bytes()
+    assert fetch('/manual/' + prefix + 'manual.js') == (root / prefix / 'manual.js').read_bytes()
+    if not packaged:
+        for document in ('README.md', '仕様書兼要件定義書.md', 'アプリ概要とバージョン履歴.md', 'アプリ基本設計基準書.md'):
+            assert fetch('/manual/' + quote(document)) == (root / document).read_bytes()
     return len(parser.sources)
 
 
@@ -150,6 +185,8 @@ def main():
             relocated = root / '配布 アプリ'
             shutil.copytree(exe.parent, relocated)
             exe = relocated / exe.name
+            verify_distribution_layout(exe.parent)
+            checked('distribution has exactly four user-facing root items and no developer evidence')
             state = root / '状態 日本語'
             source = root / '資料 日本語'
             fixtures(source)
@@ -157,7 +194,7 @@ def main():
             env.pop('PYTHONPATH', None)
             env.pop('CONTEXTGEN_TESSERACT', None)
             env.pop('TESSDATA_PREFIX', None)
-            ocr = exe.parent / 'ocr' / 'tesseract.exe'
+            ocr = exe.parent / '_internal' / 'ocr' / 'tesseract.exe'
             result = subprocess.run([str(ocr), str(source / '画像.png'), 'stdout', '-l', 'eng+jpn', '--tessdata-dir', str(ocr.parent / 'tessdata')],
                                     env=env, capture_output=True, timeout=60)
             text = result.stdout.decode('utf-8', errors='replace')
@@ -183,9 +220,17 @@ def main():
                 assert status['version'] == __version__
                 assert b'contextgen' in request(base, '/').lower()
                 checked('standalone EXE serves local UI/API without developer Python PATH')
-                # 配布ZIPでHTML・画像・日本語ファイル名の文書が揃い、アプリから開けること。
-                verify_manual_assets(exe.parent, lambda route: request(base, route))
-                checked('packaged root documents and illustrated manual served with all screenshots')
+                # 配布HTMLは直下、画像とJSは_internal。実HTTPの内容が同じ配布実体と一致すること。
+                verify_manual_assets(exe.parent, lambda route: request(base, route), packaged=True)
+                for path in ('README.md', '仕様書兼要件定義書.md', '_internal/manual/images/capture-record.json',
+                             '_internal/ocr/tesseract.exe', '_internal/THIRD_PARTY_LICENSES/tesseract-LICENSE.txt'):
+                    try:
+                        request(base, '/manual/' + quote(path))
+                    except urllib.error.HTTPError as error:
+                        assert error.code == 404, (path, error.code)
+                    else:
+                        raise AssertionError(f'Unexpected distribution file exposed by manual API: {path}')
+                checked('packaged illustrated manual serves internal images and blocks non-manual files')
                 library = request(base, '/api/libraries', method='POST', data={'name': 'Windows 受入資料', 'path': str(source)}, token=token)
                 job = request(base, '/api/jobs', method='POST', data={'library_id': library['id'], 'export_after': False}, token=token)
                 def job_done(job_id):

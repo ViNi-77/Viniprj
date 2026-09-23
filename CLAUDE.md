@@ -6,7 +6,7 @@
 |---|---|---|
 | `pptx-web-bridge/` | **図解プロンプト作成**アプリ（FastAPI + 素の JS、ローカル起動）。PowerPoint / HTML 図解を読み取り、Copilot に貼る指示文を作る。**図解を描くのは Copilot で、このアプリではない** | `start_windows.bat` / `./start.sh` / exe 版 |
 | `copilot-context-generator/` | M365 Copilot 用ナレッジ生成ツール（contextgen） | `work1_improvement/` が本体、`work2_cross_ai/` が横展開 |
-| `contextgen-kai/` | 資料の確認・訂正・用途別出力・定期更新（contextgen 改） | 独立した開発版0.2.0。旧2プロジェクトを変更せず、Windows向けに配布 |
+| `contextgen-kai/` | 資料の確認・訂正・用途別出力・定期更新（contextgen 改） | 独立した開発版0.2.1。旧2プロジェクトを変更せず、Windows向けに配布 |
 
 現在地・完了範囲・未実施の手動確認は **[`pptx-web-bridge/docs/11_引き継ぎ.md`](pptx-web-bridge/docs/11_引き継ぎ.md)** を先に読む。
 

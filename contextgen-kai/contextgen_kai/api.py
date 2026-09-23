@@ -25,6 +25,13 @@ from .storage import Store, default_state_dir, identifier, now, validate_identif
 from .scheduling import Scheduler
 
 
+MANUAL_ASSETS = {
+    "01_home.png", "02_register.png", "03_read_complete.png", "04_documents.png", "05_edit.png",
+    "06_collection.png", "07_exports.png", "08_prompt.png", "09_schedule.png", "10_settings.png",
+    "11_conflict.png", "12_held.png", "13_upload.png", "manual.js",
+}
+
+
 class LibraryInput(BaseModel):
     name: str = Field(default="", max_length=160)
     path: str = Field(min_length=1, max_length=4096)
@@ -426,24 +433,40 @@ def create_app(state_dir: Path | None = None, *, use_process=True, enable_schedu
     static_dir = Path(__file__).resolve().parent / "static"
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-    # Git版と配布EXEのどちらでも、利用者に見えるアプリ直下を文書の正本にする。
-    document_root = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
-    manual_files = {"contextgen改_操作マニュアル.html", "README.md", "仕様書兼要件定義書.md", "アプリ概要とバージョン履歴.md", "アプリ基本設計基準書.md"}
+    # 配布物は利用者向け4点だけを表に置き、画像は_internalへまとめる。
+    # ディレクトリごとの公開はせず、文書・画像の許可リストに含まれる実体だけを返す。
+    frozen = getattr(sys, "frozen", False)
+    document_root = Path(sys.executable).parent if frozen else Path(__file__).resolve().parents[1]
+    image_root = (Path(getattr(sys, "_MEIPASS", document_root / "_internal")) / "manual/images"
+                  if frozen else document_root / "images")
+    manual_files = {"contextgen改_操作マニュアル.html", "最初にお読みください.txt"} if frozen else {
+        "contextgen改_操作マニュアル.html", "README.md", "仕様書兼要件定義書.md", "アプリ概要とバージョン履歴.md", "アプリ基本設計基準書.md"}
+
+    def bundled_file(root, filename, allowed):
+        path = (root / filename).resolve()
+        if filename not in allowed or path.parent != root.resolve() or not path.is_file():
+            raise HTTPException(404, "文書・画像が見つかりません")
+        return FileResponse(path)
 
     @app.get("/manual/")
     def manual():
-        path = document_root / "contextgen改_操作マニュアル.html"
-        if not path.is_file():
-            raise HTTPException(404, "マニュアルが見つかりません。アプリ一式を更新してください")
-        return FileResponse(path)
+        return bundled_file(document_root, "contextgen改_操作マニュアル.html", manual_files)
 
     @app.get("/manual/{filename}")
     def design_document(filename: str):
-        if filename not in manual_files or not (document_root / filename).is_file():
-            raise HTTPException(404, "文書が見つかりません")
-        return FileResponse(document_root / filename)
+        return bundled_file(document_root, filename, manual_files)
 
-    app.mount("/manual/images", StaticFiles(directory=document_root / "images", check_dir=False), name="manual-images")
+    @app.get("/manual/images/{filename}")
+    def source_manual_image(filename: str):
+        if frozen:
+            raise HTTPException(404, "画像が見つかりません")
+        return bundled_file(image_root, filename, MANUAL_ASSETS)
+
+    @app.get("/manual/_internal/manual/images/{filename}")
+    def packaged_manual_image(filename: str):
+        if not frozen:
+            raise HTTPException(404, "画像が見つかりません")
+        return bundled_file(image_root, filename, MANUAL_ASSETS)
 
     @app.get("/")
     def index():

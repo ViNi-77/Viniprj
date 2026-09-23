@@ -1,13 +1,15 @@
 """合成資料を実アプリで操作し、オフライン操作マニュアル用の画像を撮影する。
 
 利用者の原本・設定には触れない。本文やステータスをDOMに注入しない。
-撮影環境はmacOS/Chrome。Windows固有の予約登録の検証にはwindows_smoke.pyを使う。
+配布用画像はWindowsで撮影する。撮影環境は開発者向け証跡に記録する。
 """
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,11 +21,24 @@ from playwright.sync_api import expect, sync_playwright
 from ui_smoke import ROOT, assert_laptop, browser_path, reserve_port, wait_jobs, wait_server
 
 
-def capture(output: Path):
+@contextmanager
+def capture_workspace(path: Path | None):
+    """画面に表示するサンプルパスを指定可能にする。既存フォルダは使わない。"""
+    if path is None:
+        with tempfile.TemporaryDirectory(prefix="contextgen-manual-") as directory:
+            yield Path(directory)
+        return
+    path.mkdir(parents=True, exist_ok=False)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path)
+
+
+def capture(output: Path, workspace: Path | None = None, record: Path | None = None):
     output.mkdir(parents=True, exist_ok=True)
     pictures = []
-    with tempfile.TemporaryDirectory(prefix="contextgen-manual-") as directory:
-        temp = Path(directory)
+    with capture_workspace(workspace) as temp:
         sources = temp / "操作例 資料"
         sources.mkdir()
         note = sources / "01_点検手順.txt"
@@ -156,11 +171,16 @@ def capture(output: Path):
                     proc.kill()
                     proc.wait(timeout=5)
     result = {"application_version": version, "platform": sys.platform, "viewport": "1440x940", "fixtures": "synthetic only", "page_errors": errors, "screenshots": pictures, "note": "実アプリ・実APIの操作を撮影。Windows固有機能の受入証跡ではありません。"}
-    (output / "capture-record.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    record = record or ROOT / "build/manual-capture.json"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=ROOT / "images")
-    capture(parser.parse_args().output)
+    parser.add_argument("--workspace", type=Path, help="撮影専用の未作成フォルダ（終了時に削除）")
+    parser.add_argument("--record", type=Path, default=ROOT / "build/manual-capture.json")
+    args = parser.parse_args()
+    capture(args.output, args.workspace, args.record)

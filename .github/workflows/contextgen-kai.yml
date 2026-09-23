@@ -47,6 +47,12 @@ jobs:
           $env:CONTEXTGEN_TEST_JAPANESE_FONT = (Resolve-Path 'build/NotoSansCJKjp-Regular.otf').Path
           python scripts/windows_clone_smoke.py --output build/windows-clone-smoke.json
           if ($LASTEXITCODE -ne 0) { throw 'Fresh clone startup smoke failed' }
+      - name: Capture manual screenshots on Windows
+        run: |
+          python scripts/capture_manual.py --workspace C:/ContextgenKai-Example --record build/manual-capture.json
+          if ($LASTEXITCODE -ne 0) { throw 'Windows manual capture failed' }
+          python scripts/verify_manual.py --output build/manual-verification
+          if ($LASTEXITCODE -ne 0) { throw 'Offline and HTTP manual verification failed' }
       - name: Build standalone EXE and bundled Japanese-English OCR
         run: ./packaging/build_windows.ps1
       - name: All tests with bundled OCR
@@ -54,20 +60,28 @@ jobs:
           python scripts/prepare_test_font.py
           if ($LASTEXITCODE -ne 0) { throw 'OCR test font preparation failed' }
           $env:CONTEXTGEN_TEST_JAPANESE_FONT = (Resolve-Path 'build/NotoSansCJKjp-Regular.otf').Path
-          $env:CONTEXTGEN_TESSERACT = (Resolve-Path 'dist/ContextgenKai/ocr/tesseract.exe').Path
-          $env:TESSDATA_PREFIX = (Resolve-Path 'dist/ContextgenKai/ocr/tessdata').Path
+          $env:CONTEXTGEN_TESSERACT = (Resolve-Path 'dist/ContextgenKai/_internal/ocr/tesseract.exe').Path
+          $env:TESSDATA_PREFIX = (Resolve-Path 'dist/ContextgenKai/_internal/ocr/tessdata').Path
           python -m pytest -q --junitxml=build/test-results.xml
           if ($LASTEXITCODE -ne 0) { throw 'Tests with bundled OCR failed' }
       - name: Packaged EXE and real Windows scheduler smoke
         run: |
           python scripts/windows_smoke.py --exe dist/ContextgenKai/ContextgenKai.exe
           if ($LASTEXITCODE -ne 0) { throw 'Packaged application smoke failed' }
+          python scripts/verify_manual.py --exe dist/ContextgenKai/ContextgenKai.exe --output build/packaged-manual-verification
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged offline and HTTP manual verification failed' }
       - name: ZIP distributable
-        run: Compress-Archive -Path dist/ContextgenKai -DestinationPath dist/contextgen-kai-0.2.0-windows-x64.zip -Force
+        run: Compress-Archive -Path dist/ContextgenKai -DestinationPath dist/contextgen-kai-0.2.1-windows-x64.zip -Force
       - uses: actions/upload-artifact@v4
         with:
           name: contextgen-kai-windows
-          path: contextgen-kai/dist/contextgen-kai-0.2.0-windows-x64.zip
+          path: contextgen-kai/dist/contextgen-kai-0.2.1-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contextgen-kai-manual-windows
+          path: contextgen-kai/images/*.png
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4
@@ -82,6 +96,10 @@ jobs:
             contextgen-kai/build/windows-task-details.txt
             contextgen-kai/build/windows-clone-smoke.json
             contextgen-kai/build/windows-clone-*.log
+            contextgen-kai/build/BUILD-MANIFEST.json
+            contextgen-kai/build/manual-capture.json
+            contextgen-kai/build/manual-verification/verification.json
+            contextgen-kai/build/packaged-manual-verification/verification.json
             contextgen-kai/build/tesseract-*.manifest
             contextgen-kai/build/windows/warn-windows.txt
             .contextgen-build/vcpkg/buildtrees/**/*.log
