@@ -1,0 +1,6 @@
+set(VCPKG_TARGET_ARCHITECTURE x64)
+set(VCPKG_CRT_LINKAGE static)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_BUILD_TYPE release)
+# OpenMP runtime DLL が通常利用時に必要にならないようにする。
+set(VCPKG_CMAKE_CONFIGURE_OPTIONS "-DOPENMP_BUILD=OFF")

@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "checks": [
+    "bundled English/Japanese OCR under system-only PATH",
+    "standalone EXE serves local UI/API without developer Python PATH",
+    "packaged root documents and illustrated manual served with all screenshots",
+    "packaged Office/text/mixed-PDF/image/ZIP extraction and provenance",
+    "packaged export automatically published and ZIP downloaded",
+    "real Windows InteractiveToken limited-privilege task registration",
+    "background task scans/exports with app closed and reports completion",
+    "temporary Windows task unregistered"
+  ],
+  "user_machine_acceptance": "pending"
+}

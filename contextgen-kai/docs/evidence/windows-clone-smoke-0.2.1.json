@@ -1,0 +1,17 @@
+{
+  "platform": "win32",
+  "checks": [
+    "git clone includes OCR executable and language files without a separate download",
+    "first BAT launch creates a Python 3.12 venv and installs pinned dependencies",
+    "unchanged second BAT launch succeeds with pip disabled",
+    "source runtime selects the OCR from this clone",
+    "BAT launches the browser application from a Japanese and spaced clone path",
+    "running application prevents Git update",
+    "cloned app reads an image with its bundled OCR and preserves document text",
+    "app shutdown releases the Git update lock"
+  ],
+  "user_machine_acceptance": "pending",
+  "ocr_sha256": "a838bf95f3b032e709eebec8b1f3243eefa97ccba9ee8e36e8dff1e669b33099",
+  "version": "0.2.1",
+  "status": "passed"
+}

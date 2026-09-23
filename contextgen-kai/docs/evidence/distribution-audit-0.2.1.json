@@ -1,0 +1,416 @@
+{
+  "schema_version": 1,
+  "audited_on": "2026-09-23",
+  "status": "passed",
+  "artifact_version": "0.2.1",
+  "artifact_sha256": "bbf16aded486a45ebb43d75c9206fd05dfa9771539a5a0db3afd690ccaada822",
+  "archive_bytes": 45745967,
+  "file_count": 1203,
+  "uncompressed_bytes": 89027488,
+  "ci": {
+    "run_url": "https://github.com/ViNi-77/Viniprj/actions/runs/35826419586",
+    "head_sha": "6fa344ab7f15d1330b2df04116fe981df085bc35",
+    "conclusion": "success",
+    "verified_using": "gh run view"
+  },
+  "method": "Read ZIP entries, PNG metadata and PyInstaller CArchive/PYZ table of contents. Read marshalled version constants without executing archived code. Cross-check import roots against installed distribution metadata and every shipped license manifest entry against the ZIP.",
+  "root_entries": [
+    "ContextgenKai.exe",
+    "_internal",
+    "contextgen改_操作マニュアル.html",
+    "最初にお読みください.txt"
+  ],
+  "checks": [
+    "customer root contains only EXE, internal runtime, manual and readme",
+    "no external Python source, bytecode, debug symbols or build specification",
+    "no macOS archive metadata files",
+    "no source-tree documents, test evidence, Git launchers or development manifests",
+    "customer guide and app text contain no development platform, source path or repository guidance",
+    "all 13 operation screenshots are valid PNG images",
+    "operation screenshots contain no embedded metadata",
+    "pytest and private _pytest modules are absent from embedded PYZ",
+    "embedded application version equals 0.2.1",
+    "every embedded third-party module root has matching distribution notices",
+    "every notice referenced by dependency manifest exists and is nonempty",
+    "optional lxml, packaging and setuptools notices retained",
+    "test and environment-management distributions not in notices",
+    "required runtime notice present: python/Python-LICENSE.txt",
+    "required runtime notice present: python/pyinstaller/pyinstaller-6.22.3.dist-info/licenses/COPYING.txt",
+    "required runtime notice present: Tcl-LICENSE.txt",
+    "required runtime notice present: Tk-LICENSE.txt",
+    "required runtime notice present: tesseract-LICENSE.txt",
+    "required runtime notice present: tessdata-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/bzip2-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/curl-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/giflib-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/leptonica-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/libarchive-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/libiconv-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/libjpeg-turbo-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/liblzma-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/libpng-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/libwebp-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/libxml2-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/lz4-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/openjpeg-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/openssl-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/tesseract-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/tiff-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/zlib-LICENSE.txt",
+    "OCR runtime/native notice preserved: licenses/zstd-LICENSE.txt",
+    "OCR runtime/native notice preserved: tessdata/LICENSE",
+    "OCR runtime/native notice preserved: tessdata/eng.traineddata",
+    "OCR runtime/native notice preserved: tessdata/jpn.traineddata",
+    "OCR runtime/native notice preserved: tesseract.exe"
+  ],
+  "external_code_or_debug_files": [],
+  "macos_archive_artifacts": [],
+  "developer_files": [],
+  "customer_text_development_traces": {},
+  "screenshots": {
+    "ContextgenKai/_internal/manual/images/01_home.png": {
+      "width": 1440,
+      "height": 1052,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/02_register.png": {
+      "width": 1440,
+      "height": 1052,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/03_read_complete.png": {
+      "width": 1440,
+      "height": 971,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/04_documents.png": {
+      "width": 1440,
+      "height": 940,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/05_edit.png": {
+      "width": 1440,
+      "height": 940,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/06_collection.png": {
+      "width": 1440,
+      "height": 940,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/07_exports.png": {
+      "width": 1440,
+      "height": 940,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/08_prompt.png": {
+      "width": 1440,
+      "height": 940,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/09_schedule.png": {
+      "width": 1440,
+      "height": 940,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/10_settings.png": {
+      "width": 1440,
+      "height": 940,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/11_conflict.png": {
+      "width": 1440,
+      "height": 940,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/12_held.png": {
+      "width": 1440,
+      "height": 940,
+      "metadata_keys": []
+    },
+    "ContextgenKai/_internal/manual/images/13_upload.png": {
+      "width": 1440,
+      "height": 1320,
+      "metadata_keys": []
+    }
+  },
+  "embedded_pytest_modules": [],
+  "embedded_application_modules": [
+    "contextgen_kai",
+    "contextgen_kai.__main__",
+    "contextgen_kai.api",
+    "contextgen_kai.exporting",
+    "contextgen_kai.extractors",
+    "contextgen_kai.installation",
+    "contextgen_kai.jobs",
+    "contextgen_kai.scheduling",
+    "contextgen_kai.storage"
+  ],
+  "third_party_module_roots": [
+    {
+      "module_root": "PIL",
+      "python_module_count": 76,
+      "notice_distributions": [
+        "pillow"
+      ]
+    },
+    {
+      "module_root": "_distutils_hack",
+      "python_module_count": 2,
+      "notice_distributions": [
+        "setuptools"
+      ]
+    },
+    {
+      "module_root": "annotated_doc",
+      "python_module_count": 2,
+      "notice_distributions": [
+        "annotated-doc"
+      ]
+    },
+    {
+      "module_root": "annotated_types",
+      "python_module_count": 1,
+      "notice_distributions": [
+        "annotated-types"
+      ]
+    },
+    {
+      "module_root": "anyio",
+      "python_module_count": 43,
+      "notice_distributions": [
+        "anyio"
+      ]
+    },
+    {
+      "module_root": "charset_normalizer",
+      "python_module_count": 7,
+      "notice_distributions": [
+        "charset-normalizer"
+      ]
+    },
+    {
+      "module_root": "click",
+      "python_module_count": 16,
+      "notice_distributions": [
+        "click"
+      ]
+    },
+    {
+      "module_root": "defusedxml",
+      "python_module_count": 10,
+      "notice_distributions": [
+        "defusedxml"
+      ]
+    },
+    {
+      "module_root": "et_xmlfile",
+      "python_module_count": 3,
+      "notice_distributions": [
+        "et-xmlfile"
+      ]
+    },
+    {
+      "module_root": "fastapi",
+      "python_module_count": 39,
+      "notice_distributions": [
+        "fastapi"
+      ]
+    },
+    {
+      "module_root": "h11",
+      "python_module_count": 11,
+      "notice_distributions": [
+        "h11"
+      ]
+    },
+    {
+      "module_root": "idna",
+      "python_module_count": 6,
+      "notice_distributions": [
+        "idna"
+      ]
+    },
+    {
+      "module_root": "lxml",
+      "python_module_count": 24,
+      "notice_distributions": [
+        "lxml"
+      ]
+    },
+    {
+      "module_root": "multipart",
+      "python_module_count": 2,
+      "notice_distributions": [
+        "python-multipart"
+      ]
+    },
+    {
+      "module_root": "openpyxl",
+      "python_module_count": 176,
+      "notice_distributions": [
+        "openpyxl"
+      ]
+    },
+    {
+      "module_root": "packaging",
+      "python_module_count": 16,
+      "notice_distributions": [
+        "packaging"
+      ]
+    },
+    {
+      "module_root": "pydantic",
+      "python_module_count": 105,
+      "notice_distributions": [
+        "pydantic"
+      ]
+    },
+    {
+      "module_root": "pydantic_core",
+      "python_module_count": 2,
+      "notice_distributions": [
+        "pydantic-core"
+      ]
+    },
+    {
+      "module_root": "pypdf",
+      "python_module_count": 55,
+      "notice_distributions": [
+        "pypdf"
+      ]
+    },
+    {
+      "module_root": "pypdfium2",
+      "python_module_count": 21,
+      "notice_distributions": [
+        "pypdfium2"
+      ]
+    },
+    {
+      "module_root": "pypdfium2_cfg",
+      "python_module_count": 4,
+      "notice_distributions": [
+        "pypdfium2"
+      ]
+    },
+    {
+      "module_root": "pypdfium2_cli",
+      "python_module_count": 4,
+      "notice_distributions": [
+        "pypdfium2"
+      ]
+    },
+    {
+      "module_root": "pypdfium2_raw",
+      "python_module_count": 3,
+      "notice_distributions": [
+        "pypdfium2"
+      ]
+    },
+    {
+      "module_root": "python_multipart",
+      "python_module_count": 4,
+      "notice_distributions": [
+        "python-multipart"
+      ]
+    },
+    {
+      "module_root": "setuptools",
+      "python_module_count": 130,
+      "notice_distributions": [
+        "setuptools"
+      ]
+    },
+    {
+      "module_root": "starlette",
+      "python_module_count": 23,
+      "notice_distributions": [
+        "starlette"
+      ]
+    },
+    {
+      "module_root": "typing_extensions",
+      "python_module_count": 1,
+      "notice_distributions": [
+        "typing-extensions"
+      ]
+    },
+    {
+      "module_root": "typing_inspection",
+      "python_module_count": 3,
+      "notice_distributions": [
+        "typing-inspection"
+      ]
+    },
+    {
+      "module_root": "uvicorn",
+      "python_module_count": 45,
+      "notice_distributions": [
+        "uvicorn"
+      ]
+    }
+  ],
+  "unknown_third_party_module_roots": [],
+  "notice_distribution_count": 25,
+  "distribution_notice_file_count": 64,
+  "notice_distributions": [
+    "annotated-doc",
+    "annotated-types",
+    "anyio",
+    "charset-normalizer",
+    "click",
+    "defusedxml",
+    "et-xmlfile",
+    "fastapi",
+    "h11",
+    "idna",
+    "lxml",
+    "openpyxl",
+    "packaging",
+    "pillow",
+    "pydantic",
+    "pydantic-core",
+    "pyinstaller",
+    "pypdf",
+    "pypdfium2",
+    "python-multipart",
+    "setuptools",
+    "starlette",
+    "typing-extensions",
+    "typing-inspection",
+    "uvicorn"
+  ],
+  "missing_notice_files": [],
+  "ocr_native_notice_count": 18,
+  "ocr_manifest_hashes_preserved": {
+    "licenses/bzip2-LICENSE.txt": "c6dbbf828498be844a89eaa3b84adbab3199e342eb5cb2ed2f0d4ba7ec0f38a3",
+    "licenses/curl-LICENSE.txt": "fe53111d55b3825f9e92c8b122c572032bf6384695d84097431782568a0416b4",
+    "licenses/giflib-LICENSE.txt": "0c9b7990ecdca88b676db232c226548ac408b279f550d424d996f0d83591dd8e",
+    "licenses/leptonica-LICENSE.txt": "87829abb5bbb00b55a107365da89e9a33f86c4250169e5a1e5588505be7d5806",
+    "licenses/libarchive-LICENSE.txt": "b2cdf763345de2de34cebf54394df3c61a105c3b71288603c251f2fa638200ba",
+    "licenses/libiconv-LICENSE.txt": "57242af4e5f8e054ab14ecacf99c88ddc49a6543318601ba75ba996a93ad4bc4",
+    "licenses/libjpeg-turbo-LICENSE.txt": "96f5b328adbb78eeaaec6980d73fd558cb1e4d62560ed615646bc3cf5e532430",
+    "licenses/liblzma-LICENSE.txt": "616a3ad264ce29b8f1cb97e53037b139d406899ca8d1f799651e17bfa09830b8",
+    "licenses/libpng-LICENSE.txt": "16d9daaafbf63a31a5bdc91d4600972548fef5aaa1244202393288dbd079c49a",
+    "licenses/libwebp-LICENSE.txt": "050b5ba2c8eb0bd3b996e12ef79312a1c62237f2de1b3c609843f00bb74744f3",
+    "licenses/libxml2-LICENSE.txt": "c99aae1afe013e50b8b3701e089222b351258043c3025b64053a233fd25b4be7",
+    "licenses/lz4-LICENSE.txt": "8b58c446121a109ccf32edc094bba3010a3d85e4ee3702950db55e4d3e87736c",
+    "licenses/openjpeg-LICENSE.txt": "a6af136f3e15038a666b61f376612a07d9a4e48cb7c01adbf3e33b3f14ab49b6",
+    "licenses/openssl-LICENSE.txt": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+    "licenses/tesseract-LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "licenses/tiff-LICENSE.txt": "0780558a8bfba0af1160ec1ff11ade4f41c0d7deafd6ecfc796b492a788e380d",
+    "licenses/zlib-LICENSE.txt": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243",
+    "licenses/zstd-LICENSE.txt": "434dca949c6da7c500413aef694539fe37f867dd1a94d83d4ed1d260194e2660",
+    "tessdata/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "tessdata/eng.traineddata": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+    "tessdata/jpn.traineddata": "1f5de9236d2e85f5fdf4b3c500f2d4926f8d9449f28f5394472d9e8d83b91b4d",
+    "tesseract.exe": "a838bf95f3b032e709eebec8b1f3243eefa97ccba9ee8e36e8dff1e669b33099"
+  },
+  "limits": [
+    "This verifies packaged contents and notice presence, not legal sufficiency for every third-party license.",
+    "PyInstaller bytecode and browser assets remain inspectable; the package is not a source-code secrecy guarantee.",
+    "Screenshot metadata was checked, but this audit does not infer the operating system from image pixels.",
+    "Verification on the intended Windows PC remains separate from CI and archive auditing."
+  ]
+}

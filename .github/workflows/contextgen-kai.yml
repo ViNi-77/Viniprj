@@ -1,0 +1,115 @@
+name: contextgen-kai Windows
+on:
+  push:
+    branches: [main]
+    paths: ['contextgen-kai/**', '.github/workflows/contextgen-kai.yml']
+  pull_request:
+    paths: ['contextgen-kai/**', '.github/workflows/contextgen-kai.yml']
+  workflow_dispatch:
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
+permissions:
+  contents: read
+concurrency:
+  group: contextgen-kai-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: contextgen-kai
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: contextgen-kai/requirements.lock
+      - name: Install application and test tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.lock
+          if ($LASTEXITCODE -ne 0) { throw 'Locked dependency installation failed' }
+          python -m pip install -e . --no-deps --no-build-isolation
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed' }
+      - name: Verify Git-bundled Japanese-English OCR
+        run: |
+          python packaging/verify_ocr_bundle.py --root ocr
+          if ($LASTEXITCODE -ne 0) { throw 'Git-bundled OCR verification failed' }
+      - name: Fresh clone startup, cached restart and real OCR
+        run: |
+          python scripts/prepare_test_font.py
+          if ($LASTEXITCODE -ne 0) { throw 'OCR test font preparation failed' }
+          $env:CONTEXTGEN_TEST_JAPANESE_FONT = (Resolve-Path 'build/NotoSansCJKjp-Regular.otf').Path
+          python scripts/windows_clone_smoke.py --output build/windows-clone-smoke.json
+          if ($LASTEXITCODE -ne 0) { throw 'Fresh clone startup smoke failed' }
+      - name: Capture manual screenshots on Windows
+        run: |
+          python scripts/capture_manual.py --workspace C:/ContextgenKai-Example --record build/manual-capture.json
+          if ($LASTEXITCODE -ne 0) { throw 'Windows manual capture failed' }
+          python scripts/verify_manual.py --output build/manual-verification
+          if ($LASTEXITCODE -ne 0) { throw 'Offline and HTTP manual verification failed' }
+      - name: Build standalone EXE and bundled Japanese-English OCR
+        run: ./packaging/build_windows.ps1
+      - name: All tests with bundled OCR
+        run: |
+          python scripts/prepare_test_font.py
+          if ($LASTEXITCODE -ne 0) { throw 'OCR test font preparation failed' }
+          $env:CONTEXTGEN_TEST_JAPANESE_FONT = (Resolve-Path 'build/NotoSansCJKjp-Regular.otf').Path
+          $env:CONTEXTGEN_TESSERACT = (Resolve-Path 'dist/ContextgenKai/_internal/ocr/tesseract.exe').Path
+          $env:TESSDATA_PREFIX = (Resolve-Path 'dist/ContextgenKai/_internal/ocr/tessdata').Path
+          python -m pytest -q --junitxml=build/test-results.xml
+          if ($LASTEXITCODE -ne 0) { throw 'Tests with bundled OCR failed' }
+      - name: Packaged EXE and real Windows scheduler smoke
+        run: |
+          python scripts/windows_smoke.py --exe dist/ContextgenKai/ContextgenKai.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged application smoke failed' }
+          python scripts/verify_manual.py --exe dist/ContextgenKai/ContextgenKai.exe --output build/packaged-manual-verification
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged offline and HTTP manual verification failed' }
+      - name: Full packaged UI acceptance
+        run: |
+          python scripts/ui_smoke.py --exe dist/ContextgenKai/ContextgenKai.exe --output build/ui-smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged UI acceptance failed' }
+      - name: ZIP distributable
+        run: |
+          Compress-Archive -Path dist/ContextgenKai -DestinationPath dist/contextgen-kai-0.3.0-windows-x64.zip -Force
+          python scripts/audit_distribution.py dist/contextgen-kai-0.3.0-windows-x64.zip --output build/distribution-audit.json
+          if ($LASTEXITCODE -ne 0) { throw 'Distributable ZIP audit failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contextgen-kai-windows
+          path: contextgen-kai/dist/contextgen-kai-0.3.0-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contextgen-kai-manual-windows
+          path: contextgen-kai/images/*.png
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contextgen-kai-test-evidence
+          path: |
+            contextgen-kai/build/test-results.xml
+            contextgen-kai/build/windows-smoke.json
+            contextgen-kai/build/windows-smoke.log
+            contextgen-kai/build/windows-app.log
+            contextgen-kai/build/windows-task-details.txt
+            contextgen-kai/build/windows-clone-smoke.json
+            contextgen-kai/build/windows-clone-*.log
+            contextgen-kai/build/BUILD-MANIFEST.json
+            contextgen-kai/build/manual-capture.json
+            contextgen-kai/build/manual-verification/verification.json
+            contextgen-kai/build/packaged-manual-verification/verification.json
+            contextgen-kai/build/ui-smoke/**
+            contextgen-kai/build/distribution-audit.json
+            contextgen-kai/build/tesseract-*.manifest
+            contextgen-kai/build/windows/warn-windows.txt
+            .contextgen-build/vcpkg/buildtrees/**/*.log
+          retention-days: 30

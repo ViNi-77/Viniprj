@@ -1,0 +1,24 @@
+{
+  "tesseract": "5.5.1",
+  "ocr_build_origin": {
+    "kind": "verified-windows-ci",
+    "source_revision": "eb8385e5a5ac5abae813210955b3ccc093f43e68",
+    "workflow_run_url": "https://github.com/ViNi-77/Viniprj/actions/runs/35801435958",
+    "artifact_id": 10726425648,
+    "archive_sha256": "853c334152d341d745f48680fa39159f17a4be55293422d7db428a283b820af6"
+  },
+  "ocr_bundle_manifest_sha256": "2ad1c2eba862bbebf4a0d734f1ea60cab2178308db190f6bf970824ce5340049",
+  "tessdata_commit": "65727574dfcd264acbb0c3e07860e4e9e9b22185",
+  "tcl_version": "8.6.15",
+  "tk_license_sha256": "0d1e4405f6273f091732764ed89b57066be63ce64869be6c71ea337dc4f2f9b5",
+  "tesseract_process_code_page": "UTF-8",
+  "application": "contextgen-kai",
+  "vcpkg_commit": "ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0",
+  "tcl_license_sha256": "c0a69a2bfd757361ec7e6143973b103c90409316b49e9c88db26ad6388e79f16",
+  "ocr_origin": "git-bundled",
+  "distribution_layout": "user-root-four-items",
+  "source_revision": "277f38537677b62680c0ffd66c78690235fa41ae",
+  "version": "0.2.1",
+  "tcl_license_source": "https://raw.githubusercontent.com/tcltk/tcl/core-8-6-15/license.terms",
+  "tesseract_sha256": "a838bf95f3b032e709eebec8b1f3243eefa97ccba9ee8e36e8dff1e669b33099"
+}

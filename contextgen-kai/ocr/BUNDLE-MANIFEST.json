@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "platform": "windows-x64",
+  "tesseract_version": "5.5.1",
+  "process_code_page": "UTF-8",
+  "vcpkg_commit": "ef7dbf94b9198bc58f45951adcf1f041fcbc5ea0",
+  "tessdata_commit": "65727574dfcd264acbb0c3e07860e4e9e9b22185",
+  "origin": {
+    "kind": "verified-windows-ci",
+    "source_revision": "eb8385e5a5ac5abae813210955b3ccc093f43e68",
+    "workflow_run_url": "https://github.com/ViNi-77/Viniprj/actions/runs/35801435958",
+    "artifact_id": 10726425648,
+    "archive_sha256": "853c334152d341d745f48680fa39159f17a4be55293422d7db428a283b820af6"
+  },
+  "files": {
+    "licenses/bzip2-LICENSE.txt": {
+      "sha256": "c6dbbf828498be844a89eaa3b84adbab3199e342eb5cb2ed2f0d4ba7ec0f38a3",
+      "size": 1896
+    },
+    "licenses/curl-LICENSE.txt": {
+      "sha256": "fe53111d55b3825f9e92c8b122c572032bf6384695d84097431782568a0416b4",
+      "size": 3985
+    },
+    "licenses/giflib-LICENSE.txt": {
+      "sha256": "0c9b7990ecdca88b676db232c226548ac408b279f550d424d996f0d83591dd8e",
+      "size": 1088
+    },
+    "licenses/leptonica-LICENSE.txt": {
+      "sha256": "87829abb5bbb00b55a107365da89e9a33f86c4250169e5a1e5588505be7d5806",
+      "size": 1521
+    },
+    "licenses/libarchive-LICENSE.txt": {
+      "sha256": "b2cdf763345de2de34cebf54394df3c61a105c3b71288603c251f2fa638200ba",
+      "size": 3086
+    },
+    "licenses/libiconv-LICENSE.txt": {
+      "sha256": "57242af4e5f8e054ab14ecacf99c88ddc49a6543318601ba75ba996a93ad4bc4",
+      "size": 62960
+    },
+    "licenses/libjpeg-turbo-LICENSE.txt": {
+      "sha256": "96f5b328adbb78eeaaec6980d73fd558cb1e4d62560ed615646bc3cf5e532430",
+      "size": 5620
+    },
+    "licenses/liblzma-LICENSE.txt": {
+      "sha256": "616a3ad264ce29b8f1cb97e53037b139d406899ca8d1f799651e17bfa09830b8",
+      "size": 3119
+    },
+    "licenses/libpng-LICENSE.txt": {
+      "sha256": "16d9daaafbf63a31a5bdc91d4600972548fef5aaa1244202393288dbd079c49a",
+      "size": 5345
+    },
+    "licenses/libwebp-LICENSE.txt": {
+      "sha256": "050b5ba2c8eb0bd3b996e12ef79312a1c62237f2de1b3c609843f00bb74744f3",
+      "size": 3017
+    },
+    "licenses/libxml2-LICENSE.txt": {
+      "sha256": "c99aae1afe013e50b8b3701e089222b351258043c3025b64053a233fd25b4be7",
+      "size": 1273
+    },
+    "licenses/lz4-LICENSE.txt": {
+      "sha256": "8b58c446121a109ccf32edc094bba3010a3d85e4ee3702950db55e4d3e87736c",
+      "size": 1311
+    },
+    "licenses/openjpeg-LICENSE.txt": {
+      "sha256": "a6af136f3e15038a666b61f376612a07d9a4e48cb7c01adbf3e33b3f14ab49b6",
+      "size": 2112
+    },
+    "licenses/openssl-LICENSE.txt": {
+      "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+      "size": 10175
+    },
+    "licenses/tesseract-LICENSE.txt": {
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "size": 11358
+    },
+    "licenses/tiff-LICENSE.txt": {
+      "sha256": "0780558a8bfba0af1160ec1ff11ade4f41c0d7deafd6ecfc796b492a788e380d",
+      "size": 1164
+    },
+    "licenses/zlib-LICENSE.txt": {
+      "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243",
+      "size": 1002
+    },
+    "licenses/zstd-LICENSE.txt": {
+      "sha256": "434dca949c6da7c500413aef694539fe37f867dd1a94d83d4ed1d260194e2660",
+      "size": 20086
+    },
+    "tessdata/LICENSE": {
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "size": 11358
+    },
+    "tessdata/eng.traineddata": {
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2",
+      "size": 4113088
+    },
+    "tessdata/jpn.traineddata": {
+      "sha256": "1f5de9236d2e85f5fdf4b3c500f2d4926f8d9449f28f5394472d9e8d83b91b4d",
+      "size": 2471260
+    },
+    "tesseract.exe": {
+      "sha256": "a838bf95f3b032e709eebec8b1f3243eefa97ccba9ee8e36e8dff1e669b33099",
+      "size": 10802176
+    }
+  }
+}

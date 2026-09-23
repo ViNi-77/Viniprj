@@ -1,0 +1,23 @@
+{
+  "application_version": "0.2.0",
+  "platform": "darwin",
+  "viewport": "1440x940",
+  "fixtures": "synthetic only",
+  "page_errors": [],
+  "screenshots": [
+    "01_home.png",
+    "02_register.png",
+    "03_read_complete.png",
+    "04_documents.png",
+    "05_edit.png",
+    "06_collection.png",
+    "07_exports.png",
+    "08_prompt.png",
+    "09_schedule.png",
+    "10_settings.png",
+    "11_conflict.png",
+    "12_held.png",
+    "13_upload.png"
+  ],
+  "note": "実アプリ・実APIの操作を撮影。Windows固有機能の受入証跡ではありません。"
+}

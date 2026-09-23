@@ -1,0 +1,2 @@
+# Windows/macOS source setup uses the same locked dependencies.
+-r requirements.lock

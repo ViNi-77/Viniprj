@@ -1,0 +1,22 @@
+{
+  "result": "passed",
+  "source": "real local HTTP API with synthetic files; no mocks",
+  "documents": 57,
+  "viewports": [
+    "1093x614",
+    "1280x720"
+  ],
+  "screenshots": [
+    "01-home-empty.png",
+    "02-document-review.png",
+    "home-1093x614.png",
+    "documents-1093x614.png",
+    "exports-1093x614.png",
+    "schedules-1093x614.png",
+    "home-1280x720.png",
+    "documents-1280x720.png",
+    "exports-1280x720.png",
+    "schedules-1280x720.png"
+  ],
+  "browser_errors": []
+}

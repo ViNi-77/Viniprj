@@ -1,0 +1,23 @@
+{
+  "version": "0.1.0",
+  "checks": [
+    "bundled English/Japanese OCR under system-only PATH",
+    "standalone EXE serves local UI/API without developer Python PATH",
+    "packaged Office/text/mixed-PDF/image/ZIP extraction and provenance",
+    "packaged export automatically published and ZIP downloaded",
+    "real Windows InteractiveToken limited-privilege task registration",
+    "background task scans/exports with app closed and reports completion",
+    "temporary Windows task unregistered"
+  ],
+  "user_machine_acceptance": "pending",
+  "ci_run": "https://github.com/ViNi-77/Viniprj/actions/runs/35800929238",
+  "source_commit": "7c136ca501a886765ea22cd8e3817bb590d968ac",
+  "environment": "Windows Server 2022 x64",
+  "verified_at": "2026-09-23",
+  "unit_tests": {
+    "total": 60,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "manual": "contextgen改_操作マニュアル.html",
+  "images_loaded": 13,
+  "local_links_verified": 26,
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 1000,
+      "viewport": 1440,
+      "content": 1440
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "viewport": 1280,
+      "content": 1280
+    },
+    {
+      "width": 1093,
+      "height": 614,
+      "viewport": 1093,
+      "content": 1093
+    },
+    {
+      "width": 760,
+      "height": 900,
+      "viewport": 760,
+      "content": 760
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "viewport": 390,
+      "content": 390
+    }
+  ],
+  "page_errors": [],
+  "external_requests": [],
+  "image_zoom": "passed",
+  "http_images_links_zoom": "passed",
+  "http_console_errors": [],
+  "print_pdf_pages": 20,
+  "print_text": "passed"
+}

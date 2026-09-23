@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#142b49">
+  <title>contextgen 改 操作マニュアル — 0.3.0</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root{--ink:#152b47;--body:#34445a;--muted:#64748b;--blue:#225bb1;--border:#dbe3ee;--bg:#f4f7fb;--green:#13745d;--amber:#966011;--rail:282px}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--body);font:15px/1.85 "Segoe UI","Yu Gothic UI","Yu Gothic","Meiryo",sans-serif}a{color:var(--blue);text-underline-offset:3px}a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid #2784cf;outline-offset:4px}button{font:inherit;cursor:pointer}button,a{-webkit-tap-highlight-color:transparent}.skip{position:fixed;top:-80px;left:12px;padding:12px;background:white;z-index:9}.skip:focus{top:12px}
+    .sidebar{position:fixed;inset:0 auto 0 0;width:var(--rail);overflow:auto;background:#fff;border-right:1px solid var(--border);padding:30px 20px 24px;z-index:2}.brand{display:flex;gap:12px;align-items:center;color:var(--ink);font-size:23px;font-weight:800;letter-spacing:-.6px;margin-bottom:18px;text-decoration:none}.symbol{display:grid;place-items:center;width:42px;height:42px;background:var(--ink);color:#fff;border-radius:12px;font-size:25px}.brand small{display:block;font-size:10px;letter-spacing:1.5px;font-weight:600;color:var(--muted);line-height:1.4}.rail-meta{display:flex;gap:8px;align-items:center;font-size:11px;margin-bottom:22px;color:var(--muted)}.pill{display:inline-block;background:#eaf1fd;color:#205299;border:1px solid #d4e0f6;border-radius:30px;padding:3px 11px;font-size:12px;font-weight:700}.sidebar nav{border-top:1px solid var(--border);padding-top:16px}.sidebar nav a{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px;color:#52637b;font-size:12.5px;text-decoration:none;line-height:1.6;margin:3px 0}.sidebar nav a span{color:#7b8da5;min-width:21px;font-variant-numeric:tabular-nums}.sidebar nav a:hover,.sidebar nav a.active{background:#eaf1fd;color:#1c4e99}.rail-footer{border-top:1px solid var(--border);margin-top:22px;padding:18px 10px 0;font-size:11px;color:var(--muted)}
+    main{margin-left:var(--rail);padding:50px 4.5vw 55px;max-width:1600px}.hero{padding:6px 0 32px;border-bottom:1px solid var(--border);margin-bottom:38px}.eyebrow{color:#4570a3;font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 9px}h1,h2,h3,h4{color:var(--ink);line-height:1.5}h1{font-size:clamp(29px,3vw,43px);letter-spacing:-1.4px;margin:0 0 14px}h1 small{display:block;font-size:19px;font-weight:500;letter-spacing:0;margin-top:8px}h2{font-size:25px;letter-spacing:-.5px;margin:0 0 24px;display:flex;gap:13px;align-items:center}h2 .number{font-size:13px;color:var(--blue);background:#eaf1fd;border:1px solid #d5e1f5;border-radius:9px;padding:6px 10px;letter-spacing:0}h3{font-size:18px;margin:30px 0 12px}h4{font-size:15px;margin:0 0 8px}p{margin:10px 0}.lead{font-size:17px;max-width:820px;color:#52637b}.meta{display:flex;gap:9px;flex-wrap:wrap;margin:22px 0 20px;font-size:12px}.meta span{border:1px solid var(--border);border-radius:6px;background:#fff;padding:5px 10px}.hero-actions{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 0}.button{display:inline-block;text-decoration:none;background:var(--blue);color:white;border:1px solid var(--blue);padding:9px 17px;border-radius:8px;font-size:13px;font-weight:600}.button.secondary{background:white;color:var(--blue);border-color:#bdcde4}.button:hover{filter:brightness(.96)}
+    section{scroll-margin-top:24px;margin:0 0 50px}.card{background:white;border:1px solid var(--border);border-radius:16px;padding:26px 30px;box-shadow:0 5px 19px #142b4905;margin:16px 0}.card>:first-child{margin-top:0}.card>:last-child{margin-bottom:0}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.feature{background:white;border:1px solid var(--border);border-radius:12px;padding:22px}.feature .large{font-size:26px;font-weight:700;color:var(--blue);line-height:1.4;margin-bottom:10px}.feature p{font-size:13px;color:var(--muted)}.callout{background:#eef4fd;border:1px solid #c8d8f1;border-left:4px solid #4480ca;border-radius:8px;padding:17px 20px;margin:21px 0;font-size:13px}.callout strong{color:#204f89}.callout.warning{background:#fff9ee;border-color:#efd8ae;border-left-color:#c68d35}.callout.warning strong{color:#875715}.callout.success{background:#eef8f4;border-color:#c1dfd1;border-left-color:#34866b}.callout.success strong{color:#286950}.small{font-size:12px;color:var(--muted)}.steps{list-style:none;padding:0;margin:22px 0;counter-reset:steps}.steps li{position:relative;padding-left:45px;margin:0 0 24px;counter-increment:steps}.steps li:before{content:counter(steps);position:absolute;left:0;top:1px;background:#eaf1fd;color:var(--blue);font-weight:700;width:31px;height:31px;border-radius:50%;text-align:center;line-height:31px;font-size:13px}.steps strong{color:var(--ink)}.steps p{margin:5px 0 0;font-size:14px}ul:not(.steps){padding-left:22px}.table-wrap{overflow:auto;margin:20px 0}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:12px 15px;border:1px solid var(--border);text-align:left;vertical-align:top}th{background:#edf2f8;color:#2b425f;font-weight:650}td{background:#fff}th:first-child{min-width:125px}code{font:12px/1.6 Consolas,monospace;color:#1d528d;background:#edf3fa;padding:2px 5px;border:1px solid #dfe8f3;border-radius:4px;overflow-wrap:anywhere}pre{margin:16px 0;background:#152b47;color:#e9f0f9;border-radius:10px;padding:20px 23px;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.85 Consolas,monospace}pre code{background:none;color:inherit;padding:0;border:0}.path{font-size:12px;overflow-wrap:anywhere}.file-tree{border-left:3px solid #3d78be}.screenshot{display:block;width:100%;background:#eaf0f8;border:1px solid #cbd8e8;padding:0;cursor:zoom-in;text-align:left;border-radius:12px 12px 0 0;overflow:hidden}.screenshot img{display:block;width:100%;height:auto}.figure{margin:24px 0 20px;box-shadow:0 9px 25px #142b4909;border-radius:12px;break-inside:avoid}.figure figcaption{font-size:12px;color:#52637b;padding:11px 15px;background:#f1f5fb;border:1px solid #cbd8e8;border-top:0;border-radius:0 0 12px 12px}.figure figcaption span{color:#7c8ca2;font-size:10px;margin-left:10px}.legend{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.legend span{padding:5px 10px;background:#f0f4fa;border-radius:6px;font-size:12px}.doc-links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.doc-links a{display:block;border:1px solid var(--border);border-radius:9px;background:white;padding:14px 17px;font-size:13px;text-decoration:none}.doc-links a small{display:block;color:var(--muted);margin-top:2px}.faq{border-bottom:1px solid var(--border);padding:17px 0}.faq:last-child{border:0}.faq summary{cursor:pointer;font-weight:650;color:var(--ink);list-style-position:outside;margin-left:18px}.faq p{margin-left:18px;font-size:14px}.footer{border-top:1px solid var(--border);padding:25px 0 0;color:var(--muted);font-size:12px}.footer p{margin:3px 0}#image-viewer{padding:0;border:1px solid #a5b6cd;border-radius:13px;max-width:96vw;max-height:94vh;background:white;box-shadow:0 25px 80px #07182b50}#image-viewer::backdrop{background:#0d1f36bf}#image-viewer header{display:flex;justify-content:space-between;gap:15px;padding:12px 16px;position:sticky;top:0;background:white;font-size:12px}#image-viewer button{border:1px solid #cbd5e1;background:#fff;border-radius:7px;padding:4px 15px;color:var(--ink)}#image-viewer img{display:block;max-width:100%;height:auto}#image-viewer .image-scroll{overflow:auto;max-height:calc(94vh - 65px)}
+    @media(min-width:1600px){main{padding-right:75px;padding-left:75px}}@media(max-width:1120px){:root{--rail:235px}.sidebar{padding:24px 14px}.brand{font-size:21px}main{padding:38px 30px}.card{padding:23px}.grid{grid-template-columns:1fr}.feature{display:grid;grid-template-columns:50px 1fr;column-gap:10px}.feature .large{grid-row:1/3}.feature p{margin:0}.feature h4{margin:0 0 4px}}
+    @media(max-width:760px){.sidebar{position:relative;width:auto;padding:20px 22px;border-right:0;border-bottom:1px solid var(--border)}.brand{margin-bottom:10px}.rail-meta{margin-bottom:10px}.sidebar nav{display:grid;grid-template-columns:1fr 1fr;gap:1px 6px;padding-top:12px}.sidebar nav a{font-size:11px;padding:7px 8px}.rail-footer{display:none}main{margin-left:0;padding:30px 18px 40px}.hero{margin-bottom:29px}.lead{font-size:15px}h1{font-size:30px}h1 small{font-size:17px}h2{font-size:21px}.card{padding:21px 17px}.doc-links{grid-template-columns:1fr}.steps li{padding-left:39px}pre{padding:16px;font-size:11px}.meta{font-size:11px}.screenshot{border-radius:8px 8px 0 0}.figure figcaption span{display:block;margin:3px 0 0}}
+    @media print{@page{size:A4 portrait;margin:14mm 13mm}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}html{scroll-behavior:auto}body{background:white;font-size:9.5pt;line-height:1.65}.sidebar,.hero-actions,.skip,dialog{display:none!important}main{margin:0;padding:0;max-width:none}.hero{padding:0 0 18px;margin-bottom:24px}h1{font-size:25pt}h1 small{font-size:13pt}h2{font-size:16pt;break-after:avoid;margin-bottom:13px}h3,h4{break-after:avoid}section{margin-bottom:28px;scroll-margin:0}.card{box-shadow:none;border-radius:8px;padding:16px;margin:12px 0}.grid{grid-template-columns:repeat(3,1fr);gap:10px}.feature{display:block;padding:13px}.feature p,.feature h4{font-size:9pt}.feature .large{font-size:18pt}.figure{box-shadow:none;max-width:100%;break-inside:avoid;margin:15px 0}.figure img{max-height:150mm;object-fit:contain}.figure figcaption{font-size:8pt}.figure figcaption span{display:none}.callout{break-inside:avoid;padding:12px 15px;font-size:9pt}table{font-size:8.5pt}tr{break-inside:avoid}th,td{padding:7px 10px}.steps li{break-inside:avoid;margin-bottom:17px}.steps p{font-size:9.5pt}pre{font-size:8.5pt;padding:14px;break-inside:avoid}.doc-links a{font-size:9pt}.small,.footer{font-size:8pt}a{color:#204978}details.faq{break-inside:avoid}.table-wrap{overflow:visible}button.screenshot{border-color:#c3cbd5}p{orphans:3;widows:3}}
+  </style>
+</head>
+<body>
+<a class="skip" href="#content">本文へ移動</a>
+<aside class="sidebar" aria-label="操作マニュアルの目次">
+  <a class="brand" href="#intro"><span class="symbol" aria-hidden="true">c›</span><span>contextgen <b>改</b><small>OPERATION MANUAL</small></span></a>
+  <div class="rail-meta"><span class="pill">0.3.0</span>画像付き・オフライン対応</div>
+  <nav>
+    <a href="#intro"><span>00</span>このアプリでできること</a>
+    <a href="#files"><span>01</span>配布フォルダの見方</a>
+    <a href="#install"><span>02</span>アプリの準備・更新</a>
+    <a href="#launch"><span>03</span>起動する・OCRを使う</a>
+    <a href="#home"><span>04</span>画面の見方</a>
+    <a href="#register"><span>05</span>資料を登録・読み取る</a>
+    <a href="#review"><span>06</span>本文・出典を確認する</a>
+    <a href="#edit"><span>07</span>修正・除外・原本更新</a>
+    <a href="#collections"><span>08</span>用途別の資料セット</a>
+    <a href="#export"><span>09</span>Copilot用ファイルを生成</a>
+    <a href="#handoff"><span>10</span>Copilotへ渡す</a>
+    <a href="#schedule"><span>11</span>定期更新を設定する</a>
+    <a href="#backup"><span>12</span>バックアップと復元</a>
+    <a href="#shutdown"><span>13</span>アプリを終了する</a>
+    <a href="#faq"><span>14</span>困ったとき・FAQ</a>
+  </nav>
+  <div class="rail-footer">資料はこのPC内で処理します。<br>画像をクリックすると拡大できます。</div>
+</aside>
+<main id="content">
+  <header class="hero">
+    <p class="eyebrow">LOCAL KNOWLEDGE WORKSPACE / USER GUIDE</p>
+    <h1>資料を、使える知識に。<small>contextgen 改 操作マニュアル</small></h1>
+    <p class="lead">資料の登録から、読み取り結果の確認・修正、Copilot用の出力、定期更新まで。実際の画面を見ながら操作を進められます。</p>
+    <div class="meta"><span>対象アプリ：0.3.0</span><span>文書版：0.4</span><span>更新日：2026-09-24</span><span>対象：Windows 11・64bit</span></div>
+    <div class="hero-actions"><a class="button" href="#install">初めて使う方はこちら</a><a class="button secondary" href="#register">資料の登録から読む</a><button class="button secondary" type="button" id="print-button">印刷 / PDF保存</button></div>
+  </header>
+
+  <section id="intro">
+    <h2><span class="number">00</span>このアプリでできること</h2>
+    <div class="card"><p><strong>contextgen 改</strong>は、手元の資料から本文・表・出典を読み取り、確認した内容をCopilotへ渡せる形にまとめるローカルアプリです。継続して使う資料フォルダと、今回だけ使うファイルの両方を扱えます。</p><p>OCRで画像の文字を読み取ります。図の意味や写真の状況を説明する処理は行いません。資料の解釈や回答は、出力ファイルを受け取ったCopilot側で行います。</p></div>
+    <div class="grid"><article class="feature"><div class="large">01</div><h4>読み取る</h4><p>Word・Excel・PowerPoint、PDF、画像、テキスト、ZIPから本文を抽出。</p></article><article class="feature"><div class="large">02</div><h4>確かめる</h4><p>原文・出典・注意事項を見て、誤字を修正。原本とは別に保存。</p></article><article class="feature"><div class="large">03</div><h4>使う</h4><p>用途別にナレッジと指示文を生成。更新も予約できます。</p></article></div>
+    <div class="callout success"><strong>原本はそのまま。</strong> アプリで行った本文修正・除外は、元のWordやPDFを変更しません。Copilotへの自動送信も行わず、最後のアップロードは利用者が行います。</div>
+  </section>
+
+  <section id="files">
+    <h2><span class="number">01</span>配布フォルダの見方</h2>
+    <div class="card"><p>配布担当者から受け取ったZIPを展開すると、次のファイルが入ったアプリフォルダができます。普段使うのは <strong>ContextgenKai.exe</strong> です。</p>
+    <pre class="file-tree"><code>アプリフォルダ/
+├─ ContextgenKai.exe                ダブルクリックで起動
+├─ contextgen改_操作マニュアル.html   この画像付きマニュアル
+├─ 最初にお読みください.txt          最初に確認する案内
+└─ _internal/                       アプリに必要なファイル</code></pre>
+    <div class="callout"><strong>フォルダ一式で保管します。</strong> <code>_internal</code> にはOCRや画面表示に必要なファイルが入っています。中身を個別に操作する必要はありません。EXEだけを取り出したり、このフォルダを削除したりしないでください。</div>
+    <p>操作マニュアルはHTMLをダブルクリックして開けます。アプリ左下の「画像付き操作マニュアル」からも開けます。</p></div>
+  </section>
+
+  <section id="install">
+    <h2><span class="number">02</span>アプリの準備・更新</h2>
+    <div class="card"><h3>初めて使うとき</h3>
+    <ol class="steps"><li><strong>配布されたZIPをPCに保存する</strong><p>Windows 11・64bitのPCで使用します。保存したZIPをエクスプローラーで表示します。</p></li><li><strong>ZIPを右クリックし「すべて展開」を選ぶ</strong><p>分かりやすい保存先を指定し、展開が終わるまで待ちます。ZIPの中から直接アプリを起動しないでください。</p></li><li><strong>展開したフォルダの ContextgenKai.exe をダブルクリックする</strong><p>標準のWebブラウザが開き、ホーム画面が表示されます。追加ソフトやOCRを別にインストールする操作はありません。</p></li></ol>
+    <div class="callout success"><strong>OCRも一緒に入っています。</strong> 日本語・英語の文字を読み取る機能は、配布ZIPに含まれています。資料の読み取りと出力は、このPC内で行います。</div>
+    <h3>新しい版を受け取ったとき</h3>
+    <ol class="steps"><li><strong>現在のデータを保存する</strong><p>編集中の修正を保存し、「定期更新・設定」の「バックアップを保存」でバックアップを作ります。必要な出力ZIPや原本資料も保管してください。</p></li><li><strong>定期更新を停止し、アプリを終了する</strong><p>「アプリ終了後も実行」の予約があれば一度「停止」にします。実行中の処理が終わったことを確認し、「アプリを終了する」を押します。</p></li><li><strong>新しいZIPを、古い版とは別のフォルダへ展開する</strong><p>動作中のファイルに上書きせず、新しいアプリフォルダを用意します。</p></li><li><strong>新しいフォルダの ContextgenKai.exe を起動する</strong><p>同じPC・同じWindowsユーザーで起動すると、保存済みの資料登録・設定・手修正を引き継ぎます。左下の版表示と、以前の資料が表示されることを確認してください。</p></li><li><strong>定期更新を確認し、必要な予約を有効にする</strong><p>アプリフォルダの場所が変わるため、「アプリ終了後も実行」の予約は新しいアプリで登録し直します。停止した予約を新しいアプリで有効にして保存し、次回予定と実行結果を確認してください。</p></li></ol>
+    <p>確認が終わるまでは古いアプリフォルダも保管してください。以降は新しいフォルダのEXEを使います。ショートカットを作っている場合は、参照先も新しいEXEへ変更します。</p>
+    <div class="callout"><strong>アプリの更新と、資料の更新は別の操作です。</strong> アプリを更新しても、原本資料の追加・変更を自動で読み取るわけではありません。資料を更新するときは、ホームの「読み取る」または設定した定期更新を使います。</div></div>
+  </section>
+
+  <section id="launch">
+    <h2><span class="number">03</span>起動する・OCRを使う</h2>
+    <div class="card"><ol class="steps"><li><strong>ContextgenKai.exe をダブルクリックする</strong><p>前回使ったアプリフォルダを開いて起動します。ホーム画面が表示されるまで待ちます。</p></li><li><strong>右上の「ローカル接続中」を確認する</strong><p>ブラウザとアプリ本体が接続すると表示されます。この画面から資料の登録と読み取りを始められます。</p></li><li><strong>画像やPDFを含む資料を読み取る</strong><p>OCRを使うための追加操作はありません。PDFは本文の文字と、そのページに含まれる画像内の文字を読み取ります。文字ページとスキャンページが混じる資料も対象です。</p></li></ol>
+    <h3>OCRで読み取れるもの・確認が必要なもの</h3><div class="table-wrap"><table><thead><tr><th>対象</th><th>動作と注意</th></tr></thead><tbody><tr><td>画像PDF・画像ファイル</td><td>日本語・英語の文字を読み取ります。文字ページとスキャンページが混ざるPDFはページごとに処理します。</td></tr><tr><td>Office内の画像</td><td>画像中の文字を読み取ります。抽出された内容と原本を照らし合わせて確認してください。</td></tr><tr><td>低解像度・手書き・傾き</td><td>誤字・読み落としが生じます。認識できた文字も原本と照らし合わせます。</td></tr><tr><td>図・写真・画像内の表</td><td>文字の読み取りが対象です。図の意味、写真の状況、表のセル構造は正しく再現できない場合があります。</td></tr></tbody></table></div>
+    <p>読み取り結果には誤りや欠落が含まれる場合があります。特に数値・日付・固有名詞は、「資料の確認」で原本と見比べてください。</p></div>
+  </section>
+
+  <section id="home">
+    <h2><span class="number">04</span>画面の見方</h2>
+    <div class="card"><p>左側のメニューから4つの画面へ移動します。右上の「ローカル接続中」は、ブラウザとアプリ本体が接続している印です。左下に現在のアプリ版を表示します。</p>
+    <figure class="figure"><button class="screenshot" type="button" aria-label="ホーム画面を拡大"><img src="images/01_home.png" alt="contextgen 改の起動直後。左に4つのメニュー、右に資料フォルダ登録と単発取り込みの領域があるホーム画面" width="1440" height="940"></button><figcaption>図1　起動直後のホーム画面。最初は登録した資料が0件です。</figcaption></figure>
+    <div class="table-wrap"><table><thead><tr><th>メニュー</th><th>ここで行うこと</th></tr></thead><tbody><tr><td>ホーム</td><td>フォルダ登録、単発取り込み、読み取り開始、件数・進捗の確認、停止・再開。</td></tr><tr><td>資料の確認</td><td>検索・絞り込み、本文と出典の確認、OCR誤字の修正、警告資料の再読み取り、除外、個別選択。</td></tr><tr><td>Copilotへ渡す</td><td>複数フォルダの資料セット、整理前後、出力前確認、Builder/Studio用出力、投入済みの記録。</td></tr><tr><td>定期更新・設定</td><td>予約の追加・変更・停止、バックアップ・復元、アプリ本体の終了。</td></tr></tbody></table></div></div>
+  </section>
+
+  <section id="register">
+    <h2><span class="number">05</span>資料を登録・読み取る</h2>
+    <div class="card"><h3>継続して使う資料フォルダを登録する</h3><ol class="steps"><li><strong>ホームの「＋ 資料フォルダを登録」を押す</strong><p>管理しやすい表示名を入力します。例：「設備点検・改善資料」。</p></li><li><strong>「フォルダを選択」で保存場所を指定する</strong><p>場所を直接入力することもできます。指定フォルダと配下の対応ファイルが対象です。</p></li><li><strong>「登録して読み取る」を押す</strong><p>ホームの「処理の状況」で結果を確認します。大きなフォルダの走査中は件数で進捗を示します。</p></li></ol>
+    <figure class="figure"><button class="screenshot" type="button" aria-label="資料フォルダの登録画面を拡大"><img src="images/02_register.png" alt="資料フォルダを登録ダイアログ。表示名と場所、フォルダ選択、登録して読み取るボタン" width="1440" height="940" loading="lazy"></button><figcaption>図2　フォルダ登録。表示名を入力し、読み取りたい資料の場所を指定します。</figcaption></figure>
+    <div class="callout warning"><strong>Box・OneDriveは先にダウンロード。</strong> オンラインにしか存在しない資料は、エクスプローラーから「このデバイス上に常に保持」などを選び、同期が完了してから読み取ってください。</div>
+    <h3>更新・移動・停止・再開</h3><p>原本を追加・変更・削除した後は、該当フォルダの「読み取る」を押します。変更のない資料は再抽出を省略します。保存場所を移したときは「変更」から参照先を直します。</p><p>長い処理は「停止」を押して中断できます。処理中のファイルが完了するまで待つことがあります。停止・失敗した処理には「再開」が表示され、完了済みの処理結果を利用して続行します。</p>
+    <figure class="figure"><button class="screenshot" type="button" aria-label="読み取り完了のホーム画面を拡大"><img src="images/03_read_complete.png" alt="3件の資料の読み取りが完了し、登録フォルダと実際の処理件数が表示されたホーム" width="1440" height="940" loading="lazy"></button><figcaption>図3　読み取り完了。「登録した資料」「読み取り済み」「確認が必要」の件数を確認します。</figcaption></figure>
+    <p>画面の文字が小さい場合は画面上部の文字サイズを変更できます。一覧はページを切り替えて表示し、形式・状態・キーワードで絞り込めます。</p>
+    <h3>今回だけの資料を取り込む</h3><p>ホームの「今回だけの資料」にファイルをドロップするか、枠をクリックして複数のファイルを選択します。アプリ専用の作業領域へコピーし、自動で読み取りを開始します。取り込み後に手元の原本を変更しても、そのコピーには自動反映されません。</p>
+    <figure class="figure"><button class="screenshot" type="button" aria-label="単発資料の取り込み後を拡大"><img src="images/13_upload.png" alt="今回の確認事項.txtを単発取り込みし、登録フォルダとは別の取り込み資料として表示したホーム画面" width="1440" height="940" loading="lazy"></button><figcaption>図4　単発ファイルも読み取り後に資料一覧から確認できます。</figcaption></figure>
+    <h3>対応する主な形式</h3><div class="table-wrap"><table><thead><tr><th>形式</th><th>読み取る内容</th></tr></thead><tbody><tr><td>Word / Excel / PowerPoint</td><td><code>.docx .docm .xlsx .xlsm .pptx .pptm</code>。本文・表、画像OCR、対応する埋め込みOffice文書。マクロは実行しません。</td></tr><tr><td>PDF</td><td>文字の抽出と、文字が少ないページのOCR。ページ番号を保持します。</td></tr><tr><td>画像</td><td><code>.png .jpg .jpeg .tif .tiff .bmp .webp</code> の文字OCR。</td></tr><tr><td>テキスト・表データ</td><td><code>.txt .md .csv .tsv .json .jsonl .log</code>。</td></tr><tr><td>ZIP</td><td>内部の対応資料を読み取ります。展開量・深さなどの上限に達した部分は注意事項で示します。</td></tr><tr><td>旧形式・保護された資料</td><td><code>.doc .xls .ppt</code> などは新形式へ変換します。暗号化・保護・破損で読めない資料は状態と案内を確認してください。</td></tr></tbody></table></div></div>
+  </section>
+
+  <section id="review">
+    <h2><span class="number">06</span>本文・出典を確認する</h2>
+    <div class="card"><ol class="steps"><li><strong>「資料の確認」を開く</strong><p>ファイル名・本文で検索できます。資料フォルダと読み取り状態も絞り込めます。一覧は50件ごとのページ表示です。</p></li><li><strong>資料名、または「確認」を押す</strong><p>左側に「読み取った原文」、右側に「Copilotに渡す本文」を表示します。注意事項がある資料は本文の上に表示されます。</p></li><li><strong>「ページ・シートなどの出典」を開く</strong><p>PDFのページ、Excelのシート、PowerPointのスライドなど、抽出した単位ごとの本文を確認します。</p></li></ol>
+    <figure class="figure"><button class="screenshot" type="button" aria-label="資料一覧を拡大"><img src="images/04_documents.png" alt="TXT、Word、Excelの3件を読み取った資料一覧。上部に検索、フォルダ、読み取り状態の絞り込みがある" width="1440" height="940" loading="lazy"></button><figcaption>図5　資料一覧。確認が必要な資料だけに絞ると、読み取りの点検を進めやすくなります。</figcaption></figure>
+    <div class="table-wrap"><table><thead><tr><th>状態</th><th>次に行うこと</th></tr></thead><tbody><tr><td>読み取り済み</td><td>重要な本文・数値・出典が正しく取れているかを確認します。</td></tr><tr><td>一部読み取り / OCRの確認が必要</td><td>注意事項と原本を比較し、未処理のページや画像を確認します。</td></tr><tr><td>ダウンロードが必要</td><td>同期ソフトで実体を取得して、もう一度読み取ります。</td></tr><tr><td>変換が必要 / 保護された資料</td><td>案内に沿って対応する形式に変換・保護解除した資料を用意します。</td></tr><tr><td>修正の確認待ち</td><td>原本更新と保存済み修正の競合です。次章の手順で確認します。</td></tr></tbody></table></div>
+    <p>PDF・画像は詳細内の「原本をプレビュー」から確認できます。Office文書は抽出本文と出典を確認し、必要なら「原本を開く」で関連アプリを起動してください。関連アプリがないPCではOffice原本を開けないことがあります。</p></div>
+  </section>
+
+  <section id="edit">
+    <h2><span class="number">07</span>修正・除外・原本更新</h2>
+    <div class="card"><h3>OCRの誤字などを直す</h3><ol class="steps"><li><strong>右側の「Copilotに渡す本文」を編集する</strong><p>原本を確認しながら誤字・数値などを直します。抽出単位の表示は元の読み取り記録なので、修正後は右側の本文を確認します。</p></li><li><strong>「修正を保存」を押す</strong><p>次に生成するナレッジへ反映されます。すでに生成・アップロードしたファイルは自動では書き換わりません。</p></li></ol>
+    <figure class="figure"><button class="screenshot" type="button" aria-label="本文の修正画面を拡大"><img src="images/05_edit.png" alt="読み取った原文とCopilotに渡す本文を左右に並べ、次回点検日を確認済みの内容に修正する操作例" width="1440" height="940" loading="lazy"></button><figcaption>図6　本文の修正。左の原文を残し、右の本文を別に保存します。</figcaption></figure>
+    <h3>資料を出力から除外する・修正を取り消す</h3><p>「この資料を収録対象から除外」をチェックして保存すると、原本と一覧を残したまま次回生成の収録対象から外れます。戻すときはチェックを外して保存します。本文修正を取り消す場合は「修正を破棄して原文に戻す」を使います。</p>
+    <h3>原本が変わり「修正の確認待ち」になった場合</h3><p>保存済みの修正がある資料の原本を変更すると、次回読み取りで競合を検知します。古い修正を新しい原本へ勝手に適用せず、確認を待ちます。</p>
+    <figure class="figure"><button class="screenshot" type="button" aria-label="原本更新と修正の競合を拡大"><img src="images/11_conflict.png" alt="原本が更新されています、修正内容を確認してくださいという警告。左は追記された最新原文、右は以前の手修正" width="1440" height="940" loading="lazy"></button><figcaption>図7　原本を更新した後の競合。追加された情報も含めて右側の本文を見直します。</figcaption></figure>
+    <ol class="steps"><li><strong>最新原文と、以前の修正を比較する</strong><p>左の原文には原本の変更が反映されています。必要な更新を右の本文にも取り込みます。</p></li><li><strong>内容を確認して保存する</strong><p>「修正を保存」で最新の原本に対する修正として確定します。修正が不要なら原文へ戻します。</p></li><li><strong>資料セットをもう一度生成する</strong><p>競合中に作った確認待ちの世代は、競合資料を含まないことがあります。修正後は新しい世代を生成し、収録内容を確認してください。</p></li></ol></div>
+  </section>
+
+  <section id="collections">
+    <h2><span class="number">08</span>用途別の資料セットを作る</h2>
+    <div class="card"><p>別々のフォルダにある設計資料・点検記録・今回だけの資料を、一つの案件セットにまとめられます。資料セット名だけで自動分類することはありません。</p>
+    <ol class="steps"><li><strong>「Copilotへ渡す」→「資料セットを作成」</strong><p>名前、対象の資料フォルダ、登録先「Agent Builder」または「Copilot Studio」を選びます。</p></li><li><strong>選び方と用途を決める</strong><p>条件に合う資料を継続して含める「条件に合う資料」か、指定した資料だけを使う「固定選択」を選びます。用途は「概要把握」「資料比較」「確認事項の洗い出し」「手順案内」「規程・仕様の照会」の5種類です。</p></li><li><strong>「対象資料を確認」で中身を確かめる</strong><p>フォルダを横断した候補と警告を確認し、不要な資料のチェックを外します。このセットでの除外と、資料確認画面で全セットから除外する操作は別です。</p></li><li><strong>説明と回答範囲を保存する</strong><p>資料の説明・対象者・答える範囲・対象外・追加指示を入力すると、定型文で登録先向けの指示文を組み立てます。</p></li></ol><figure class="figure"><button class="screenshot" type="button" aria-label="図8　資料セットの設定。登録先と、資料を使う目的を保存します。を拡大"><img src="images/06_collection.png" alt="図8　資料セットの設定。登録先と、資料を使う目的を保存します。" width="1440" height="940" loading="lazy"></button><figcaption>図8　資料セットの設定。登録先と、資料を使う目的を保存します。</figcaption></figure><figure class="figure"><button class="screenshot" type="button" aria-label="図9　複数フォルダの資料を確認し、案件に必要なものを固定選択する例。を拡大"><img src="images/14_multifolder.png" alt="図9　複数フォルダの資料を確認し、案件に必要なものを固定選択する例。" width="1440" height="940" loading="lazy"></button><figcaption>図9　複数フォルダの資料を確認し、案件に必要なものを固定選択する例。</figcaption></figure>
+    <div class="callout"><strong>固定選択と、条件に合わせる選び方の違い。</strong> 固定選択は指定した資料を使い続け、新しい資料を自動追加しません。選んだ原本が削除・移動された場合も、対象確認や未収録一覧に残り、出力は確認待ちになります。原本を元の場所へ戻して再読み取りするか、対象資料を選び直してください。「条件に合う資料」は現在のフォルダ・検索条件に追従し、削除済みの原本は収録対象から外れます。</div>
+    <h3>整理前後を見比べる</h3><p>保存済みセットを「編集」し、「対象資料を確認」→対象資料の「整理前後」を開きます。「整理なし」は読み取った本文を維持し、「標準」は表の列をそろえ、完全一致する共通のヘッダー・フッターや同じ画像をまとめます。似た意味の本文を自動で削除することはありません。</p><figure class="figure"><button class="screenshot" type="button" aria-label="図10　整理前後と変更内容。ページ・シートなどの単位ごとに採否を指定できます。を拡大"><img src="images/15_cleanup.png" alt="図10　整理前後と変更内容。ページ・シートなどの単位ごとに採否を指定できます。" width="1440" height="940" loading="lazy"></button><figcaption>図10　整理前後と変更内容。ページ・シートなどの単位ごとに採否を指定できます。</figcaption></figure>
+    <p>非表示箇所・ノート・埋め込み資料は初期状態では含めます。詳細設定で外した内容も、各単位の「必ず含める」で戻せます。「このセットから除外」は原本を消しません。Excelの正式な表、Wordの見出し行設定、PowerPointの見出し行設定から列名を識別します。明示されていない列名は推測せず、本文を保持します。全文を手修正した資料は位置を断定できないため、文書全体の修正として扱います。</p>
+    <h3>原本が変わったら、ページごとの採否も再確認する</h3><p>以前「必ず含める」「このセットから除外」を指定した原本や再読み取りの結果が変わると、古い指定を新しい内容へそのまま適用せず、確認待ちにします。再確認までは該当箇所の原文を保持します。</p><ol class="steps"><li><strong>セットを編集し、対象資料の「整理前後」を開く</strong><p>「ページ・シートごとの採否」で「原本更新のため確認が必要」の箇所を確認します。</p></li><li><strong>現在の内容と採否を見比べる</strong><p>内容を確認して「採否を再確認」を押すか、採否を選び直します。原本から見つからなくなった指定は「旧指定を解除」で外せます。</p></li><li><strong>「資料セットへ保存して確認」を押す</strong><p>最新の原本に対する採否として保存し、再生成します。セット名などを保存しただけでは、この再確認を済ませたことにはなりません。再確認が必要な採否は、出力を「確認して使用する」だけでも解除できません。</p></li></ol>
+    <h3>評価に使う質問を保存する（任意）</h3><p>詳細設定で、利用者が考えた質問・期待回答・確認する出典を入力できます。出力後にCopilotで確かめるための控えです。質問の自動生成、実行、採点は行いません。</p></div>
+  </section>
+
+  <section id="export">
+    <h2><span class="number">09</span>出力前に確認して生成する</h2>
+    <div class="card"><ol class="steps"><li><strong>セットの「ナレッジを生成」を押す</strong><p>出力前確認に、原本の更新・読み取りの注意・修正競合などが表示されます。対象件数と注意内容を確認してください。</p></li><li><strong>原本の確認と生成を開始する</strong><p>更新された原本を確認・再読み取りしてから出力を生成します。競合や読み取りエラーがある場合は、生成後も自動確定せず確認待ちになることがあります。</p></li><li><strong>生成結果を確認してダウンロードする</strong><p>正常なら新しい世代が「現在の出力」になります。「一式をダウンロード」でZIPを保存・展開します。「保存先を開く」で生成フォルダも確認できます。</p></li></ol><figure class="figure"><button class="screenshot" type="button" aria-label="図11　出力前確認。選定済み資料の鮮度と、注意が必要な状態を確かめます。を拡大"><img src="images/16_preflight.png" alt="図11　出力前確認。選定済み資料の鮮度と、注意が必要な状態を確かめます。" width="1440" height="940" loading="lazy"></button><figcaption>図11　出力前確認。選定済み資料の鮮度と、注意が必要な状態を確かめます。</figcaption></figure><figure class="figure"><button class="screenshot" type="button" aria-label="図12　Builder用とStudio用を資料セットごとに分けて管理する例。を拡大"><img src="images/17_studio.png" alt="図12　Builder用とStudio用を資料セットごとに分けて管理する例。" width="1440" height="940" loading="lazy"></button><figcaption>図12　Builder用とStudio用を資料セットごとに分けて管理する例。</figcaption></figure>
+    <h3>出力一式の見方</h3><div class="table-wrap"><table><thead><tr><th>ファイル・フォルダ</th><th>用途</th></tr></thead><tbody>
+    <tr><td><code>M365/set_001/</code></td><td>Agent Builder用TXT。INDEX＋本文最大19ファイル。超過は複数セットに分けます。複数セットを同じエージェントに無制限に登録できるわけではありません。</td></tr>
+    <tr><td><code>Studio/</code></td><td>Copilot Studio用Markdown。INDEXを含め500ファイル以内、各512MB以内。超過すると全成果物を保持して確認待ちにします。対象を絞って再生成してください。</td></tr>
+    <tr><td><code>instructions.txt</code> / <code>prompt.txt</code></td><td>目的・対象者・回答範囲・対象外・追加指示を含む指示文。</td></tr>
+    <tr><td><code>knowledge-descriptions.md</code> / <code>registration-guide.md</code></td><td>資料説明と登録手順。</td></tr>
+    <tr><td><code>context.md</code> / <code>context.jsonl</code></td><td>収録本文。分割後も出典位置と、表として識別できた見出しを保持します。</td></tr>
+    <tr><td><code>sources.jsonl</code> / <code>extraction-report.md</code></td><td>出典・重複元・警告・未収録理由。</td></tr>
+    <tr><td><code>health.md</code> / <code>curation-changes.json</code></td><td>読み取りの健康診断と整理内容の控え。</td></tr>
+    <tr><td><code>upload-changes.md</code></td><td>利用者が投入済みと記録したファイルの状態に対する追加・差し替え・削除一覧。未記録なら全件が追加です。</td></tr>
+    <tr><td><code>evaluation-questions.csv</code></td><td>任意入力した質問・期待回答・出典。Studio用2列CSVも出力します。Studio用は100問・質問1〜1000文字の範囲で作られます。</td></tr>
+    </tbody></table></div>
+    <h3>「確認待ち」になったら</h3><figure class="figure"><button class="screenshot" type="button" aria-label="図13　確認待ちの世代と、保持された前回の出力。を拡大"><img src="images/12_held.png" alt="図13　確認待ちの世代と、保持された前回の出力。" width="1440" height="940" loading="lazy"></button><figcaption>図13　確認待ちの世代と、保持された前回の出力。</figcaption></figure>
+    <p>理由と読み取り結果を確認し、修正後に再生成します。「確認して使用する」は、未収録などを理解した上でその世代を採用する操作です。生成後に原本や設定が変わっている場合、またStudioの登録上限を超えた場合は、再生成が必要です。</p>
+    <div class="callout warning"><strong>アプリ内の出力切替だけではCopilotの登録は変わりません。</strong> 「現在の出力」と「投入済み」は別です。古い内容を残さないよう、Copilot側での差し替えと削除も確認してください。</div></div>
+  </section>
+
+  <section id="handoff">
+    <h2><span class="number">10</span>Copilotへ渡し、投入済みを記録する</h2>
+    <div class="card"><ol class="steps"><li><strong>選んだ登録先用のファイルを用意する</strong><p>Agent Builderは使う <code>M365/set_XXX</code> のINDEXと本文、Copilot Studioは <code>Studio</code> 内のMarkdownを選びます。INDEXだけでは本文は渡りません。</p></li><li><strong>Copilotのナレッジ画面で登録する</strong><p>組織の権限や画面に表示される制限を確認し、アップロード後の処理完了を確認します。アプリがCopilotへ接続することはありません。</p></li><li><strong>指示文と資料説明を設定する</strong><p>アプリの「指示文」で内容を確認・コピーし、登録先の指示欄へ貼り付けます。資料説明は <code>knowledge-descriptions.md</code> を参考にします。</p></li><li><strong>回答の出典を確かめる</strong><p>保存した評価質問などを手動で試し、ファイル名・ページ・シート・数値を原本と照合します。Excelの数式は保存値であり、このアプリでは再計算していません。</p></li><li><strong>アプリの「登録状況」で実施済みだけ記録する</strong><p>今回実際に登録したファイルと、Copilot側で削除を確認した旧ファイルにチェックして保存します。一部だけ登録した場合も、その範囲だけ記録できます。</p></li></ol><figure class="figure"><button class="screenshot" type="button" aria-label="図14　目的と回答範囲を反映した指示文。を拡大"><img src="images/08_prompt.png" alt="図14　目的と回答範囲を反映した指示文。" width="1440" height="940" loading="lazy"></button><figcaption>図14　目的と回答範囲を反映した指示文。</figcaption></figure><figure class="figure"><button class="screenshot" type="button" aria-label="図15　実際に登録・削除したファイルを確認して記録する画面。を拡大"><img src="images/18_handoff.png" alt="図15　実際に登録・削除したファイルを確認して記録する画面。" width="1440" height="940" loading="lazy"></button><figcaption>図15　実際に登録・削除したファイルを確認して記録する画面。</figcaption></figure>
+    <div class="callout"><strong>生成しただけで投入済みにはなりません。</strong> 次の差し替え一覧は、ここで記録した登録状態を基準にします。記録を誤ると一覧も実際の状態とずれるため、Copilot側を確認してから保存してください。</div>
+    <p>評価用CSVの取り込みも任意です。自動採点や質問の外部送信は行いません。Studio用の問数・文字数を超えた場合、汎用CSVに全質問を保存し、Studio用CSVを作らなかった理由を出力内に示します。</p></div>
+  </section>
+
+  <section id="schedule">
+    <h2><span class="number">11</span>定期更新を設定する</h2>
+    <div class="card"><ol class="steps"><li><strong>「定期更新・設定」→「＋ 定期更新を追加」</strong><p>更新名と、対象の資料フォルダを選びます。読み取り後の生成は、その1フォルダだけを使う資料セットが対象です。複数フォルダの案件セットは出力画面から生成します。</p></li><li><strong>実行モードと繰り返しを選ぶ</strong><p>「毎日」「曜日を指定」「一定の間隔」を選び、時刻または分単位の間隔を入力します。</p></li><li><strong>有効・停止を確認して「設定を保存」</strong><p>Windowsの予約登録に失敗した場合は、成功として保存されません。画面のエラーを確認してください。</p></li></ol>
+    <figure class="figure"><button class="screenshot" type="button" aria-label="定期更新設定を拡大"><img src="images/09_schedule.png" alt="平日9時に点検資料を読み取り、用途別セットを生成する予約設定。アプリ内とWindowsバックグラウンドの2モードを表示" width="1440" height="940" loading="lazy"></button><figcaption>図16　定期更新の設定。対象の資料、実行するモード、曜日と時刻を指定します。</figcaption></figure>
+    <div class="table-wrap"><table><thead><tr><th>モード</th><th>動作する条件</th><th>終了時の扱い</th></tr></thead><tbody><tr><td>アプリ起動中のみ</td><td>アプリ本体が動作している間。</td><td>ブラウザを閉じても継続。アプリ本体を終了すると停止します。</td></tr><tr><td>アプリ終了後も実行</td><td>Windowsのタスクスケジューラへ登録。利用者がログイン中で、PCが稼働している間。</td><td>アプリ本体を終了しても予約は残ります。停止・削除・モード変更をアプリから行うとOS予約も連動します。</td></tr></tbody></table></div>
+    <h3>実行結果と予約の管理</h3><p>予約一覧に「次回」「前回」「結果」「失敗理由」を表示します。「今すぐ実行」で動作を確かめられます。「編集」で日時・モードを変更し、「停止」で無効化、「削除」で予約を解除します。</p><p>同じ予約の二重実行を防止し、実行できなかった分は次に実行可能になった時点で1回にまとめます。エラー・競合・収録量の急減がある出力は自動確定せず、確認待ちになります。</p>
+    <div class="callout warning"><strong>PCの電源OFF・スリープ・ログアウト中は実行されません。</strong> この版ではPCを自動で起こしません。Windowsの予約処理を続ける場合は、アプリフォルダを移動・削除しないでください。移動後は予約を停止・再設定し、結果を確認します。</div></div>
+  </section>
+
+  <section id="backup">
+    <h2><span class="number">12</span>バックアップと復元</h2>
+    <div class="card"><p>「定期更新・設定」画面の「バックアップを保存」で、設定・資料の参照情報・手修正をJSONに保存できます。保存先とファイル名はブラウザのダウンロード設定に従います。</p>
+    <figure class="figure"><button class="screenshot" type="button" aria-label="バックアップと終了の設定画面を拡大"><img src="images/10_settings.png" alt="定期更新一覧と、バックアップを保存、JSONから復元、アプリを終了する操作を表示した設定画面" width="1440" height="940" loading="lazy"></button><figcaption>図17　バックアップ・復元・終了は「定期更新・設定」画面から行います。</figcaption></figure>
+    <div class="callout warning"><strong>原本資料のバックアップとは別です。</strong> 設定・本文修正と履歴・投入済みの記録を保存しますが、JSONだけではWord・PDF・単発取り込みの実ファイルや生成済み出力を丸ごと保管したことにはなりません。原本と必要な出力ZIPも別に保存してください。</div>
+    <h3>別のPCなどへ復元する</h3><ol class="steps"><li><strong>原本資料とバックアップを移動先のPCへ用意する</strong><p>復元先は、まだ資料や設定が登録されていないアプリである必要があります。現在使用中のデータに上書きすることはできません。</p></li><li><strong>「JSONから復元」でバックアップを選ぶ</strong><p>「定期更新・設定」を開き、保存しておいたJSONファイルを指定します。すでに資料がある環境へ復元したい場合は、現在のデータを削除せず、配布担当者に確認してください。</p></li><li><strong>資料の場所を確認して再読み取りする</strong><p>保存場所が変わった場合はホームの「変更」で直し、「読み取る」を実行します。定期更新は停止状態で復元されるので、内容を確認して有効にします。</p></li></ol>
+    <h3>設定・履歴の保存先</h3><p class="path"><code>%LOCALAPPDATA%\ContextgenKai</code></p><p>設定・履歴・手修正は、Windowsの利用者ごとに上記の場所へ保存します。アプリフォルダを入れ替えても、この保存先は変わりません。別のWindowsユーザーで起動した場合は、そのユーザー用のデータが表示されます。</p><p>保存先を確認するときは、エクスプローラーのアドレス欄に上記の文字列を貼り付けて開きます。通常の利用では中のファイルを直接編集・削除する必要はありません。</p></div>
+  </section>
+
+  <section id="shutdown">
+    <h2><span class="number">13</span>アプリを終了する</h2>
+    <div class="card"><ol class="steps"><li><strong>編集中の本文を保存する</strong><p>資料の編集画面で「修正を保存」を押します。必要に応じて出力やバックアップも保存します。</p></li><li><strong>「定期更新・設定」へ移動する</strong><p>「アプリ本体を終了」の欄にある「アプリを終了する」を押し、確認画面で了承します。</p></li><li><strong>停止メッセージが表示されたらブラウザを閉じる</strong><p>次回は ContextgenKai.exe から再び起動します。編集中のブラウザタブだけを閉じる操作とは異なります。</p></li></ol>
+    <div class="callout"><strong>バックグラウンド予約も止めたい場合は、予約を「停止」にします。</strong> 「アプリ終了後も実行」の予約は、アプリ本体の終了とは別に管理します。予約を残す目的でブラウザを開いたままにする必要はありません。</div></div>
+  </section>
+
+  <section id="faq">
+    <h2><span class="number">14</span>困ったとき・FAQ</h2>
+    <div class="card">
+      <details class="faq" open><summary>ZIPを開きましたが、アプリが起動しません。</summary><p>ZIP内から直接起動せず、右クリックの「すべて展開」でフォルダへ取り出してください。展開先に <code>ContextgenKai.exe</code> と <code>_internal</code> フォルダが一緒にあることを確認します。</p></details>
+      <details class="faq" open><summary>アプリを更新するにはどうすればよいですか？</summary><p>配布担当者から新しいZIPを受け取り、<a href="#install">新しい版を受け取ったときの手順</a>で入れ替えます。古い版は終了してから更新し、アプリフォルダの場所が変わったらバックグラウンド予約を登録し直します。</p></details>
+      <details class="faq" open><summary>OCRが使えない・日本語が認識されません。</summary><p>OCRは配布ZIPに含まれています。フォルダ一式を展開し直し、EXEだけを移動していないか確認してください。画像が小さい、傾いている、画質が低い場合は読み誤りがあるため、鮮明な原本を用意するか「資料の確認」で本文を修正します。</p></details>
+      <details class="faq" open><summary>ブラウザに接続できない・画面が開きません。</summary><p><code>ContextgenKai.exe</code> から起動し、自動で開いたブラウザ画面を使ってください。表示されたエラーメッセージと操作の状況を控え、配布担当者へ伝えてください。ブラウザだけを閉じた場合は、アプリ本体が動作したままのことがあります。</p></details>
+      <details class="faq" open><summary>資料が「ダウンロードが必要」「読み取りエラー」になります。</summary><p>Box・OneDriveなどの同期状態、参照先の移動、アクセス権、ファイル破損・保護を確認します。資料を開ける状態にし、「資料の確認」で注意がある資料を絞り込み、詳細の「この資料を再読み取り」を使います。原本の保護・破損は先に解消してください。</p></details>
+      <details class="faq" open><summary>修正したのにCopilotの回答が変わりません。</summary><p>修正の保存後、資料セットを再生成し、生成した最新ファイルをCopilotで差し替えます。アプリの保存だけでは既存出力やCopilotの添付は変更されません。</p></details>
+      <details class="faq" open><summary>出力が確認待ち・収録件数が減りました。</summary><p>競合、読み取りエラー、除外、原本削除などを確認します。<code>extraction-report.md</code> と <code>health.md</code> を読み、原因を直して再生成します。前回の出力は保持されています。</p></details>
+      <details class="faq" open><summary>Windowsの予約が登録できない・予定時刻に動きません。</summary><p>登録時のエラーと前回結果を確認します。組織のPC制限、PCの電源・スリープ、ログイン状態、アプリの移動・削除が影響します。「今すぐ実行」の結果を確かめ、実行しなかった時刻と表示された理由を配布担当者に伝えてください。</p></details>
+      <details class="faq" open><summary>バックアップを復元できません。</summary><p>既存の資料や設定が入っている保存領域へは復元できません。<a href="#backup">まだ資料や設定を登録していない環境</a>で実行し、復元後に原本の場所を確認して再読み取りします。JSONには原本ファイル自体は含まれません。</p></details>
+      <details class="faq" open><summary>マニュアルの画像が出ません。</summary><p>アプリフォルダ内の <code>_internal</code> に画像が入っています。マニュアルだけを移動せず、アプリフォルダ一式で保管してください。アプリ左下の「画像付き操作マニュアル」からも開けます。</p></details>
+    </div>
+  </section>
+  <footer class="footer"><p><strong>contextgen 改 操作マニュアル</strong>　アプリ0.3.0 / 文書0.4 / 2026-09-24</p><p>分からないことやエラーがある場合は、アプリの版と表示されたメッセージを配布担当者に伝えてください。</p></footer>
+</main>
+<dialog id="image-viewer" aria-label="操作画面の拡大"><header><span id="image-caption"></span><button id="image-close" type="button">閉じる</button></header><div class="image-scroll"><img id="image-large" alt=""></div></dialog>
+<script src="images/manual.js"></script>
+</body>
+</html>
