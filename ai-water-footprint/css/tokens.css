@@ -1,0 +1,76 @@
+/* 見えない水 — デザイントークン。色は 3 系統（紙・墨・水）+ 強調 1 色だけ。 */
+:root {
+  color-scheme: light dark;
+
+  --bg: #f7f6f2;
+  --bg-2: #efede7;
+  --ink: #1b1f23;
+  --ink-2: #5b6269;
+  --ink-3: #8a9196;
+  --line: #d9d6cf;
+  --line-2: #b9b5ab;
+
+  --water: #2f6fa5;
+  --water-deep: #1d4f7c;
+  --water-light: #7fb0d8;
+  --water-hi: rgba(255, 255, 255, 0.55);
+  --water-soft: rgba(47, 111, 165, 0.10);
+  --glass: rgba(47, 111, 165, 0.05);
+
+  --accent: #c4552d;
+  --accent-ink: #ffffff;
+
+  --font: "Yu Gothic UI", "Meiryo", "Hiragino Sans", "Noto Sans CJK JP", "IPAPGothic", system-ui, sans-serif;
+  --font-num: "Helvetica Neue", "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Noto Sans CJK JP", "IPAPGothic", system-ui, sans-serif;
+
+  --num-size: clamp(3.2rem, 12vw, 9.5rem);
+  --h1-size: clamp(1.9rem, 4.5vw, 3.2rem);
+  --h2-size: clamp(1.4rem, 2.6vw, 2rem);
+  --body-size: clamp(0.98rem, 1.1vw, 1.1rem);
+  --small-size: 0.84rem;
+
+  --gutter: clamp(1rem, 4vw, 3rem);
+  --measure: 40rem;
+  --radius: 0.5rem;
+  --top-h: 3.6rem;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1418;
+    --bg-2: #161c22;
+    --ink: #e8ebe9;
+    --ink-2: #9aa3a9;
+    --ink-3: #6b747a;
+    --line: #2a3238;
+    --line-2: #3b454d;
+    --water: #4f9bd6;
+    --water-deep: #2c6a9c;
+    --water-light: #8cc3ea;
+    --water-hi: rgba(255, 255, 255, 0.25);
+    --water-soft: rgba(79, 155, 214, 0.14);
+    --glass: rgba(79, 155, 214, 0.06);
+    --accent: #e07a53;
+    --accent-ink: #14100e;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1418;
+  --bg-2: #161c22;
+  --ink: #e8ebe9;
+  --ink-2: #9aa3a9;
+  --ink-3: #6b747a;
+  --line: #2a3238;
+  --line-2: #3b454d;
+  --water: #4f9bd6;
+  --water-deep: #2c6a9c;
+  --water-light: #8cc3ea;
+  --water-hi: rgba(255, 255, 255, 0.25);
+  --water-soft: rgba(79, 155, 214, 0.14);
+  --glass: rgba(79, 155, 214, 0.06);
+  --accent: #e07a53;
+  --accent-ink: #14100e;
+}

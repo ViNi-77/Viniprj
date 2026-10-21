@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>見えない水 — 映像版（45 秒）</title>
+<meta name="description" content="生成 AI が蒸発させる淡水を器で見る、45 秒の映像。Canvas だけで描き、フレーム番号だけで絵が決まる。">
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #07090b; color: #e8ebe9; font-family: "Hiragino Sans", "Yu Gothic UI", "Meiryo", "Noto Sans CJK JP", "IPAPGothic", system-ui, sans-serif; }
+  body { display: grid; grid-template-rows: 1fr auto; min-height: 100dvh; }
+  .stage-wrap { display: grid; place-items: center; padding: clamp(0.5rem, 2vw, 1.5rem); min-height: 0; }
+  canvas#stage { width: min(100%, calc((100dvh - 7rem) * 16 / 9)); aspect-ratio: 16 / 9; background: #0f1418; box-shadow: 0 0 0 1px #1f262c; display: block; }
+  body.record { display: block; min-height: 0; }
+  body.record .stage-wrap { padding: 0; }
+  body.record canvas#stage { width: 1920px; height: 1080px; box-shadow: none; }
+  body.record .bar { display: none; }
+  .bar { display: flex; align-items: center; gap: 0.75rem 1rem; flex-wrap: wrap; padding: 0.6rem clamp(0.75rem, 2vw, 1.5rem) 0.9rem; border-top: 1px solid #1f262c; font-size: 0.85rem; color: #9aa3a9; }
+  .bar button { font: inherit; color: #e8ebe9; background: #161c22; border: 1px solid #2a3238; border-radius: 999px; padding: 0.3em 0.9em; cursor: pointer; }
+  .bar button:hover { border-color: #4f9bd6; }
+  .bar button[aria-pressed="true"] { background: #e8ebe9; color: #0f1418; }
+  .bar input[type="range"] { flex: 1 1 14rem; min-width: 8rem; accent-color: #4f9bd6; }
+  .bar .time { font-variant-numeric: tabular-nums; min-width: 9.5em; color: #e8ebe9; }
+  .bar .seg { display: inline-flex; gap: 0.2rem; }
+  .bar .hint { width: 100%; font-size: 0.78rem; }
+  .bar a { color: inherit; }
+  kbd { border: 1px solid #2a3238; border-radius: 0.3em; padding: 0 0.35em; font-family: inherit; }
+</style>
+</head>
+<body>
+<div class="stage-wrap"><canvas id="stage" width="1920" height="1080" aria-label="見えない水 映像"></canvas></div>
+<div class="bar" id="bar">
+  <button type="button" id="play" aria-pressed="false">再生</button>
+  <button type="button" id="restart">最初から</button>
+  <span class="time" id="time">00:00.00 / 00:45.00</span>
+  <input type="range" id="scrub" min="0" max="2699" step="1" value="0" aria-label="シーク">
+  <span class="seg" role="group" aria-label="1 回あたりの水">
+    <button type="button" data-scenario="low">低 0.26 mL</button>
+    <button type="button" data-scenario="mid" aria-pressed="true">中 45 mL</button>
+    <button type="button" data-scenario="high">高 519 mL</button>
+  </span>
+  <button type="button" id="sound" aria-pressed="false">音 オフ</button>
+  <span class="hint"><kbd>Space</kbd> 再生/停止 · <kbd>←</kbd><kbd>→</kbd> 1 フレーム · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> 1 秒 · <kbd>R</kbd> 最初から · MP4 にするには <code>python scripts/render_film.py</code>（docs/05）。絵コンテは中シナリオ基準。</span>
+</div>
+
+<script>
+/* 見えない水 — 映像版。
+ * 1 本の draw(f) がフレーム番号だけから絵を決める（時計・乱数を使わない）。
+ * 1920×1080、60 fps、45 秒 = 2700 フレーム。Canvas 2D のみ、外部資産なし。 */
+(function () {
+  'use strict';
+  const W = 1920, H = 1080, FPS = 60, DUR = 45, FRAMES = DUR * FPS;
+
+  /* ---------- 色・字 ---------- */
+  const C = {
+    bg: '#0f1418', ink: '#f1ece2', ink2: '#9aa3a9', ink3: '#5f6a72', line: '#3b454d',
+    water: '#4f9bd6', deep: '#2c6a9c', light: '#8cc3ea', hi: 'rgba(255,255,255,0.35)', accent: '#e07a53', glass: 'rgba(79,155,214,0.07)',
+  };
+  const JP = '"Hiragino Sans", "Yu Gothic", "Meiryo", "Noto Sans CJK JP", "IPAPGothic", sans-serif';
+  const NUM = '"Helvetica Neue", "Segoe UI", "Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP", "IPAPGothic", sans-serif';
+  const font = (w, px, fam) => w + ' ' + px + 'px ' + (fam || JP);
+
+  /* ---------- 数値（docs/03 と一致） ---------- */
+  const SCENARIOS = {
+    low:  { ml: 0.26, name: '事業者の公表値', src: 'Google, 2025', unit: '回' },
+    mid:  { ml: 45,   name: '第三者レビュー済み LCA', src: 'Mistral AI, 2025', unit: '回' },
+    high: { ml: 519,  name: '報道で広まった上限', src: 'Washington Post × UC Riverside, 2024', unit: '通' },
+  };
+  const PROMPTS_PER_DAY = 2.5e9, BOTTLE = 500, POOL = 390000, PER_DAY = 20, PEOPLE = 10000, DAYS = 365;
+  let scenarioId = 'mid';
+  const unit = () => SCENARIOS[scenarioId].ml;
+
+  /* ---------- 台本（この語順のまま） ---------- */
+  const T = {
+    s1: '質問を、ひとつ。', s1typed: '明日の会議のアジェンダを 3 行で',
+    s2: 'どこかで、水が蒸発する。', s2cap: '1 回あたりの冷却水',
+    s3: '1 日 20 回。', s3cap: 'ペットボトル',
+    s4: '10,000 人が、1 年。', s4cap: '25 m プール', s4ref: 'さっきの 2 本（同じ縮尺）',
+    s5: 'ChatGPT だけで、1 日', s5unit: '回。', s5cap: '= 1 日に 25 m プール', s5src: 'OpenAI → Axios, 2025-07',
+    s6: 'ただし、数字には幅がある。', s6cap: '何を含めて測るかで、桁が変わる。',
+    s7: '見えない水', s7sub: '生成 AI が蒸発させる淡水を、器で見る', s7cta: 'index.html で、自分の 1 回を数える',
+    s7src: '出典: Google 2025 / Mistral AI 2025 / Washington Post × UC Riverside 2024 / OpenAI → Axios 2025。すべて推計。',
+  };
+
+  /* ---------- 道具 ---------- */
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a, b, p) => a + (b - a) * p;
+  const seg = (t, a, b) => clamp((t - a) / (b - a), 0, 1);
+  const E = {
+    outCubic: (p) => 1 - Math.pow(1 - p, 3),
+    inCubic: (p) => p * p * p,
+    inOut: (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2),
+    outExpo: (p) => (p >= 1 ? 1 : 1 - Math.pow(2, -10 * p)),
+    outBack: (p) => { const c = 1.70158; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); },
+    inQuad: (p) => p * p,
+  };
+  /** 決定論的な疑似乱数（id と添字から） */
+  function hash(i, j) {
+    let h = (Math.imul(i | 0, 374761393) + Math.imul((j | 0) + 1, 668265263)) ^ 0x5bd1e995;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+  const nf0 = new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 0 });
+  const nf = (v, d) => new Intl.NumberFormat('ja-JP', { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
+  const dec = (v, d) => (Math.abs(v - Math.round(v)) < 1e-9 ? 0 : d);
+  const UNITS = { 'mL': 1, 'L': 1000, '万 L': 1e7, '億 L': 1e11 };
+  function unitFor(mL) { return mL < 1000 ? 'mL' : mL < 1e7 ? 'L' : mL < 1e11 ? '万 L' : '億 L'; }
+  /** mL を表示用に。u を渡すと単位を固定する（数字が転がる間に単位が変わらないように） */
+  function fmtVolume(mL, u) {
+    u = u || unitFor(mL); const v = mL / UNITS[u];
+    const d = u === 'mL' || u === 'L' ? (v < 10 ? 2 : v < 100 ? 1 : 0) : (v < 100 ? 1 : 0);
+    return { v: nf(v, dec(v, d)), u };
+  }
+
+  /* 等幅数字: 数字は最大幅で揃え、記号は実幅で描く */
+  function tabular(ctx, text, x, y, align) {
+    const digitW = Math.max.apply(null, '0123456789'.split('').map((c) => ctx.measureText(c).width));
+    const chars = text.split('');
+    const widths = chars.map((c) => (/[0-9]/.test(c) ? digitW : ctx.measureText(c).width));
+    const total = widths.reduce((a, b) => a + b, 0);
+    let cx = align === 'center' ? x - total / 2 : align === 'right' ? x - total : x;
+    const prev = ctx.textAlign; ctx.textAlign = 'center';
+    chars.forEach((c, i) => { ctx.fillText(c, cx + widths[i] / 2, y); cx += widths[i]; });
+    ctx.textAlign = prev;
+    return total;
+  }
+
+  /* ---------- 器 ---------- */
+  /** ボトル（200×520 の座標系）。呼び出し側が transform を置く */
+  function bottlePath(ctx) {
+    ctx.beginPath();
+    ctx.moveTo(84, 56); ctx.lineTo(116, 56); ctx.lineTo(116, 82);
+    ctx.quadraticCurveTo(116, 98, 140, 110); ctx.quadraticCurveTo(164, 122, 164, 152); ctx.lineTo(164, 238);
+    ctx.quadraticCurveTo(164, 256, 156, 268); ctx.quadraticCurveTo(148, 280, 148, 300); ctx.quadraticCurveTo(148, 320, 156, 332);
+    ctx.quadraticCurveTo(164, 344, 164, 362); ctx.lineTo(164, 468); ctx.quadraticCurveTo(164, 498, 134, 498); ctx.lineTo(66, 498);
+    ctx.quadraticCurveTo(36, 498, 36, 468); ctx.lineTo(36, 362); ctx.quadraticCurveTo(36, 344, 44, 332); ctx.quadraticCurveTo(52, 320, 52, 300);
+    ctx.quadraticCurveTo(52, 280, 44, 268); ctx.quadraticCurveTo(36, 256, 36, 238); ctx.lineTo(36, 152); ctx.quadraticCurveTo(36, 122, 60, 110);
+    ctx.quadraticCurveTo(84, 98, 84, 82); ctx.closePath();
+  }
+  const B_TOP = 104, B_BOT = 496, B_LEN = 1500; // 液面の範囲と輪郭の長さ（近似）
+
+  function wave(ctx, levelY, t, amp, x0, x1, bottomY, phase) {
+    ctx.beginPath(); ctx.moveTo(x0, bottomY); ctx.lineTo(x0, levelY);
+    const step = Math.max(3, (x1 - x0) / 36);
+    for (let x = x0; x <= x1 + step; x += step) {
+      const y = levelY + amp * Math.sin(x / ((x1 - x0) * 0.11) + t * 2.2 + (phase || 0)) + amp * 0.45 * Math.sin(x / ((x1 - x0) * 0.045) - t * 1.3);
+      ctx.lineTo(Math.min(x, x1), y);
+    }
+    ctx.lineTo(x1, bottomY); ctx.closePath();
+  }
+
+  /**
+   * ボトルを描く。cx: 中心 x、by: 底 y、h: 高さ(px)、frac: 0..1、t: 秒（波用）
+   * o: { draw: 輪郭の描画進行 0..1, alpha, amp, cap: キャップを描くか, glass }
+   */
+  function drawBottle(ctx, cx, by, h, frac, t, o) {
+    o = o || {}; const s = h / 520, drawP = o.draw == null ? 1 : o.draw;
+    ctx.save(); ctx.globalAlpha *= (o.alpha == null ? 1 : o.alpha);
+    ctx.translate(cx - 100 * s, by - 520 * s); ctx.scale(s, s);
+    if (o.glass !== false) { bottlePath(ctx); ctx.fillStyle = C.glass; ctx.fill(); }
+    if (frac > 0) {
+      ctx.save(); bottlePath(ctx); ctx.clip();
+      const levelY = B_BOT - clamp(frac, 0, 1) * (B_BOT - B_TOP);
+      const amp = (o.amp == null ? 3 : o.amp) / s;
+      const g = ctx.createLinearGradient(0, levelY, 0, B_BOT); g.addColorStop(0, C.water); g.addColorStop(1, C.deep);
+      wave(ctx, levelY - amp * 0.8, t * 0.9, amp * 1.2, 0, 200, 520, 1.7); ctx.fillStyle = C.light; ctx.globalAlpha *= 0.55; ctx.fill(); ctx.globalAlpha /= 0.55;
+      wave(ctx, levelY, t, amp, 0, 200, 520, 0); ctx.fillStyle = g; ctx.fill();
+      ctx.strokeStyle = C.hi; ctx.lineWidth = 1.5 / s; ctx.stroke();
+      ctx.restore();
+    }
+    bottlePath(ctx);
+    ctx.strokeStyle = o.stroke || C.ink; ctx.lineWidth = 2.5 / Math.max(s, 0.6) ; ctx.lineJoin = 'round';
+    if (drawP < 1) { ctx.setLineDash([B_LEN * drawP, B_LEN]); }
+    ctx.stroke(); ctx.setLineDash([]);
+    if (o.cap !== false && drawP >= 0.98) { ctx.fillStyle = o.stroke || C.ink; roundRect(ctx, 78, 30, 44, 28, 5); ctx.fill(); }
+    // ハイライト
+    ctx.fillStyle = 'rgba(255,255,255,0.10)'; roundRect(ctx, 48, 140, 9, 320, 4.5); ctx.fill();
+    ctx.restore();
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  }
+
+  /** 25 m プール（側面）。frac 0..1 で下から満ちる */
+  function drawPool(ctx, x, y, w, h, frac, t, o) {
+    o = o || {}; ctx.save(); ctx.globalAlpha *= (o.alpha == null ? 1 : o.alpha);
+    ctx.fillStyle = C.glass; roundRect(ctx, x, y, w, h, Math.min(6, h / 4)); ctx.fill();
+    if (frac > 0) {
+      ctx.save(); roundRect(ctx, x, y, w, h, Math.min(6, h / 4)); ctx.clip();
+      const levelY = y + h - clamp(frac, 0, 1) * h;
+      const g = ctx.createLinearGradient(0, levelY, 0, y + h); g.addColorStop(0, C.water); g.addColorStop(1, C.deep);
+      wave(ctx, levelY, t, Math.min(3, h * 0.06), x, x + w, y + h, 0); ctx.fillStyle = g; ctx.fill();
+      ctx.restore();
+    }
+    ctx.strokeStyle = o.stroke || C.ink; ctx.lineWidth = o.lw || 2; roundRect(ctx, x, y, w, h, Math.min(6, h / 4)); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawDrop(ctx, x, y, r, alpha) {
+    ctx.save(); ctx.globalAlpha *= (alpha == null ? 1 : alpha); ctx.fillStyle = C.water;
+    ctx.beginPath(); ctx.moveTo(x, y - r * 2.2); ctx.quadraticCurveTo(x + r * 1.1, y - r * 0.4, x + r, y + r * 0.2);
+    ctx.arc(x, y + r * 0.2, r, 0, Math.PI, false); ctx.quadraticCurveTo(x - r * 1.1, y - r * 0.4, x, y - r * 2.2); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  function ripple(ctx, x, y, p, rx) {
+    if (p <= 0 || p >= 1) return;
+    ctx.save(); ctx.globalAlpha *= (1 - p) * 0.8; ctx.strokeStyle = C.light; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.ellipse(x, y, rx * (0.2 + p), rx * (0.2 + p) * 0.28, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ---------- 文字 ---------- */
+  function title(ctx, text, x, y, px, alpha, o) {
+    o = o || {}; ctx.save(); ctx.globalAlpha *= alpha; ctx.fillStyle = o.color || C.ink; ctx.font = font(o.weight || 600, px); ctx.textBaseline = 'alphabetic'; ctx.textAlign = o.align || 'left';
+    ctx.fillText(text, x, y + (o.rise == null ? 0 : (1 - alpha) * o.rise)); ctx.restore();
+  }
+  /** 文字を 1 字ずつ出す（決定論）。p: 0..1 */
+  function reveal(ctx, text, x, y, px, p, o) {
+    o = o || {}; const n = Math.floor(p * (text.length + 1));
+    ctx.save(); ctx.fillStyle = o.color || C.ink; ctx.font = font(o.weight || 600, px); ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.fillText(text.slice(0, n), x, y); ctx.restore();
+  }
+  function kicker(ctx, text, x, y, alpha) {
+    ctx.save(); ctx.globalAlpha *= alpha; ctx.strokeStyle = C.line; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, y - 7); ctx.lineTo(x + 36, y - 7); ctx.stroke();
+    ctx.fillStyle = C.ink2; ctx.font = font(500, 24); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText(text, x + 50, y); ctx.restore();
+  }
+  function bigNumber(ctx, text, unitText, x, y, px, alpha, align) {
+    ctx.save(); ctx.globalAlpha *= alpha; ctx.fillStyle = C.ink; ctx.font = font(600, px, NUM); ctx.textBaseline = 'alphabetic';
+    const w = tabular(ctx, text, x, y, align || 'left');
+    if (unitText) { ctx.fillStyle = C.ink2; ctx.font = font(500, px * 0.34); ctx.textAlign = 'left'; ctx.fillText(unitText, (align === 'center' ? x + w / 2 : align === 'right' ? x : x + w) + px * 0.1, y); }
+    ctx.restore();
+  }
+
+  /* ---------- 背景・質感 ---------- */
+  let grainCanvas = null;
+  function grain(ctx, f) {
+    if (!grainCanvas) {
+      grainCanvas = document.createElement('canvas'); grainCanvas.width = 256; grainCanvas.height = 256;
+      const g = grainCanvas.getContext('2d'); const img = g.createImageData(256, 256);
+      for (let i = 0; i < 256 * 256; i++) { const v = 180 + Math.floor(hash(i, 7) * 75); img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
+      g.putImageData(img, 0, 0);
+    }
+    ctx.save(); ctx.globalAlpha = 0.045; ctx.globalCompositeOperation = 'overlay';
+    const ox = Math.floor(hash(f, 11) * 256), oy = Math.floor(hash(f, 13) * 256);
+    const pat = ctx.createPattern(grainCanvas, 'repeat'); ctx.translate(-ox, -oy); ctx.fillStyle = pat; ctx.fillRect(0, 0, W + 256, H + 256);
+    ctx.restore();
+  }
+  function vignette(ctx) {
+    const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.95);
+    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.42)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+  /** 場面の出入り（0.35 秒のフェード） */
+  const fade = (t, a, b, d) => Math.min(seg(t, a, a + (d || 0.35)), 1 - seg(t, b - (d || 0.35), b));
+
+  /* ---------- 場面 ---------- */
+  // 幕 1: 0.0–4.0 質問をひとつ
+  function scene1(ctx, t) {
+    const a = fade(t, 0, 4.0, 0.3); if (a <= 0) return;
+    ctx.save(); ctx.globalAlpha = a;
+    kicker(ctx, '01', 160, 300, seg(t, 0.2, 0.6));
+    title(ctx, T.s1, 160, 380, 64, E.outCubic(seg(t, 0.3, 0.9)), { rise: 20 });
+    // 入力欄
+    const boxP = E.outExpo(seg(t, 0.6, 1.4));
+    const bx = 160, bw = 1200 * boxP, by = 470, bh = 120;
+    if (boxP > 0) {
+      ctx.strokeStyle = C.line; ctx.lineWidth = 2; roundRect(ctx, bx, by, Math.max(bw, 1), bh, 60); ctx.stroke();
+      // 打鍵: 1 字 / 4 フレーム
+      const typedN = clamp(Math.floor((t - 1.3) * 15), 0, T.s1typed.length);
+      ctx.fillStyle = C.ink; ctx.font = font(500, 40); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      const typed = T.s1typed.slice(0, typedN);
+      ctx.fillText(typed, bx + 48, by + bh / 2 + 2);
+      // カーソル
+      if (t < 3.0 && Math.floor(t * 2) % 2 === 0 && boxP > 0.9) { const cw = ctx.measureText(typed).width; ctx.fillRect(bx + 52 + cw, by + 34, 3, 52); }
+      // 送信ボタン
+      const pressP = seg(t, 3.0, 3.18), press = 1 - 0.12 * Math.sin(pressP * Math.PI);
+      const sx = bx + 1200 - 60, sy = by + bh / 2;
+      if (boxP > 0.95) {
+        ctx.save(); ctx.translate(sx, sy); ctx.scale(press, press);
+        ctx.fillStyle = C.accent; ctx.beginPath(); ctx.arc(0, 0, 40, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#14100e'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(0, 16); ctx.lineTo(0, -16); ctx.moveTo(-13, -3); ctx.lineTo(0, -16); ctx.lineTo(13, -3); ctx.stroke();
+        ctx.restore();
+      }
+    }
+    // 送信後: 文が 1 点に縮んで上へ
+    const flyP = seg(t, 3.15, 3.9);
+    if (flyP > 0) {
+      ctx.save(); ctx.globalAlpha = a; const e = E.inOut(flyP);
+      const x = lerp(bx + 48, W / 2, e), y = lerp(by + bh / 2, 120, e), r = lerp(14, 9, e);
+      ctx.fillStyle = C.water; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // 幕 2: 4.0–9.0 どこかで、水が蒸発する
+  function scene2(ctx, t) {
+    const a = fade(t, 4.0, 9.0, 0.3); if (a <= 0) return;
+    const u = unit();
+    ctx.save(); ctx.globalAlpha = a;
+    kicker(ctx, '02', 160, 220, seg(t, 4.2, 4.6));
+    title(ctx, T.s2, 160, 300, 64, E.outCubic(seg(t, 4.3, 4.9)), { rise: 20 });
+    const cx = 1380, by = 960, h = 720;
+    const landT = 5.3, fillP = E.outBack(seg(t, landT, landT + 0.9));
+    const frac = clamp(u / BOTTLE, 0, 1) * fillP;
+    drawBottle(ctx, cx, by, h, frac, t, { draw: E.inOut(seg(t, 4.0, 5.0)), amp: 3 + 6 * (1 - seg(t, landT, landT + 1.2)) });
+    // 一滴
+    const dp = seg(t, 4.4, landT);
+    if (dp < 1) { const e = E.inQuad(dp); drawDrop(ctx, W / 2 + (cx - W / 2) * E.outCubic(seg(t, 4.0, 4.5)), lerp(120, by - h + 70, e), 9); }
+    // 着水の波紋（ボトルの口）
+    ripple(ctx, cx, by - h * 0.86, seg(t, landT, landT + 0.7), 60);
+    // 目盛り
+    ctx.save(); ctx.globalAlpha = a * seg(t, 4.8, 5.3); ctx.strokeStyle = C.line; ctx.fillStyle = C.ink3; ctx.font = font(500, 20, NUM); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    const s = h / 520; for (let k = 0; k <= 5; k++) { const y = by - 520 * s + (B_BOT - k / 5 * (B_BOT - B_TOP)) * s; ctx.beginPath(); ctx.moveTo(cx + 100 * s - 20, y); ctx.lineTo(cx + 100 * s - 8, y); ctx.stroke(); if (k) ctx.fillText(k * 100 + (k === 5 ? ' mL' : ''), cx + 100 * s + 2, y); }
+    ctx.restore();
+    // 数字
+    const nP = E.outCubic(seg(t, landT, landT + 1.2));
+    const fv = fmtVolume(u * nP, unitFor(u));
+    bigNumber(ctx, fv.v, fv.u, 160, 620, 200, seg(t, landT, landT + 0.3));
+    const sc = SCENARIOS[scenarioId];
+    title(ctx, T.s2cap + '（1 ' + sc.unit + '）', 160, 700, 30, seg(t, landT + 0.6, landT + 1.0), { color: C.ink2, weight: 500 });
+    title(ctx, sc.name + ' · ' + sc.src, 160, 748, 26, seg(t, landT + 0.9, landT + 1.3), { color: C.ink3, weight: 500 });
+    ctx.restore();
+  }
+
+  // 幕 3: 9.0–15.0 1 日 20 回
+  function scene3(ctx, t) {
+    const a = fade(t, 9.0, 15.0, 0.3); if (a <= 0) return;
+    const u = unit();
+    ctx.save(); ctx.globalAlpha = a;
+    kicker(ctx, '03', 160, 220, seg(t, 9.2, 9.6));
+    title(ctx, T.s3, 160, 300, 64, E.outCubic(seg(t, 9.3, 9.9)), { rise: 20 });
+    // 滴の予定: k 番目（k=1..PER_DAY-1、0 番目は幕 2 で入っている）
+    const launch = (k) => 9.6 + 0.3 * k * Math.pow(0.965, k);   // 少しずつ速く
+    const FLIGHT = 0.42;
+    let landed = 1;
+    for (let k = 1; k < PER_DAY; k++) if (t >= launch(k) + FLIGHT) landed = k + 1;
+    const totalML = landed * u;
+    const nBottles = Math.max(1, Math.ceil(totalML / BOTTLE));
+    const bottlesOnStage = Math.min(nBottles, 4);
+    const h = 560, by = 940, gap = 280;
+    const enterOf = (i) => (i === 0 ? 1 : E.outCubic(seg(t, launch(Math.ceil(i * BOTTLE / u)) - 0.15, launch(Math.ceil(i * BOTTLE / u)) + 0.35)));
+    // 幕 2 のボトル（x=1380）から、本数が増えるたびに群れの中心を保って左へずれる
+    let shift = 0; for (let i = 1; i < bottlesOnStage; i++) shift += gap / 2 * enterOf(i);
+    const bottleX = (i) => 1380 - shift + i * gap;
+    for (let i = 0; i < bottlesOnStage; i++) {
+      const inML = clamp(totalML - i * BOTTLE, 0, BOTTLE);
+      const enterP = enterOf(i);
+      drawBottle(ctx, bottleX(i) + (1 - enterP) * 160, by, h, inML / BOTTLE, t, { alpha: enterP, amp: 3 });
+    }
+    // 飛んでいる滴
+    for (let k = 1; k < PER_DAY; k++) {
+      const p = seg(t, launch(k), launch(k) + FLIGHT); if (p <= 0 || p >= 1) continue;
+      const target = Math.min(Math.floor(k * u / BOTTLE), bottlesOnStage - 1);
+      const x = bottleX(target), e = E.inQuad(p);
+      drawDrop(ctx, x, lerp(160, by - h + 60, e), 8);
+      ripple(ctx, x, by - h * 0.86, seg(t, launch(k) + FLIGHT, launch(k) + FLIGHT + 0.5), 50);
+    }
+    // 数字
+    const fv = fmtVolume(totalML, unitFor(PER_DAY * u));
+    bigNumber(ctx, fv.v, fv.u, 160, 620, 200, seg(t, 9.6, 9.9));
+    title(ctx, '送信 ' + landed + ' 回 × ' + (u < 1 ? nf(u, 2) : nf(u, 0)) + ' mL', 160, 700, 30, seg(t, 9.8, 10.2), { color: C.ink2, weight: 500 });
+    const bEq = totalML / BOTTLE;
+    title(ctx, '= ' + T.s3cap + ' ' + (bEq >= 10 ? nf(bEq, 1) : nf(bEq, 2)) + ' 本', 160, 748, 30, seg(t, 10.2, 10.6), { color: C.ink2, weight: 500 });
+    if (nBottles > bottlesOnStage) title(ctx, '…ほか ' + nf0.format(nBottles - bottlesOnStage) + ' 本', 1700, 980, 24, 1, { color: C.ink3, weight: 500, align: 'right' });
+    ctx.restore();
+  }
+
+  // 幕 4: 15.0–22.0 10,000 人が、1 年
+  function scene4(ctx, t) {
+    const a = fade(t, 15.0, 22.0, 0.3); if (a <= 0) return;
+    const u = unit();
+    ctx.save(); ctx.globalAlpha = a;
+    kicker(ctx, '04', 160, 200, seg(t, 15.2, 15.6));
+    title(ctx, T.s4, 160, 280, 64, E.outCubic(seg(t, 15.3, 15.9)), { rise: 20 });
+    const totalML = PER_DAY * PEOPLE * DAYS * u;
+    const pools = totalML / (POOL * 1000);
+    const nPools = Math.ceil(pools), shown = Math.min(nPools, 9);
+    // 縮尺: 1 cm = SCALE px。プール 2500 cm → 1000 px。
+    const SCALE = 0.4, pw = 2500 * SCALE, ph = 150 * SCALE, px0 = 700, py0 = 330, rowGap = 14;
+    // カウンター（毎フレーム動く）
+    const cP = E.inOut(seg(t, 16.0, 20.0));
+    const fv = fmtVolume(totalML * cP, unitFor(totalML));
+    bigNumber(ctx, fv.v, fv.u, 160, 440, 130, seg(t, 15.8, 16.1));
+    title(ctx, '20 回 × 10,000 人 × 365 日', 160, 520, 28, seg(t, 16.0, 16.4), { color: C.ink2, weight: 500 });
+    title(ctx, '= ' + T.s4cap + ' ' + nf(pools * cP, 1) + ' 杯', 160, 568, 28, seg(t, 16.2, 16.6), { color: C.ink2, weight: 500 });
+    // プール: 1 杯 0.45 秒で順に満ちる
+    for (let i = 0; i < shown; i++) {
+      const t0 = 16.0 + i * (4.0 / Math.max(1, Math.min(nPools, 9)));
+      const full = i < Math.floor(pools) ? 1 : pools - Math.floor(pools);
+      const p = E.outCubic(seg(t, t0, t0 + 0.6)) * full;
+      const y = py0 + i * (ph + rowGap);
+      drawPool(ctx, px0, y, pw, ph, p, t, { alpha: seg(t, 15.6 + i * 0.05, 16.0 + i * 0.05), lw: 1.5 });
+    }
+    if (nPools > shown) title(ctx, '…ほか ' + nf0.format(nPools - shown) + ' 杯', px0 + pw, py0 + shown * (ph + rowGap) + 30, 24, seg(t, 20.0, 20.4), { color: C.ink3, weight: 500, align: 'right' });
+    // 同じ縮尺のボトル 2 本（21 cm → 8.4 px）
+    const bh = 21 * SCALE, bx = px0 - 50, bby = py0 + ph;
+    drawBottle(ctx, bx, bby, bh, 1, t, { alpha: seg(t, 16.0, 16.4), cap: false, amp: 0.3, stroke: C.ink2 });
+    drawBottle(ctx, bx + 10, bby, bh, 0.8, t, { alpha: seg(t, 16.0, 16.4), cap: false, amp: 0.3, stroke: C.ink2 });
+    // ルーペ: 小さすぎて見えないので 8 倍で見せる（それ自体が「この縮尺だとこの大きさ」の証拠）
+    const lp = E.outBack(seg(t, 16.6, 17.3)); if (lp > 0) {
+      const lx = 260, ly = 850, lr = 110 * lp;
+      ctx.save(); ctx.globalAlpha *= clamp(lp, 0, 1);
+      ctx.strokeStyle = C.ink3; ctx.lineWidth = 1; ctx.setLineDash([4, 6]); ctx.beginPath(); ctx.moveTo(bx + 5, bby + 6); ctx.lineTo(lx + lr * 0.5, ly - lr * 0.85); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = C.bg; ctx.beginPath(); ctx.arc(lx, ly, lr, 0, Math.PI * 2); ctx.fill();
+      ctx.save(); ctx.beginPath(); ctx.arc(lx, ly, lr, 0, Math.PI * 2); ctx.clip();
+      drawBottle(ctx, lx - 22, ly + 60, bh * 8, 1, t, { cap: true, amp: 1 }); drawBottle(ctx, lx + 34, ly + 60, bh * 8, 0.8, t, { cap: true, amp: 1 });
+      ctx.restore();
+      ctx.strokeStyle = C.ink2; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(lx, ly, lr, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = C.ink3; ctx.font = font(500, 22); ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillText(T.s4ref + ' · 8 倍', lx, ly + lr + 36);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // 幕 5: 22.0–30.0 ChatGPT だけで、1 日 25 億回
+  function scene5(ctx, t) {
+    const a = fade(t, 22.0, 30.0, 0.3); if (a <= 0) return;
+    const u = unit();
+    ctx.save(); ctx.globalAlpha = a;
+    // 雨（決定論）: 0..1 の密度は時間で上がる
+    const density = seg(t, 22.3, 25.0) * 220;
+    for (let i = 0; i < density; i++) {
+      const sp = 0.9 + hash(i, 3) * 0.6, ph = hash(i, 4);
+      const yy = ((t * 900 * sp) / 1300 + ph) % 1;
+      const x = hash(i, 5) * W, y = yy * (H + 60) - 40;
+      ctx.globalAlpha = a * 0.5; drawDrop(ctx, x, y, 2.2 + hash(i, 6) * 2.5); ctx.globalAlpha = a;
+    }
+    kicker(ctx, '05', 160, 280, seg(t, 22.2, 22.6));
+    title(ctx, T.s5, 160, 360, 64, E.outCubic(seg(t, 22.3, 22.9)), { rise: 20 });
+    const cP = E.outExpo(seg(t, 22.8, 25.8));
+    const n = Math.round(PROMPTS_PER_DAY * cP);
+    bigNumber(ctx, nf0.format(n), T.s5unit, 160, 560, 160, seg(t, 22.8, 23.1));
+    title(ctx, '25 億回 · ' + T.s5src, 160, 630, 26, seg(t, 25.5, 25.9), { color: C.ink3, weight: 500 });
+    // 1 日のプール杯数: 1 フレームに 1 杯ずつ出す
+    const poolsPerDay = PROMPTS_PER_DAY * u / 1000 / POOL;
+    const perDayTxt = poolsPerDay >= 100 ? nf0.format(Math.round(poolsPerDay)) : nf(poolsPerDay, 1);
+    title(ctx, T.s5cap + ' ' + perDayTxt + ' 杯', 160, 740, 40, seg(t, 25.6, 26.0), { weight: 600 });
+    const cols = 24, gw = 66, gh = 20, gx0 = 160, gy0 = 790;
+    const total = Math.min(Math.ceil(poolsPerDay), 288);
+    const f0 = 26.0 * FPS, fNow = Math.floor(t * FPS);
+    const visible = clamp(fNow - f0 + 1, 0, total);
+    for (let i = 0; i < visible; i++) {
+      const c = i % cols, r = Math.floor(i / cols);
+      const age = (fNow - f0 - i) / 10, s = E.outBack(clamp(age, 0, 1));
+      const x = gx0 + c * (gw + 6), y = gy0 + r * (gh + 6);
+      ctx.save(); ctx.translate(x + gw / 2, y + gh / 2); ctx.scale(s, s); ctx.translate(-gw / 2, -gh / 2);
+      const isLast = i === total - 1 && poolsPerDay % 1 > 0.01 && Math.ceil(poolsPerDay) <= 288;
+      drawPool(ctx, 0, 0, gw, gh, isLast ? poolsPerDay % 1 : 1, t, { lw: 1.2, stroke: C.ink2 });
+      ctx.restore();
+    }
+    if (Math.ceil(poolsPerDay) > 288) title(ctx, '…ほか ' + nf0.format(Math.ceil(poolsPerDay) - 288) + ' 杯', 1760, 1040, 24, seg(t, 29.0, 29.4), { color: C.ink3, weight: 500, align: 'right' });
+    ctx.restore();
+  }
+
+  // 幕 6: 30.0–38.0 ただし、数字には幅がある
+  function scene6(ctx, t) {
+    const a = fade(t, 30.0, 38.0, 0.3); if (a <= 0) return;
+    ctx.save(); ctx.globalAlpha = a;
+    kicker(ctx, '06', 160, 200, seg(t, 30.2, 30.6));
+    title(ctx, T.s6, 160, 280, 64, E.outCubic(seg(t, 30.3, 30.9)), { rise: 20 });
+    const cols = [
+      { id: 'low', x: 420, t0: 31.2, label: '低', note: '施設内の冷却水だけ', fill: 0.26 / BOTTLE, drops: 5 },
+      { id: 'mid', x: 960, t0: 33.0, label: '中', note: '発電・製造・学習の按分を含む', fill: 45 / BOTTLE },
+      { id: 'high', x: 1500, t0: 34.8, label: '高', note: '「メール 1 通」のライフサイクル推計', fill: 1, spill: true },
+    ];
+    const h = 400, by = 800;
+    cols.forEach((c) => {
+      const sc = SCENARIOS[c.id];
+      const ap = seg(t, c.t0, c.t0 + 0.5), fp = E.outCubic(seg(t, c.t0 + 0.3, c.t0 + 1.2));
+      drawBottle(ctx, c.x, by, h, Math.max(c.fill * fp, c.id === 'low' ? 0.004 * fp : 0), t, { alpha: ap, amp: 2 });
+      // 低: 5 滴を数える
+      if (c.drops) for (let k = 0; k < c.drops; k++) { const dp = seg(t, c.t0 + 0.4 + k * 0.12, c.t0 + 0.7 + k * 0.12); if (dp > 0) drawDrop(ctx, c.x - 40 + k * 20, by - h * 0.12 - 8, 5, ap * dp); }
+      // 高: あふれる
+      if (c.spill) {
+        const sp = seg(t, c.t0 + 1.0, c.t0 + 2.2);
+        if (sp > 0) {
+          ctx.save(); ctx.globalAlpha *= ap; ctx.fillStyle = C.water;
+          const s = h / 520; const lipY = by - h + 56 * s, lipX = c.x + 16 * s;
+          ctx.beginPath(); ctx.moveTo(lipX, lipY); ctx.quadraticCurveTo(lipX + 26, lipY + 10, lipX + 26, lipY + 60 + 300 * sp); ctx.lineTo(lipX + 18, lipY + 60 + 300 * sp); ctx.quadraticCurveTo(lipX + 14, lipY + 20, lipX - 2, lipY + 6); ctx.closePath(); ctx.fill();
+          ctx.globalAlpha *= 0.85; ctx.beginPath(); ctx.ellipse(c.x + 70, by + 10, 10 + 150 * E.outCubic(sp), 4 + 14 * E.outCubic(sp), 0, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
+        }
+      }
+      // ラベル
+      ctx.save(); ctx.globalAlpha *= ap; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = C.ink2; ctx.font = font(600, 26); ctx.fillText(c.label + ' · ' + sc.name, c.x, by - h - 70);
+      ctx.fillStyle = C.ink; ctx.font = font(600, 56, NUM); tabular(ctx, (sc.ml < 1 ? nf(sc.ml, 2) : nf(sc.ml, 0)) + ' mL', c.x, by + 70, 'center');
+      ctx.fillStyle = C.ink2; ctx.font = font(500, 24); ctx.fillText('1 ' + sc.unit + 'あたり · ' + sc.src, c.x, by + 110);
+      ctx.fillStyle = C.ink3; ctx.font = font(500, 22); ctx.fillText(c.note, c.x, by + 146);
+      ctx.restore();
+    });
+    title(ctx, T.s6cap, W / 2, 1030, 34, seg(t, 36.6, 37.1), { color: C.ink2, weight: 500, align: 'center' });
+    ctx.restore();
+  }
+
+  // 幕 7: 38.0–45.0 結び
+  function scene7(ctx, t) {
+    const a = fade(t, 38.0, 45.0, 0.5); if (a <= 0) return;
+    ctx.save(); ctx.globalAlpha = a;
+    // 水面が下から上がって止まる
+    const lv = E.outCubic(seg(t, 38.0, 41.0));
+    const levelY = H - lv * 330;
+    ctx.save(); const g = ctx.createLinearGradient(0, levelY, 0, H); g.addColorStop(0, C.water); g.addColorStop(1, C.deep);
+    wave(ctx, levelY - 6, t * 0.9, 10, 0, W, H, 1.7); ctx.fillStyle = C.light; ctx.globalAlpha *= 0.4; ctx.fill(); ctx.globalAlpha = a;
+    wave(ctx, levelY, t, 8, 0, W, H, 0); ctx.fillStyle = g; ctx.fill(); ctx.restore();
+    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.globalAlpha = a * E.outCubic(seg(t, 38.6, 39.4)); ctx.fillStyle = C.ink; ctx.font = font(700, 120); ctx.fillText(T.s7, W / 2, 420 + (1 - E.outCubic(seg(t, 38.6, 39.4))) * 20);
+    ctx.globalAlpha = a * seg(t, 39.4, 40.0); ctx.fillStyle = C.ink2; ctx.font = font(500, 36); ctx.fillText(T.s7sub, W / 2, 500);
+    ctx.globalAlpha = a * seg(t, 40.6, 41.2); ctx.fillStyle = C.ink; ctx.font = font(600, 34); ctx.fillText(T.s7cta, W / 2, 610);
+    ctx.globalAlpha = a * seg(t, 41.4, 42.0); ctx.fillStyle = C.ink3; ctx.font = font(500, 22); ctx.fillText(T.s7src, W / 2, 668);
+    ctx.restore();
+    ctx.restore();
+  }
+
+  /* ---------- 1 フレーム ---------- */
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  function draw(f) {
+    f = clamp(Math.floor(f), 0, FRAMES - 1);
+    const t = f / FPS;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+    scene1(ctx, t); scene2(ctx, t); scene3(ctx, t); scene4(ctx, t); scene5(ctx, t); scene6(ctx, t); scene7(ctx, t);
+    vignette(ctx); grain(ctx, f);
+    // 最後の 0.5 秒で黒へ
+    const out = seg(t, 44.5, 45.0); if (out > 0) { ctx.fillStyle = 'rgba(7,9,11,' + out + ')'; ctx.fillRect(0, 0, W, H); }
+  }
+
+  /* ---------- 音（再生時のみ。録画では鳴らさない） ---------- */
+  const audio = { ctx: null, on: false, scheduled: new Set() };
+  function dripAt(when, pitch) {
+    const ac = audio.ctx; if (!ac) return;
+    const o = ac.createOscillator(), gN = ac.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(pitch || 900, when); o.frequency.exponentialRampToValueAtTime((pitch || 900) * 0.45, when + 0.12);
+    gN.gain.setValueAtTime(0.0001, when); gN.gain.exponentialRampToValueAtTime(0.25, when + 0.008); gN.gain.exponentialRampToValueAtTime(0.0001, when + 0.16);
+    o.connect(gN).connect(ac.destination); o.start(when); o.stop(when + 0.2);
+  }
+  /** 着水の予定（秒）。決定論なので台本から計算できる */
+  function dripTimes() {
+    const times = [5.3];
+    for (let k = 1; k < PER_DAY; k++) times.push(9.6 + 0.3 * k * Math.pow(0.965, k) + 0.42);
+    for (let i = 0; i < 9; i++) times.push(16.0 + i * (4.0 / 9) + 0.1);
+    [31.5, 33.3, 35.1].forEach((x) => times.push(x));
+    return times;
+  }
+  const DRIPS = dripTimes();
+  function scheduleAudio(tFrom, tTo) {
+    if (!audio.on || !audio.ctx) return;
+    const now = audio.ctx.currentTime;
+    DRIPS.forEach((dt, i) => { if (dt >= tFrom && dt < tTo && !audio.scheduled.has(i)) { audio.scheduled.add(i); dripAt(now + (dt - tFrom), 700 + hash(i, 9) * 500); } });
+  }
+
+  /* ---------- 再生制御 ---------- */
+  const params = new URLSearchParams(location.search);
+  const record = params.get('record') === '1';
+  if (params.get('scenario') && SCENARIOS[params.get('scenario')]) scenarioId = params.get('scenario');
+  let playing = false, startWall = 0, startFrame = 0, frame = 0, raf = 0;
+  const $ = (id) => document.getElementById(id);
+  const ui = { play: $('play'), restart: $('restart'), time: $('time'), scrub: $('scrub'), sound: $('sound'), bar: $('bar') };
+  const pad = (n, w) => String(n).padStart(w, '0');
+  const fmtT = (f) => { const s = f / FPS; return pad(Math.floor(s / 60), 2) + ':' + pad(Math.floor(s % 60), 2) + '.' + pad(Math.floor((s % 1) * 100), 2); };
+
+  function show(f) {
+    frame = clamp(Math.floor(f), 0, FRAMES - 1);
+    draw(frame);
+    if (!record) { ui.scrub.value = String(frame); ui.time.textContent = fmtT(frame) + ' / ' + fmtT(FRAMES); }
+  }
+  function tick() {
+    if (!playing) return;
+    const f = startFrame + Math.floor((performance.now() - startWall) * FPS / 1000);
+    if (f >= FRAMES) { show(FRAMES - 1); pause(); return; }
+    const prevT = frame / FPS; show(f); scheduleAudio(prevT, f / FPS + 0.5);
+    raf = requestAnimationFrame(tick);
+  }
+  function play() {
+    if (playing) return; if (frame >= FRAMES - 1) frame = 0;
+    playing = true; startWall = performance.now(); startFrame = frame; audio.scheduled.clear();
+    ui.play.textContent = '停止'; ui.play.setAttribute('aria-pressed', 'true'); raf = requestAnimationFrame(tick);
+  }
+  function pause() { playing = false; cancelAnimationFrame(raf); ui.play.textContent = '再生'; ui.play.setAttribute('aria-pressed', 'false'); }
+  function seek(f) { const was = playing; pause(); show(f); if (was) play(); }
+
+  if (record) {
+    document.body.classList.add('record');
+    window.AWF = { seek: (f) => { show(f); return frame; }, frames: FRAMES, fps: FPS, width: W, height: H, scenario: (id) => { if (SCENARIOS[id]) scenarioId = id; show(frame); } };
+    show(Number(params.get('f') || 0));
+  } else {
+    window.AWF = { seek, play, pause, frames: FRAMES, fps: FPS, get frame() { return frame; } };
+    ui.play.addEventListener('click', () => (playing ? pause() : play()));
+    ui.restart.addEventListener('click', () => { pause(); show(0); play(); });
+    ui.scrub.addEventListener('input', () => seek(Number(ui.scrub.value)));
+    document.querySelectorAll('.seg button[data-scenario]').forEach((b) => b.addEventListener('click', () => {
+      scenarioId = b.dataset.scenario;
+      document.querySelectorAll('.seg button[data-scenario]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      show(frame);
+    }));
+    ui.sound.addEventListener('click', () => {
+      audio.on = !audio.on;
+      if (audio.on && !audio.ctx) { try { audio.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio.on = false; } }
+      if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume();
+      ui.sound.textContent = audio.on ? '音 オン' : '音 オフ'; ui.sound.setAttribute('aria-pressed', String(audio.on));
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.target && /INPUT|SELECT|BUTTON/.test(e.target.tagName) && e.code !== 'Space') return;
+      if (e.code === 'Space') { e.preventDefault(); playing ? pause() : play(); }
+      else if (e.code === 'ArrowRight') { e.preventDefault(); seek(frame + (e.shiftKey ? FPS : 1)); }
+      else if (e.code === 'ArrowLeft') { e.preventDefault(); seek(frame - (e.shiftKey ? FPS : 1)); }
+      else if (e.key === 'r' || e.key === 'R') { seek(0); }
+    });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+    show(0);
+    // 開いたら自動再生（音は利用者が押すまで鳴らさない）
+    play();
+  }
+})();
+</script>
+</body>
+</html>
