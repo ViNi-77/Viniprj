@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>見えない水 — 生成 AI が蒸発させる淡水を、器で見る</title>
+<meta name="description" content="生成 AI を 1 回使うたびに、データセンターの冷却のために蒸発する淡水を、ペットボトル・浴槽・プールで可視化します。出典つきの 3 つの前提を切り替えられます。">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/scenes.css">
+</head>
+<body>
+
+<header class="top" id="top">
+  <div class="top-brand">
+    <a class="brand" href="#act-hero">見えない水</a>
+    <span class="brand-sub">生成 AI が蒸発させる淡水を、器で見る</span>
+    <a class="film-link" href="film.html">▶ 映像版 45 秒</a>
+  </div>
+  <div class="top-scenario">
+    <div class="seg" role="group" aria-label="1 回あたりの水の前提">
+      <button type="button" data-scenario="low" aria-pressed="false" title="事業者の公表値">低</button>
+      <button type="button" data-scenario="mid" aria-pressed="true" title="第三者レビュー済み LCA">中</button>
+      <button type="button" data-scenario="high" aria-pressed="false" title="報道で広まった上限">高</button>
+    </div>
+    <p class="seg-note"><b id="sc-value" class="tnum" data-value="45">45 mL</b><span id="sc-unit"> / 回</span> · <span id="sc-name">第三者レビュー済み LCA</span> · <a id="sc-src" href="#act-sources" target="_blank" rel="noopener">出典</a></p>
+  </div>
+  <button type="button" class="theme-btn" id="theme-btn" aria-label="配色を切り替える" title="配色を切り替える">◐</button>
+</header>
+
+<main>
+
+<!-- 幕 1 ======================================================= -->
+<section class="act act-hero" id="act-hero" aria-labelledby="hero-kicker">
+  <div class="hero-copy">
+    <p class="kicker" id="hero-kicker">ChatGPT だけで、このページを開いてから</p>
+    <p class="hero-num num" aria-live="off"><span id="hero-value" data-value="0">0.0</span><span class="unit" id="hero-unit">L</span></p>
+    <p class="hero-sub">の淡水が、サーバーを冷やすために蒸発した計算になります。</p>
+    <ul class="hero-facts">
+      <li>1 日 <b class="tnum">25 億回</b> の質問（<a id="world-src" href="#act-sources" target="_blank" rel="noopener">OpenAI, 2025</a>）</li>
+      <li>× 1 回 <b id="hero-per" class="tnum">45 mL / 回</b>（<a id="hero-src" href="#act-sources" target="_blank" rel="noopener">Mistral AI, 2025</a>）</li>
+      <li>= 毎秒 <b id="hero-rate" class="tnum">1,302 L</b></li>
+      <li>経過 <b id="hero-elapsed" class="tnum">00:00</b></li>
+    </ul>
+  </div>
+  <p class="hero-hint">スクロールして、あなたの 1 回を見る</p>
+
+  <svg class="hero-water" id="hero-water" viewBox="0 0 1000 400" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="g-hero" x1="0" y1="0" x2="0" y2="1"><stop offset="0"/><stop offset="1"/></linearGradient>
+    </defs>
+    <path id="hero-wave-back" class="wave-back" d=""/>
+    <path id="hero-wave" class="wave" d=""/>
+  </svg>
+  <svg class="hero-drops" id="hero-drops" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true" focusable="false"></svg>
+</section>
+
+<!-- 幕 2 ======================================================= -->
+<section class="act act-session" id="act-session" aria-labelledby="h-session">
+  <div class="act-inner">
+    <p class="kicker">02 — あなたの一回</p>
+    <h2 id="h-session">質問を 1 つ送るたびに、どこかで水が蒸発する</h2>
+    <p class="lead">チャットで送信するたびに、下のボタンを押してみてください。1 回あたり <b id="session-per" class="tnum">45 mL</b> として、500 mL のペットボトルに溜めていきます。前提は右上で切り替えられます。</p>
+
+    <div class="grid-2">
+      <div class="bottle-wrap">
+        <svg class="bottle" viewBox="0 0 200 520" aria-hidden="true" focusable="false">
+          <defs>
+            <linearGradient id="g-water" x1="0" y1="0" x2="0" y2="1"><stop offset="0"/><stop offset="1"/></linearGradient>
+            <clipPath id="bottle-clip"><path d="M84 56 L116 56 L116 82 Q116 98 140 110 Q164 122 164 152 L164 238 Q164 256 156 268 Q148 280 148 300 Q148 320 156 332 Q164 344 164 362 L164 468 Q164 498 134 498 L66 498 Q36 498 36 468 L36 362 Q36 344 44 332 Q52 320 52 300 Q52 280 44 268 Q36 256 36 238 L36 152 Q36 122 60 110 Q84 98 84 82 Z"/></clipPath>
+          </defs>
+          <!-- 目盛り -->
+          <g class="ticks">
+            <line class="tick" x1="170" x2="178" y1="496" y2="496"/>
+            <line class="tick" x1="170" x2="178" y1="417.6" y2="417.6"/><text class="tick-label" x="182" y="421">100</text>
+            <line class="tick" x1="170" x2="178" y1="339.2" y2="339.2"/><text class="tick-label" x="182" y="343">200</text>
+            <line class="tick" x1="170" x2="178" y1="260.8" y2="260.8"/><text class="tick-label" x="182" y="264">300</text>
+            <line class="tick" x1="170" x2="178" y1="182.4" y2="182.4"/><text class="tick-label" x="182" y="186">400</text>
+            <line class="tick" x1="170" x2="178" y1="104" y2="104"/><text class="tick-label" x="182" y="108">500 mL</text>
+          </g>
+          <path class="bottle-glass" d="M84 56 L116 56 L116 82 Q116 98 140 110 Q164 122 164 152 L164 238 Q164 256 156 268 Q148 280 148 300 Q148 320 156 332 Q164 344 164 362 L164 468 Q164 498 134 498 L66 498 Q36 498 36 468 L36 362 Q36 344 44 332 Q52 320 52 300 Q52 280 44 268 Q36 256 36 238 L36 152 Q36 122 60 110 Q84 98 84 82 Z"/>
+          <g clip-path="url(#bottle-clip)">
+            <path id="bottle-wave-back" class="wave-back" d=""/>
+            <path id="bottle-wave" class="wave" d=""/>
+            <path id="bottle-surface" class="wave-surface" d=""/>
+            <circle id="bottle-bubble" class="bubble" cx="100" cy="300" r="2" opacity="0"/>
+          </g>
+          <path class="bottle-outline" d="M84 56 L116 56 L116 82 Q116 98 140 110 Q164 122 164 152 L164 238 Q164 256 156 268 Q148 280 148 300 Q148 320 156 332 Q164 344 164 362 L164 468 Q164 498 134 498 L66 498 Q36 498 36 468 L36 362 Q36 344 44 332 Q52 320 52 300 Q52 280 44 268 Q36 256 36 238 L36 152 Q36 122 60 110 Q84 98 84 82 Z"/>
+          <rect class="bottle-cap" x="78" y="30" width="44" height="28" rx="5"/>
+          <rect class="bottle-hi" x="48" y="140" width="9" height="320" rx="4.5"/>
+          <circle id="bottle-drop" class="drop" cx="100" cy="-10" r="4.5" opacity="0"/>
+        </svg>
+      </div>
+
+      <div>
+        <div class="send-row">
+          <button type="button" class="send-btn" id="send-btn">送信した <span class="kbd">Space</span></button>
+          <button type="button" class="link-btn" id="reset-btn">リセット</button>
+        </div>
+        <ul class="stats">
+          <li><span class="label">送信した回数</span><span class="value num" id="session-count" data-value="0">0</span></li>
+          <li><span class="label">蒸発した水</span><span class="value num"><span id="session-total" data-value="0">0</span><small id="session-total-unit">mL</small></span></li>
+          <li><span class="label">満タンまで、あと</span><span class="value num is-accent"><span id="session-remain">12</span><small>回</small></span></li>
+          <li><span class="label">満タンにしたボトル</span><span class="value num" id="session-bottles">0 本</span></li>
+        </ul>
+        <p class="equiv" id="session-equiv">押すと、ここに換算が出ます。</p>
+        <p class="meta">経過 <span id="session-elapsed" class="tnum">--:--</span></p>
+        <div class="auto">
+          <label><input type="checkbox" id="auto-chk"> 自動で数える</label>
+          <select id="auto-every" aria-label="自動で数える間隔">
+            <option value="15">15 秒に 1 回</option>
+            <option value="30" selected>30 秒に 1 回</option>
+            <option value="60">60 秒に 1 回</option>
+            <option value="120">2 分に 1 回</option>
+          </select>
+          <span>— チャットの隣に置いておく用</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 幕 3 ======================================================= -->
+<section class="act act-ladder" id="act-ladder" aria-labelledby="h-ladder">
+  <div class="act-inner">
+    <p class="kicker">03 — 積み上げると</p>
+    <h2 id="h-ladder">人数と日数を掛けると、器が変わる</h2>
+    <p class="lead">動かすと、合計に合う器までカメラが引きます。左端に、ひとつ前の器を同じ縮尺で残します。</p>
+
+    <div class="sliders">
+      <div class="slider">
+        <label for="sl-perday"><span>1 日の回数（1 人）</span><output id="o-perday" class="num">20 回</output></label>
+        <input type="range" id="sl-perday" min="1" max="500" step="1" value="20">
+      </div>
+      <div class="slider">
+        <label for="sl-people"><span>人数</span><output id="o-people" class="num">1 人</output></label>
+        <input type="range" id="sl-people" min="0" max="100" step="1" value="0">
+      </div>
+      <div class="slider">
+        <label for="sl-days"><span>日数</span><output id="o-days" class="num">30 日</output></label>
+        <input type="range" id="sl-days" min="1" max="365" step="1" value="30">
+      </div>
+    </div>
+
+    <div class="ladder-result">
+      <p class="ladder-total num"><span id="ladder-total" data-value="0">0</span><small id="ladder-total-unit">L</small></p>
+      <p class="ladder-eq">= <span id="ladder-eq"></span></p>
+      <p class="meta" id="ladder-daily"></p>
+    </div>
+
+    <div class="stage-wrap">
+      <p class="stage-label" id="stage-label"></p>
+      <svg class="stage" id="stage" viewBox="-10 -30 100 40" preserveAspectRatio="xMidYMax meet" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="g-ladder" x1="0" y1="0" x2="0" y2="1"><stop offset="0"/><stop offset="1"/></linearGradient>
+        </defs>
+        <g id="stage-ref"></g>
+        <g id="stage-g"></g>
+      </svg>
+      <p class="stage-ref-label" id="stage-ref-label"></p>
+      <p class="stage-more" id="stage-more"></p>
+    </div>
+  </div>
+</section>
+
+<!-- 幕 4 ======================================================= -->
+<section class="act act-sources" id="act-sources" aria-labelledby="h-sources">
+  <div class="act-inner">
+    <p class="kicker">04 — 根拠</p>
+    <h2 id="h-sources">数字の幅を、隠さない</h2>
+    <p class="lead">「1 回で何 mL か」は、誰が・何を含めて測ったかで桁が変わります。このページは 3 つの前提を並べ、選んだものを常に右上に出します。</p>
+
+    <h3>1 回あたりの水（前提）</h3>
+    <table class="src-table" id="src-scenarios">
+      <thead><tr><th>シナリオ</th><th>1 回あたり</th><th>出典</th><th>含むもの</th><th>注意</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>世界カウンターの基礎</h3>
+    <p class="notes">ChatGPT の 1 日のプロンプト数 <b class="tnum">25 億回</b>（OpenAI が Axios に開示、2025-07）× 選んだ前提の単価。全世界の生成 AI の回数には信頼できる推計がないため、「ChatGPT だけで」としています。Gemini、Copilot、Claude、画像生成などを足せば、これより大きくなります。</p>
+
+    <h3>換算に使った容量</h3>
+    <table class="src-table" id="src-comparisons">
+      <thead><tr><th>対象</th><th>容量</th><th>出典</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>読むときの注意</h3>
+    <ul class="notes">
+      <li>すべて推計です。事業者・地域・季節・モデル・応答の長さで桁が変わります。</li>
+      <li>「消費」は蒸発して流域に戻らない分を指し、「取水」とは異なります。</li>
+      <li>事業者の公表値は施設内の冷却水に限られることが多く、研究推計は発電に使う水や学習の按分を含むことが多い。並べるときは「何を含むか」を添えています。</li>
+      <li>ペットボトルや浴槽への換算は、量の大きさを身体感覚に戻すためのものです。精度を主張するものではありません。</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="act-inner">
+    <p>このページは推計を可視化するもので、特定の事業者を評価するものではありません。数値と出典は <a href="#act-sources">根拠</a> の節に、設計の記録は同梱の docs/ にあります。外部ライブラリ・通信なし。入力内容は保存しません（前提の選択と配色だけをこの端末に記憶します）。</p>
+  </div>
+</footer>
+
+<script src="js/data.js"></script>
+<script src="js/format.js"></script>
+<script src="js/state.js"></script>
+<script src="js/loop.js"></script>
+<script src="js/liquid.js"></script>
+<script src="js/scene-hero.js"></script>
+<script src="js/scene-session.js"></script>
+<script src="js/scene-ladder.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -7,6 +7,7 @@
 |---|---|---|---|
 | PPTX ⇄ Web図解 双方向変換アプリ | [`pptx-web-bridge/`](pptx-web-bridge/) | PowerPoint と Web図解を Presentation JSON で双方向変換するローカル Web アプリ | `cd pptx-web-bridge && start_windows.bat`（Linux / WSL は `./start.sh`）→ [README](pptx-web-bridge/README.md) |
 | contextgen（M365 Copilot コンテキスト生成ツール） | [`copilot-context-generator/`](copilot-context-generator/) | フォルダ内の Word / Excel / PowerPoint / PDF から本文を抽出し、M365 Copilot エージェント用ナレッジ・人間向け読解キット・文書健康診断を生成 | [README](copilot-context-generator/README.md) → 本体は `work1_improvement/`、横展開は `work2_cross_ai/` |
+| 見えない水（生成 AI の水消費ビジュアライザ） | [`ai-water-footprint/`](ai-water-footprint/) | 生成 AI を 1 回使うたびに蒸発する淡水をペットボトル・浴槽・プールで可視化する 1 ページの Web アプリと、45 秒の映像版。依存なし・通信なし | `ai-water-footprint/index.html` をダブルクリック（映像版は `film.html`）→ [README](ai-water-footprint/README.md) |
 
 ## はじめかた（clone して起動）
 
