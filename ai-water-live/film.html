@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>トークンの水 — 映像（45 秒）</title>
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="/src/film/film.css">
+</head>
+<body>
+<div class="stage-wrap"><canvas id="stage" width="1920" height="1080" aria-label="トークンの水 映像"></canvas></div>
+<div class="bar" id="bar">
+  <a class="back" href="./">← 戻る</a>
+  <button type="button" id="play" aria-pressed="false">再生</button>
+  <button type="button" id="restart">最初から</button>
+  <span class="time" id="time">00:00.00 / 00:45.00</span>
+  <input type="range" id="scrub" min="0" max="2699" step="1" value="0" aria-label="シーク">
+  <span class="hint"><kbd>Space</kbd> 再生/停止 · <kbd>←</kbd><kbd>→</kbd> 1 フレーム · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> 1 秒 · 数字はすべて <code>params.json</code> と実ログから計算</span>
+</div>
+<script type="module" src="/src/film/main.ts"></script>
+</body>
+</html>
