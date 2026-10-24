@@ -7,6 +7,7 @@
 | `pptx-web-bridge/` | **図解プロンプト作成**アプリ（FastAPI + 素の JS、ローカル起動）。PowerPoint / HTML 図解を読み取り、Copilot に貼る指示文を作る。**図解を描くのは Copilot で、このアプリではない** | `start_windows.bat` / `./start.sh` / exe 版 |
 | `copilot-context-generator/` | M365 Copilot 用ナレッジ生成ツール（contextgen） | `work1_improvement/` が本体、`work2_cross_ai/` が横展開 |
 | `ai-water-footprint/` | **見えない水**: 生成 AI の水消費を器で可視化する静的 Web アプリ（HTML + CSS + 素の JS、ビルドなし・依存なし）と映像版 `film.html`。数値は `js/data.js` と `docs/03` だけに書く | `index.html` をダブルクリック / `python scripts/ui_smoke.py` |
+| `completion-machine/` | **補完機**: 生成AIの仕組みを、机の上の機械としてボタンで 1 工程ずつ動かす研修教材（単体 HTML、`node build.mjs` で生成、依存なし）。数値は `js/data.js` と `docs/03` だけに書く | `completion-machine.html` をダブルクリック / `python scripts/ui_smoke.py` |
 
 現在地・完了範囲・未実施の手動確認は **[`pptx-web-bridge/docs/11_引き継ぎ.md`](pptx-web-bridge/docs/11_引き継ぎ.md)** を先に読む。
 
