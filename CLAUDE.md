@@ -8,6 +8,8 @@
 | `copilot-context-generator/` | M365 Copilot 用ナレッジ生成ツール（contextgen） | `work1_improvement/` が本体、`work2_cross_ai/` が横展開 |
 | `ai-water-footprint/` | **見えない水**: 生成 AI の水消費を器で可視化する静的 Web アプリ（HTML + CSS + 素の JS、ビルドなし・依存なし）と映像版 `film.html`。数値は `js/data.js` と `docs/03` だけに書く | `index.html` をダブルクリック / `python scripts/ui_smoke.py` |
 
+図解スキル（archify / diagram-design / anatomy）を使う・指示文に取り入れるときは、先に [`knowledge/diagram-skills/`](knowledge/diagram-skills/README.md) を読む（コードは入れていない。調べた結果と実践メモだけ）。
+
 現在地・完了範囲・未実施の手動確認は **[`pptx-web-bridge/docs/11_引き継ぎ.md`](pptx-web-bridge/docs/11_引き継ぎ.md)** を先に読む。
 
 ---
