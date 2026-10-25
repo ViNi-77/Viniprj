@@ -1,0 +1,284 @@
+{
+  "_comment": "トークンの水 — 数値の唯一の置き場。TypeScript（src/data/model.ts）と Python（scripts/water_meter.py）が両方ここを読む。docs/02 と一致させる。",
+  "presets": {
+    "low": {
+      "label": "低（事業者の公表値）",
+      "whPerKTok": 0.3,
+      "wue": 0.15,
+      "offsite": 0,
+      "worldMultiplier": 1.5,
+      "sourceIds": [
+        "G1",
+        "A1",
+        "G2",
+        "MS1"
+      ]
+    },
+    "mid": {
+      "label": "中（公的統計の平均）",
+      "whPerKTok": 1.0,
+      "wue": 0.375,
+      "offsite": 4.5,
+      "worldMultiplier": 2,
+      "sourceIds": [
+        "MR1",
+        "O1",
+        "V1",
+        "L1",
+        "G2",
+        "MS1"
+      ]
+    },
+    "high": {
+      "label": "高（研究推計の上限）",
+      "whPerKTok": 3.0,
+      "wue": 0.84,
+      "offsite": 4.5,
+      "worldMultiplier": 4,
+      "sourceIds": [
+        "J1",
+        "A1",
+        "L1",
+        "G2",
+        "MS1"
+      ]
+    }
+  },
+  "ranges": {
+    "whPerKTok": {
+      "min": 0.1,
+      "max": 5,
+      "step": 0.1,
+      "unit": "Wh / 1,000 トークン"
+    },
+    "wue": {
+      "min": 0,
+      "max": 2.5,
+      "step": 0.05,
+      "unit": "L / kWh"
+    },
+    "offsite": {
+      "min": 0,
+      "max": 6,
+      "step": 0.1,
+      "unit": "L / kWh"
+    },
+    "worldMultiplier": {
+      "min": 1,
+      "max": 6,
+      "step": 0.1,
+      "unit": "倍"
+    }
+  },
+  "modelsAsOf": "2026-10",
+  "modelClasses": {
+    "light": {
+      "label": "軽量・高速",
+      "examples": [
+        "Gemini 3.8 Flash / 3.5 Flash-Lite",
+        "Claude Haiku 5.5",
+        "GPT-6 Luna / Instant",
+        "DeepSeek V4.1 Flash"
+      ],
+      "whPerKTok": 0.3,
+      "sourceIds": [
+        "G1",
+        "MR1",
+        "MODELS"
+      ]
+    },
+    "standard": {
+      "label": "標準",
+      "examples": [
+        "Claude Sonnet 5.5",
+        "GPT-6 Sol / 6.1 Sol",
+        "Gemini 3.1 Pro",
+        "Kimi K3"
+      ],
+      "whPerKTok": 1.0,
+      "sourceIds": [
+        "MR1",
+        "O1",
+        "V1",
+        "MODELS"
+      ]
+    },
+    "frontier": {
+      "label": "最上位",
+      "examples": [
+        "Claude Opus 5.5 / Fable 5.1",
+        "GPT-6 Astra",
+        "Gemini 4 Argon",
+        "Muse Wonder"
+      ],
+      "whPerKTok": 3.0,
+      "sourceIds": [
+        "MR1",
+        "J1",
+        "MODELS"
+      ]
+    },
+    "upper": {
+      "label": "研究推計の上限",
+      "examples": [
+        "GPT-5 の 1,000 トークン応答の推計"
+      ],
+      "whPerKTok": 18,
+      "sourceIds": [
+        "URI1"
+      ]
+    }
+  },
+  "tokenWeights": {
+    "_comment": "価格比を計算量の目安に使う（PR1）。通常入力 = 1。出力は入力の 5 倍の価格。",
+    "input": 1.0,
+    "cacheWrite5m": 1.25,
+    "cacheWrite1h": 2.0,
+    "cacheRead": 0.1,
+    "output": 5.0,
+    "sourceIds": [
+      "PR1"
+    ]
+  },
+  "modelIdToClass": [
+    {
+      "match": "opus",
+      "class": "frontier"
+    },
+    {
+      "match": "fable",
+      "class": "frontier"
+    },
+    {
+      "match": "mythos",
+      "class": "frontier"
+    },
+    {
+      "match": "sonnet",
+      "class": "standard"
+    },
+    {
+      "match": "haiku",
+      "class": "light"
+    }
+  ],
+  "defaultModelClass": "standard",
+  "world": {
+    "googleTokensPerMonth": 1300000000000000.0,
+    "microsoftTokensPerYear": 500000000000000.0,
+    "sourceIds": [
+      "G2",
+      "MS1"
+    ]
+  },
+  "bottleLiters": 0.5,
+  "comparisons": [
+    {
+      "id": "spoon",
+      "name": "ティースプーン",
+      "unit": "杯",
+      "liters": 0.005,
+      "sourceIds": []
+    },
+    {
+      "id": "bottle",
+      "name": "500 mL ペットボトル",
+      "unit": "本",
+      "liters": 0.5,
+      "sourceIds": []
+    },
+    {
+      "id": "shower",
+      "name": "シャワー 1 分",
+      "unit": "分",
+      "liters": 12,
+      "sourceIds": [
+        "T1"
+      ]
+    },
+    {
+      "id": "bath",
+      "name": "浴槽",
+      "unit": "杯",
+      "liters": 200,
+      "sourceIds": []
+    },
+    {
+      "id": "pool",
+      "name": "25 m プール",
+      "unit": "杯",
+      "liters": 390000,
+      "sourceIds": []
+    },
+    {
+      "id": "dome",
+      "name": "東京ドーム",
+      "unit": "杯",
+      "liters": 1240000000.0,
+      "sourceIds": [
+        "TD1"
+      ]
+    }
+  ],
+  "tokensPerPrompt": 300,
+  "vessels": [
+    {
+      "id": "bottle",
+      "name": "500 mL ボトル",
+      "unit": "本",
+      "liters": 0.5,
+      "w": 0.065,
+      "h": 0.21,
+      "maxCopies": 300
+    },
+    {
+      "id": "bath",
+      "name": "浴槽",
+      "unit": "杯",
+      "liters": 200,
+      "w": 1.6,
+      "h": 0.6,
+      "maxCopies": 60
+    },
+    {
+      "id": "pool",
+      "name": "25 m プール",
+      "unit": "杯",
+      "liters": 390000,
+      "w": 25,
+      "h": 1.2,
+      "maxCopies": 60
+    },
+    {
+      "id": "dome",
+      "name": "東京ドーム",
+      "unit": "杯",
+      "liters": 1240000000.0,
+      "w": 244,
+      "h": 56,
+      "maxCopies": 30
+    }
+  ],
+  "ladderScales": [
+    {
+      "id": "now",
+      "label": "いま",
+      "help": "今日のあなた（実ログ）。応答ごとに一滴"
+    },
+    {
+      "id": "week",
+      "label": "7 日",
+      "help": "直近 7 日のボトルの棚（1 日 1 段）"
+    },
+    {
+      "id": "year",
+      "label": "1 年換算",
+      "help": "今日の量 × 365 日"
+    },
+    {
+      "id": "world",
+      "label": "世界の 1 日",
+      "help": "世界の毎秒の水 × 86,400 秒（推計）"
+    }
+  ]
+}

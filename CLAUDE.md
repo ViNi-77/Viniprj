@@ -7,6 +7,7 @@
 | `pptx-web-bridge/` | **図解プロンプト作成**アプリ（FastAPI + 素の JS、ローカル起動）。PowerPoint / HTML 図解を読み取り、Copilot に貼る指示文を作る。**図解を描くのは Copilot で、このアプリではない** | `start_windows.bat` / `./start.sh` / exe 版 |
 | `copilot-context-generator/` | M365 Copilot 用ナレッジ生成ツール（contextgen） | `work1_improvement/` が本体、`work2_cross_ai/` が横展開 |
 | `ai-water-footprint/` | **見えない水**: 生成 AI の水消費を器で可視化する静的 Web アプリ（HTML + CSS + 素の JS、ビルドなし・依存なし）と映像版 `film.html`。数値は `js/data.js` と `docs/03` だけに書く | `index.html` をダブルクリック / `python scripts/ui_smoke.py` |
+| `ai-water-live/` | **トークンの水**: AI の冷却で蒸発する淡水をトークン単位で 3D 地球儀にリアルタイム表示（Vite + TypeScript + Three.js、依存は npm でバンドル）。数値は `src/data/model.ts` と `docs/02` だけに書く | `npm run build` → `python scripts/serve.py` / `npm test` / `python scripts/ui_smoke.py` |
 
 図解スキル（archify / diagram-design / anatomy）を使う・指示文に取り入れるときは、先に [`knowledge/diagram-skills/`](knowledge/diagram-skills/README.md) を読む（コードは入れていない。調べた結果と実践メモだけ）。
 

@@ -1,0 +1,7 @@
+{
+  "_comment": "作例（仮の利用パターン）。映像と、静的配信の「応答 1 回ぶん注ぐ」が使う。特定の人の利用記録ではない。結果（L・本数）は model.ts の usageWater() で計算し、ここには書かない。",
+  "label": "作例: 最上位モデルの Claude Code を 1 日使い込んだ場合（仮の数字）",
+  "modelClass": "frontier",
+  "responsesPerDay": 100,
+  "perResponse": { "input": 50, "cw5m": 0, "cw1h": 8000, "cr": 300000, "out": 2500 }
+}
