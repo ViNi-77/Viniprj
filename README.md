@@ -9,6 +9,14 @@
 | contextgen（M365 Copilot コンテキスト生成ツール） | [`copilot-context-generator/`](copilot-context-generator/) | フォルダ内の Word / Excel / PowerPoint / PDF から本文を抽出し、M365 Copilot エージェント用ナレッジ・人間向け読解キット・文書健康診断を生成 | [README](copilot-context-generator/README.md) → 本体は `work1_improvement/`、横展開は `work2_cross_ai/` |
 | 見えない水（生成 AI の水消費ビジュアライザ） | [`ai-water-footprint/`](ai-water-footprint/) | 生成 AI を 1 回使うたびに蒸発する淡水をペットボトル・浴槽・プールで可視化する 1 ページの Web アプリと、45 秒の映像版。依存なし・通信なし | `ai-water-footprint/index.html` をダブルクリック（映像版は `film.html`）→ [README](ai-water-footprint/README.md) |
 
+## ナレッジ
+
+ツールではなく、作るときに参照する調べ物の置き場。コードは入れない。
+
+| テーマ | フォルダ | 中身 |
+|---|---|---|
+| 図解スキル | [`knowledge/diagram-skills/`](knowledge/diagram-skills/) | AI エージェント用の図解スキル archify / diagram-design / anatomy の要点・使い分け・Viniprj での使い道と、anatomy の手順書・実践メモ |
+
 ## はじめかた（clone して起動）
 
 ```bash
