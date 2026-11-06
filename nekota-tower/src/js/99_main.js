@@ -63,7 +63,7 @@
     }
     items.push({ label: NT.DATA.TEXT.menu.back, value: 0 });
     NT.Audio.play("open");
-    NT.Scenes.push(NT.Menu({ x: 200, y: 24, w: 112, title: NT.DATA.TEXT.elevator.title, items: items, index: Math.max(0, 10 - cur + (cur === 10 ? 1 : -1)),
+    NT.Scenes.push(NT.Menu({ x: 148, y: 24, w: 164, title: NT.DATA.TEXT.elevator.title, items: items, index: Math.max(0, 10 - cur + (cur === 10 ? 1 : -1)),
       onSelect: function (it) {
         NT.Scenes.pop();
         if (!it.value) { NT.Player.tryMove(1, 0); return; }
