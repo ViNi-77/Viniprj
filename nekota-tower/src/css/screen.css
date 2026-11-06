@@ -1,0 +1,31 @@
+/* 画面の土台：黒背景に 4:3 の内部解像度 320×240 を整数倍で中央表示 */
+:root {
+  --scale: 2;           /* 07_screen.js が更新（CSS px あたりの倍率。デバイスピクセル基準では小数になる） */
+  --stage-w: 640px;
+  --stage-h: 480px;
+  --ink: #f4f1e8;
+  --paper: #000;
+}
+html, body {
+  margin: 0; padding: 0; height: 100%; background: #000; color: var(--ink);
+  font-family: "PM12", "MS Gothic", "Yu Gothic", "Hiragino Kaku Gothic ProN", monospace;
+  overflow: hidden;
+}
+body { display: flex; align-items: center; justify-content: center; }
+#stage {
+  position: relative;
+  width: var(--stage-w); height: var(--stage-h);
+  background: #000;
+}
+#game {
+  display: block; width: 100%; height: 100%;
+  image-rendering: pixelated; image-rendering: crisp-edges;
+  outline: none; background: #000;
+}
+#game:focus-visible { box-shadow: 0 0 0 2px rgba(244, 208, 63, .6); }
+#banner {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 50;
+  background: #4a1414; color: #fff; font-size: 14px; padding: 6px 12px; display: none;
+}
+#banner.show { display: block; }
+.hidden { display: none !important; }

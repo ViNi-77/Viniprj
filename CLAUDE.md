@@ -7,6 +7,7 @@
 | `pptx-web-bridge/` | **図解プロンプト作成**アプリ（FastAPI + 素の JS、ローカル起動）。PowerPoint / HTML 図解を読み取り、Copilot に貼る指示文を作る。**図解を描くのは Copilot で、このアプリではない** | `start_windows.bat` / `./start.sh` / exe 版 |
 | `copilot-context-generator/` | M365 Copilot 用ナレッジ生成ツール（contextgen） | `work1_improvement/` が本体、`work2_cross_ai/` が横展開 |
 | `ai-water-footprint/` | **見えない水**: 生成 AI の水消費を器で可視化する静的 Web アプリ（HTML + CSS + 素の JS、ビルドなし・依存なし）と映像版 `film.html`。数値は `js/data.js` と `docs/03` だけに書く | `index.html` をダブルクリック / `python scripts/ui_smoke.py` |
+| `nekota-tower/` | **ねこ太と十二月の塔**: 架空携帯機 NETTA BOY で動くレトロ風クエストゲーム（1 ファイル HTML、素の JS、通信なし）。`src/` を直して `python scripts/build.py` で `index.html` を生成する（生成物もコミット、手で編集しない）。文言は `src/data/text.js` と `dialogs.js`、クエスト定義は `quests.js` | `index.html` をダブルクリック / `python scripts/build.py --check && python scripts/ui_smoke.py` |
 
 図解スキル（archify / diagram-design / anatomy）を使う・指示文に取り入れるときは、先に [`knowledge/diagram-skills/`](knowledge/diagram-skills/README.md) を読む（コードは入れていない。調べた結果と実践メモだけ）。
 

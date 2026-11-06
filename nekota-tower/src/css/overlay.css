@@ -1,0 +1,20 @@
+/* DOM オーバーレイ：日本語入力欄（IME対応のため実 input を使う）、ファイル読込、ドロップ受け */
+#overlay { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+#overlay > * { pointer-events: auto; }
+.nt-input, .nt-textarea {
+  position: absolute; box-sizing: border-box;
+  background: #000; color: #f4f1e8; border: 0; outline: none; margin: 0; padding: 0;
+  font-family: "PM12", "MS Gothic", "Yu Gothic", monospace;
+  font-size: calc(var(--scale) * 12px); line-height: calc(var(--scale) * 16px);
+  caret-color: #f4d03f; border-radius: 0; resize: none; overflow: hidden;
+  -webkit-font-smoothing: none; font-smooth: never;
+}
+.nt-input::placeholder, .nt-textarea::placeholder { color: #5b5a66; }
+.nt-input:focus, .nt-textarea:focus { box-shadow: 0 0 0 calc(var(--scale) * 1px) #f4d03f; }
+#filepick { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+#dropzone {
+  position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.72); color: #f4f1e8; font-size: calc(var(--scale) * 12px);
+  border: calc(var(--scale) * 2px) dashed #f4d03f; box-sizing: border-box;
+}
+#dropzone.show { display: flex; }
