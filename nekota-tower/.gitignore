@@ -1,0 +1,8 @@
+# ビルドの一時出力・検査のスクリーンショット
+scripts/out/
+build/
+__pycache__/
+# 元フォント TTF（配布元から各自取得して置く。src/fonts/README.md 参照）
+tools/fonts/
+# 開発用（python scripts/build.py --dev が生成。配布しない）
+dev.html
