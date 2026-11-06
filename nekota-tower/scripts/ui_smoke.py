@@ -461,6 +461,27 @@ def run_resume_and_card(ctx, name: str) -> None:  # type: ignore[no-untyped-def]
     check(wait_scene(page, "CARDMENU", 2), "ゲーム内メニューからメモリーカード")
     press(page, "KeyX", wait=300)
     check(wait_scene(page, "MAP", 2), f"ゲーム内のメモリーカードから X で塔に戻る {js(page, 'window.__NEKOTA.scenes()')}")
+    # 別のPCを想定：きろくが無い状態でカードを読み込むと「つづきから」が使える
+    page.evaluate("() => { ['slot:1','slot:2','slot:3','suspend'].forEach(k => localStorage.removeItem('nekota-tower:v1:' + k)); }")
+    page.goto(URL + "?fast=1")
+    wait_scene(page, "TITLE", 5)
+    press(page, "KeyZ", wait=250); wait_scene(page, "MENU")
+    items = js(page, "window.__NEKOTA.NT.Scenes.find('MENU').items.map(i => [i.label, !!i.disabled])")
+    check(items[1] == ["つづきから", True], f"きろくが無いと つづきから は選べない {items}")
+    press(page, "ArrowDown", wait=120); press(page, "KeyZ", wait=300)      # メモリーカード（つづきから は無効なので1回で届く）
+    check(wait_scene(page, "CARDMENU", 2), "きろく無しでメモリーカードを開く")
+    press(page, "ArrowDown", wait=120); press(page, "KeyZ", wait=300)       # よみこむ
+    page.set_input_files("#filepick", {"name": "good.csv", "mimeType": "text/csv", "buffer": data})
+    page.wait_for_timeout(800)
+    check(wait_scene(page, "MENU", 2), "別PCでカードを読み込んで保存先を聞く")
+    press(page, "KeyZ", wait=500)                                             # きろく1
+    press(page, "KeyX", wait=300)                                             # カード画面を閉じる
+    check(wait_scene(page, "MENU", 2), "カード画面からタイトルへ")
+    items = js(page, "window.__NEKOTA.NT.Scenes.find('MENU').items.map(i => [i.label, !!i.disabled])")
+    check(items[1] == ["つづきから", False], f"カードを読み込むと つづきから が使える {items}")
+    press(page, "ArrowUp", wait=120); press(page, "KeyZ", wait=300)        # メモリーカード → つづきから
+    wait_scene(page, "SLOT"); press(page, "KeyZ", wait=600); dismiss(page)
+    check(wait_scene(page, "MAP", 3) and js(page, "window.__NEKOTA.state().name") == "みき", "読み込んだ きろく で つづきから 遊べる")
     check(not errors, f"ページエラーなし（カード）{errors[:3]}")
 
 
