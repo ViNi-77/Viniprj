@@ -63,10 +63,11 @@
     return NT.Codec.decodeCard(text, { password: password || undefined });
   };
   C.importFile = function (file) {
-    var scene = NT.Scenes.find("CARD");
+    var scene = NT.Scenes.find("CARD"), bar = NT.Scenes.find("BAR");
     file.text().then(function (text) {
       C.pendingText = text;
-      if (scene) scene.onFileText(text); else NT.Flow.openCard(text);
+      if (bar && NT.Scenes.top() === bar) bar.onFileText(text);
+      else if (scene) scene.onFileText(text); else NT.Flow.openCard(text);
     }).catch(function () { NT.Scenes.push(NT.Notice(TX().bad)); });
   };
 

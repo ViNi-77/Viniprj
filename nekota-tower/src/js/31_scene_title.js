@@ -18,14 +18,16 @@
         { label: "はじめから", value: "new" },
         { label: "つづきから", value: "continue", disabled: !cont },
         { label: "メモリーカード", value: "card" },
+        { label: "酒場", value: "bar" },
         { label: "せってい", value: "settings" }
       ];
       menu = NT.Menu({
-        x: 104, y: 146, w: 120, items: items, index: cont ? 1 : 0, cancelable: false,
+        x: 104, y: 140, w: 120, items: items, index: cont ? 1 : 0, cancelable: false,
         onSelect: function (it) {
           if (it.value === "new") NT.Flow.newGame();
           else if (it.value === "continue") NT.Flow.openSlots("load");
           else if (it.value === "card") NT.Flow.openCard();
+          else if (it.value === "bar") NT.Flow.openBar();
           else if (it.value === "settings") NT.Flow.openSettings();
         }
       });

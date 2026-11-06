@@ -43,6 +43,31 @@
     return S.cur;
   };
 
+  /* 2周目：教訓・仲間・来年の予定を引き継ぎ、年を +1 して塔を作り直す */
+  S.newLap = function () {
+    var old = S.cur; if (!old) return null;
+    var carry = { lessons: (old.lessons || []).slice(), friends: [], plans: [], lastYear: old.year, lastMarks: old.marks, lastTitle: old.title, excuses: (old.excuses || []).length };
+    var q4 = old.quests.q4 || {}, q3 = old.quests.q3 || {};
+    (q4.people || []).forEach(function (p) { if (p.scheduledKey) carry.friends.push({ text: p.text, date: p.date || "" }); });
+    (q3.places || []).forEach(function (p) { if (p.plannedKey) carry.plans.push({ text: p.text, date: p.date || "" }); });
+    (old.carry && old.carry.friends || []).forEach(function (f) { if (!carry.friends.some(function (x) { return x.text === f.text; })) carry.friends.push(f); });
+    var quests = {};
+    Object.keys(NT.DATA.QUESTS || {}).forEach(function (id) { quests[id] = { status: "offered" }; });
+    var key = NT.Time.jstKey();
+    S.cur = {
+      name: old.name, startedKey: key, lastKey: key, year: Math.max(old.year + 1, NT.Time.yearOf(key)),
+      pos: null, floor: 10,
+      flags: { prologueDone: true, doorOpen: false, clockSuspect: false, resultShown: false, tutorialDone: true, lapIntro: false },
+      clears: [], marks: 0, title: "たびびと",
+      flowers: {}, quests: quests,
+      lessons: [], log: [], excuses: [],
+      lap: (old.lap || 1) + 1, carry: carry
+    };
+    S.recompute();
+    S.setDirty(true);
+    return S.cur;
+  };
+
   S.toRecord = function () {
     S.seq++;
     return {
