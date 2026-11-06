@@ -73,7 +73,14 @@
   /* ---- 画面 ---- */
   NT.SceneCard = function (opts) {
     opts = opts || {};
-    var menu = null, status = "", statusColor = "#9aa0b4", busy = false;
+    var menu = null, status = "", statusColor = "#9aa0b4", busy = false, closing = false;
+    /* 自分（CARD）とメニューをまとめて閉じる。先に閉じる印を立てないと resume がメニューを開き直してしまう */
+    function closeCard() {
+      closing = true;
+      NT.Audio.play("close");
+      NT.Scenes.remove(scene);
+      var m = NT.Scenes.find("CARDMENU"); if (m) NT.Scenes.remove(m);
+    }
     function setStatus(s, col) { status = s; statusColor = col || "#9aa0b4"; }
     function askPassword(title, cb) {
       NT.InputBox.open({ x: 24, y: 70, w: 272, maxLen: 32, title: title, hint: "なしなら そのまま Enter", onDone: function (v) { cb(v); } });
@@ -153,17 +160,17 @@
         { label: TX().import, value: "import" },
         { label: NT.DATA.TEXT.menu.back, value: "back" }
       ], cancelable: true, onSelect: function (it) {
-        if (it.value === "back") { NT.Scenes.pop(); NT.Scenes.pop(); return; }
+        if (it.value === "back") { closeCard(); return; }
         if (busy) return;
         if (it.value === "export") doExport(); else doImport();
-      }, onCancel: function () { NT.Scenes.pop(); NT.Scenes.pop(); } });
+      }, onCancel: function () { closeCard(); } });
       menu.id = "CARDMENU";
       NT.Scenes.push(menu);
     }
     var scene = {
       id: "CARD", opaque: true,
       enter: function () { C.installDrop(); openMenu(); if (opts.pendingText) setTimeout(function () { onFileText(opts.pendingText); }, 0); },
-      resume: function (res, popped) { if (!NT.Scenes.has("CARDMENU") && NT.Scenes.top() === scene) openMenu(); },
+      resume: function (res, popped) { if (!closing && !NT.Scenes.has("CARDMENU") && NT.Scenes.top() === scene) openMenu(); },
       update: function () {},
       draw: function (ctx) {
         NT.Screen.clear("#070716");

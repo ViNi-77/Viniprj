@@ -13,8 +13,15 @@
       var cleared = q.status === "cleared";
       push(def.num + " " + def.title, cleared ? "#f4d03f" : "#9aa0b4");
       if (!def.implemented) { push("　（じゅんびちゅう）", "#5b5a66"); push(""); return; }
-      (q.entries || []).forEach(function (e) { push("　" + (e.doneKey ? "● " : "○ ") + e.text, e.doneKey ? "#f4f1e8" : "#9aa0b4"); });
+      NT.Quests.lists(def).forEach(function (L) {
+        (q[L.kind] || []).forEach(function (e) {
+          var marked = (def.exec && def.exec.commands || []).some(function (c) { return e[(c.flag || "done") + "Key"]; }) || (L.kind === "attempts");
+          push("　" + (marked ? "● " : "○ ") + e.text + (e.date ? "（" + NT.Time.mmdd(e.date).replace("-", "/") + "）" : ""), marked ? "#f4f1e8" : "#9aa0b4");
+        });
+      });
+      Object.keys(q.extras || {}).forEach(function (k) { if (q.extras[k]) push("　" + q.extras[k], "#9aa0b4"); });
       if (q.declared) push("　★ " + q.declared.text + "　" + NT.Quests.streak(q) + "日", "#f4f1e8");
+      if (q.timerDone) push("　なにもしない　" + q.timerDone + "回", "#f4f1e8");
       if (q.lesson) push("　教訓：" + q.lesson, "#f4afc4");
       if (q.reportText) push("　「" + q.reportText + "」", "#9aa0b4");
       push("");
@@ -73,5 +80,10 @@
       }
     };
     return scene;
+  };
+  NT.Dialog.hooks["ending.normal"] = function () {
+    NT.State.cur.flags.endingSeen = true; NT.State.touch();
+    NT.Scenes.push(NT.SceneEnding("normal"));
+    return "stop";
   };
 })();

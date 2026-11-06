@@ -31,6 +31,12 @@
       });
       menu.draw2 = menu.draw;
       menu.draw = function (ctx) { G.frame(ctx, menu.x, menu.y, menu.w, menu.h, { innerColor: "#4a4560" }); menu.draw2(ctx); };
+      /* メモリーカードや せってい から戻ったら、きろく の有無を見直す（カードから読み込んだ直後に つづきから を使えるように） */
+      menu.resume = function () {
+        var c = hasSaves();
+        menu.items[1].disabled = !c;
+        if (c && menu.index === 0) menu.index = 1;
+      };
       NT.Scenes.push(menu);
     }
     var scene = {

@@ -17,6 +17,7 @@
     ],
     "d.elder": [
       { if: "flag:prologueDone", else: "d.prologue" },
+      { if: "quest:q1:cleared", goto: "d.elder.final" },
       { if: "clears>=10", goto: "d.elder.all" },
       { if: "clears>=3", goto: "d.elder.pass" },
       { who: ELDER, text: "しるしは まだ {marks}つ。三つで 合格じゃ。階は どこから 回ってもよい。" },
@@ -45,6 +46,14 @@
     "d.elder.all": [
       { who: ELDER, text: "十の しるし。おぬしの 年の瀬は、もう おぬしのものじゃ。" },
       { end: true }
+    ],
+    "d.elder.final": [
+      { who: ELDER, text: "……なにもしない を やりとげたか。しるしは {marks}つ。塔は、おぬしに ひとつの 景色を 見せる用意が ある。" },
+      { who: NEKO, text: "いつでも 戻ってこられるよ。残りの階も、年が 明けるまでは そのまま。" },
+      { choice: [
+        { label: "塔の 景色を 見る（エンディング）", call: "ending.normal" },
+        { label: "まだ 塔に のこる", end: true }
+      ] }
     ],
 
     /* ❿ すてる */
@@ -104,50 +113,245 @@
       { choice: [{ label: "クエストを ひらく", call: "quest.open", arg: "q9" }, { label: "もどる", end: true }] }
     ],
 
-    /* ❽〜❶：依頼文のみ（じゅんびちゅう） */
+    /* ⑧ 切れなかった人を 切る */
     "d.q8": [
-      { who: "フクロウ先生", text: "今年の 予定を すべて 見返してみなさい。「行かなくて良かった予定ランキング」を 作るのじゃ。仕事も、私も。" },
-      { who: "フクロウ先生", text: "ランキングには 特定の条件や 人が 浮かぶ。惰性の関係を ひとつ 整理すれば、来年の 時間が 自由になる。" },
-      { who: NEKO, text: "……この階の 依頼は、もう少しで 受けられるようになるみたい。" },
-      { text: "（この階は じゅんびちゅう）" }
+      { if: "quest:q8:cleared", goto: "d.q8.after" },
+      { if: "quest:q8:!offered", goto: "d.q8.progress" },
+      { who: "フクロウ先生", text: "ほう、{name}か。今年の 予定を すべて 見返したことは あるかね。" },
+      { who: "フクロウ先生", text: "「行かなくて良かった予定ランキング」を 作るのじゃ。プライベートと 仕事、両方な。" },
+      { who: NEKO, text: "ランキングにすると、特定の 条件や 人が 浮かんでくるんだって。" },
+      { who: "フクロウ先生", text: "惰性で 会っている関係を ひとつ 整理する。相手を 責める必要は ない。時間を 自分に 返すだけじゃ。" },
+      { who: "フクロウ先生", text: "最後に「この先 どんな関係を 歩みたいか」を ひとこと。それが この階の 依頼じゃ。" },
+      { choice: [{ label: "うける", goto: "d.q8.accept" }, { label: "あとで", end: true }] }
     ],
+    "d.q8.accept": [
+      { call: "quest.accept", arg: "q8" },
+      { who: "フクロウ先生", text: "よろしい。他人に 使っている時間は、思うより 多く、長く、むだが 多い。" },
+      { call: "quest.open", arg: "q8" }
+    ],
+    "d.q8.progress": [
+      { who: "フクロウ先生", text: "ランキングは できたかね。上位ほど、来年 断る 候補じゃ。" },
+      { choice: [
+        { label: "クエストを ひらく", call: "quest.open", arg: "q8" },
+        { label: "ほうこくする", call: "quest.report", arg: "q8", if: "reportable:q8" },
+        { label: "もどる", end: true }
+      ] }
+    ],
+    "d.q8.after": [
+      { who: "フクロウ先生", text: "誰と会うかで 人生は 決まる。会いたい人とだけ 会う人生を、少しずつ。" },
+      { choice: [{ label: "クエストを ひらく", call: "quest.open", arg: "q8" }, { label: "もどる", end: true }] }
+    ],
+
+    /* ⑦ 挫折したモノを 再開する */
     "d.q7": [
-      { who: "カメ吉", text: "ギター、途中で やめちゃってさ。挫折したものを 再開するのが この階の 依頼。" },
-      { who: "カメ吉", text: "挫折の原因は 実力じゃなくて、頼れる人・足りない知識・教訓の どれかが 欠けてたこと。コンプリートは いらない。" },
-      { text: "（この階は じゅんびちゅう）" }
+      { if: "quest:q7:cleared", goto: "d.q7.after" },
+      { if: "quest:q7:!offered", goto: "d.q7.progress" },
+      { who: "カメ吉", text: "……このギター、途中で やめちゃってさ。{name}にも、そういうの ある？" },
+      { who: "カメ吉", text: "人生を ふりかえって、挫折TOP5を 作ってほしい。上のほうから ひとつ、再開してみる。コンプリートは いらない。" },
+      { who: NEKO, text: "挫折したのは 実力不足じゃなくて、頼れる人・足りない知識・前回の教訓の どれかが 欠けてたから、なんだって。" },
+      { who: "カメ吉", text: "だから 3つを そろえてから 再開する。ひとりで やろうとしないこと。それが この階の 依頼。" },
+      { choice: [{ label: "うける", goto: "d.q7.accept" }, { label: "あとで", end: true }] }
     ],
+    "d.q7.accept": [
+      { call: "quest.accept", arg: "q7" },
+      { who: "カメ吉", text: "ありがとう。人に 頼むのは 甘えじゃなくて、相手も 成長する 機会なんだって。" },
+      { call: "quest.open", arg: "q7" }
+    ],
+    "d.q7.progress": [
+      { who: "カメ吉", text: "3つ そろった？ そろったら、ほんの 少しでいいから 再開してみて。" },
+      { choice: [
+        { label: "クエストを ひらく", call: "quest.open", arg: "q7" },
+        { label: "ほうこくする", call: "quest.report", arg: "q7", if: "reportable:q7" },
+        { label: "もどる", end: true }
+      ] }
+    ],
+    "d.q7.after": [
+      { who: "カメ吉", text: "挑戦は 一度きりじゃ もったいない。自分の 挑戦の実績を、もっと 大事に しよう。" },
+      { choice: [{ label: "クエストを ひらく", call: "quest.open", arg: "q7" }, { label: "もどる", end: true }] }
+    ],
+
+    /* ⑥ 手を付けなかったコトに 手を付ける */
     "d.q6": [
-      { who: "うさ子", text: "やりたかったのに 手を付けなかったこと、TOP5 ある？ とりあえず 手を付けてみてから 判断する、が ここの 依頼。" },
-      { who: "うさ子", text: "年末ぎりぎりに できたことは、来年の 習慣になりやすいの。" },
-      { text: "（この階は じゅんびちゅう）" }
+      { if: "quest:q6:cleared", goto: "d.q6.after" },
+      { if: "quest:q6:!offered", goto: "d.q6.progress" },
+      { who: "うさ子", text: "この手紙、ずっと 封を切れなくて。{name}にも「やりたかったのに 手を付けなかったこと」って あるでしょ？" },
+      { who: "うさ子", text: "TOP5を 作って、なるべく 多く 手を付ける。とりあえず 手を付けてみてから 判断するの。" },
+      { who: NEKO, text: "年末ぎりぎりに できたことは、来年の 習慣に なりやすいんだって。" },
+      { who: "うさ子", text: "義務感のないものを えらんでね。やれなかったのは 戦略不足。時間と お金と 人と、自分の気持ちの 使い方。" },
+      { choice: [{ label: "うける", goto: "d.q6.accept" }, { label: "あとで", end: true }] }
     ],
+    "d.q6.accept": [
+      { call: "quest.accept", arg: "q6" },
+      { who: "うさ子", text: "うん。手を付けないと、来年も やらないから。" },
+      { call: "quest.open", arg: "q6" }
+    ],
+    "d.q6.progress": [
+      { who: "うさ子", text: "ひとつでも 手を付けた？ 「やってみてから 判断する」だよ。" },
+      { choice: [
+        { label: "クエストを ひらく", call: "quest.open", arg: "q6" },
+        { label: "ほうこくする", call: "quest.report", arg: "q6", if: "reportable:q6" },
+        { label: "もどる", end: true }
+      ] }
+    ],
+    "d.q6.after": [
+      { who: "うさ子", text: "封を 切ったよ。中身は……来年の 楽しみに なった。" },
+      { choice: [{ label: "クエストを ひらく", call: "quest.open", arg: "q6" }, { label: "もどる", end: true }] }
+    ],
+
+    /* ⑤ 変えられなかったコトを 小さく変える */
     "d.q5": [
-      { who: "でんでん", text: "……ぼくらは 習慣の 奴隷。だから 小さく 変えるしかない。" },
-      { who: "でんでん", text: "筋トレなら 1日1回の 腕立て。はるかに 小さく。変わりながら つづけるのが コツ。" },
-      { text: "（この階は じゅんびちゅう）" }
+      { if: "quest:q5:cleared", goto: "d.q5.after" },
+      { if: "quest:q5:!offered", goto: "d.q5.progress" },
+      { who: "でんでん", text: "……ぼくらは 習慣の 奴隷。良い習慣も 悪い習慣も、急には 変えられない。" },
+      { who: "でんでん", text: "だから 小さく 変えるしかない。近道は ない。変えたいことを 3段階、はるかに 小さくする。" },
+      { who: NEKO, text: "筋トレしたい → 週3回 → 1日1回の 腕立て、みたいに？" },
+      { who: "でんでん", text: "そう。いちばん小さい形で 3日。がむしゃらに 続けるより、変わりながら 続けるのが 大事。" },
+      { choice: [{ label: "うける", goto: "d.q5.accept" }, { label: "あとで", end: true }] }
     ],
+    "d.q5.accept": [
+      { call: "quest.accept", arg: "q5" },
+      { who: "でんでん", text: "……ゆっくりで いい。ハードルは、めっちゃ 下げて。" },
+      { call: "quest.open", arg: "q5" }
+    ],
+    "d.q5.progress": [
+      { who: "でんでん", text: "いちばん小さい形、見つかった？ 1日1回で いいんだよ。" },
+      { choice: [
+        { label: "クエストを ひらく", call: "quest.open", arg: "q5" },
+        { label: "ほうこくする", call: "quest.report", arg: "q5", if: "reportable:q5" },
+        { label: "もどる", end: true }
+      ] }
+    ],
+    "d.q5.after": [
+      { who: "でんでん", text: "小さく 変わりながら 続ける。それが 良い習慣を 形作る、たったひとつの 方法。" },
+      { choice: [{ label: "クエストを ひらく", call: "quest.open", arg: "q5" }, { label: "もどる", end: true }] }
+    ],
+
+    /* ④ もっと一緒にいたかった人に 連絡する */
     "d.q4": [
-      { who: "ポッポ", text: "もっと 一緒に 時間を 過ごしたかった人に、自分から 連絡するんだ。来年 会いたい人 TOP10。" },
-      { who: "ポッポ", text: "断られても 気にしない。連絡は 思っているより ずっと 喜ばれる。" },
-      { text: "（この階は じゅんびちゅう）" }
+      { if: "quest:q4:cleared", goto: "d.q4.after" },
+      { if: "quest:q4:!offered", goto: "d.q4.progress" },
+      { who: "ポッポ", text: "くるっぽ。{name}、今年 もっと 一緒に 時間を 過ごしたかった人、いる？" },
+      { who: "ポッポ", text: "来年 もっと会いたい人 TOP10を 作って、自分から 連絡する。「どこかで ごはん 行きましょう」で いい。" },
+      { who: NEKO, text: "断られても 気にしないこと。連絡は、こっちが 思っているより ずっと 喜ばれるんだって。" },
+      { who: "ポッポ", text: "ひとつ 予定が 決まったら、それは 来年の 楽しみ。先の予定を 立てると、行動が 変わる。" },
+      { choice: [{ label: "うける", goto: "d.q4.accept" }, { label: "あとで", end: true }] }
     ],
+    "d.q4.accept": [
+      { call: "quest.accept", arg: "q4" },
+      { who: "ポッポ", text: "会いたい人に 会うと、話を 聞く力も 上がる。人間関係も、想像力も。" },
+      { call: "quest.open", arg: "q4" }
+    ],
+    "d.q4.progress": [
+      { who: "ポッポ", text: "連絡した？ 3人に 送って、ひとつ 日付が 決まれば じゅうぶん。" },
+      { choice: [
+        { label: "クエストを ひらく", call: "quest.open", arg: "q4" },
+        { label: "ほうこくする", call: "quest.report", arg: "q4", if: "reportable:q4" },
+        { label: "もどる", end: true }
+      ] }
+    ],
+    "d.q4.after": [
+      { who: "ポッポ", text: "誰と会うかで 人生が 決まる。来年は、会いたい人と 会う年に。" },
+      { choice: [{ label: "クエストを ひらく", call: "quest.open", arg: "q4" }, { label: "もどる", end: true }] }
+    ],
+
+    /* ③ 行きたかった場所に 行く予定を入れる */
     "d.q3": [
-      { who: "ペン太郎", text: "行きたかったのに 行けなかった場所に、来年の 日付で 予定を 入れる。待っている時間が、幸福を 上げてくれる。" },
-      { text: "（この階は じゅんびちゅう）" }
+      { if: "quest:q3:cleared", goto: "d.q3.after" },
+      { if: "quest:q3:!offered", goto: "d.q3.progress" },
+      { who: "ペン太郎", text: "スーツケース、もう 用意してあるんだ。{name}には、行きたいのに 行けなかった場所、ある？" },
+      { who: "ペン太郎", text: "来年の 日付で 予定を 入れる。それだけで、待っている あいだずっと 幸福が 上がる。" },
+      { who: NEKO, text: "修学旅行の 前の日に 眠れない、あの感じだね。" },
+      { who: "ペン太郎", text: "そう。後ろに 何が 控えているかで、途中の 経験が 変わる。言い訳ばかりの 人生に、ここで 終止符。" },
+      { choice: [{ label: "うける", goto: "d.q3.accept" }, { label: "あとで", end: true }] }
     ],
+    "d.q3.accept": [
+      { call: "quest.accept", arg: "q3" },
+      { who: "ペン太郎", text: "予定の 先取りで、来年を それ前提の 年に できる。" },
+      { call: "quest.open", arg: "q3" }
+    ],
+    "d.q3.progress": [
+      { who: "ペン太郎", text: "日付、入れた？ 入れた瞬間から、待つ時間が はじまる。" },
+      { choice: [
+        { label: "クエストを ひらく", call: "quest.open", arg: "q3" },
+        { label: "ほうこくする", call: "quest.report", arg: "q3", if: "reportable:q3" },
+        { label: "もどる", end: true }
+      ] }
+    ],
+    "d.q3.after": [
+      { who: "ペン太郎", text: "自分の人生を 自分で 決めている感じ。それが いちばん 簡単な 幸福の 上げ方。" },
+      { choice: [{ label: "クエストを ひらく", call: "quest.open", arg: "q3" }, { label: "もどる", end: true }] }
+    ],
+
+    /* ② 出来たコトの 新記録に挑戦する */
     "d.q2": [
-      { who: "ケロ吉", text: "今年できたことの ちょい上を 目指す！ 締切の力は あなどれないぞ。" },
-      { text: "（この階は じゅんびちゅう）" }
+      { if: "quest:q2:cleared", goto: "d.q2.after" },
+      { if: "quest:q2:!offered", goto: "d.q2.progress" },
+      { who: "ケロ吉", text: "ケロ！ {name}、今年 できたことを ひとつ 言ってみて。" },
+      { who: "ケロ吉", text: "その ちょい上を 目標にして、年内に 1回 挑戦する。締切の力を あなどるな。" },
+      { who: NEKO, text: "限界の ちょっと先に 行くときだけ、人は 成長するんだって。筋トレと おなじ。" },
+      { who: "ケロ吉", text: "小さくていい。「ちょい上」が どこかを 知ることが ポイントだ。" },
+      { choice: [{ label: "うける", goto: "d.q2.accept" }, { label: "あとで", end: true }] }
     ],
+    "d.q2.accept": [
+      { call: "quest.accept", arg: "q2" },
+      { who: "ケロ吉", text: "いまの記録と 目標を 書いて、挑戦したら 記録を 入れる。それだけ！" },
+      { call: "quest.open", arg: "q2" }
+    ],
+    "d.q2.progress": [
+      { who: "ケロ吉", text: "挑戦した？ 年末ブーストは、あなどれないぞ。" },
+      { choice: [
+        { label: "クエストを ひらく", call: "quest.open", arg: "q2" },
+        { label: "ほうこくする", call: "quest.report", arg: "q2", if: "reportable:q2" },
+        { label: "もどる", end: true }
+      ] }
+    ],
+    "d.q2.after": [
+      { who: "ケロ吉", text: "習慣の アップグレード、完了。来年の 基準が ひとつ 上がった。" },
+      { choice: [{ label: "クエストを ひらく", call: "quest.open", arg: "q2" }, { label: "もどる", end: true }] }
+    ],
+
+    /* ① 最高のホワイトタイムを 過ごす */
     "d.q1": [
-      { who: "しろくまさん", text: "……ぐう。ここは 最後の階。なにもしない時間を 予約して、10分 なにもしない。それだけ。" },
-      { who: "しろくまさん", text: "ダラダラと 空白は ちがう。空白は 目的のある 時間。……ぐう。" },
-      { text: "（この階は じゅんびちゅう）" }
+      { if: "quest:q1:cleared", goto: "d.q1.after" },
+      { if: "quest:q1:!offered", goto: "d.q1.progress" },
+      { who: "しろくまさん", text: "……ぐう。ああ、{name}。ここまで 来たんだね。最後の階は、これまでと 逆のことを 頼む。" },
+      { who: "しろくまさん", text: "空白の時間を 3つ 予約して、10分、なにも しない。スマホも 置いて。" },
+      { who: NEKO, text: "ダラダラと 空白は ちがうんだよね。空白は、目的のある 時間。" },
+      { who: "しろくまさん", text: "1年の 疲れを 置いて、新年に 備える。奥の部屋に、なにも しない ための 相手が いる。さわらないことが、勝ち方。" },
+      { choice: [{ label: "うける", goto: "d.q1.accept" }, { label: "あとで", end: true }] }
+    ],
+    "d.q1.accept": [
+      { call: "quest.accept", arg: "q1" },
+      { who: "しろくまさん", text: "いそがしい年末だからこそ、「あえて なにもしない」が いちばん むずかしくて、いちばん 価値がある。……ぐう。" },
+      { call: "quest.open", arg: "q1" }
+    ],
+    "d.q1.progress": [
+      { who: "しろくまさん", text: "予約は できた？ 奥の部屋で、10分。手を はなすだけ。" },
+      { choice: [
+        { label: "クエストを ひらく", call: "quest.open", arg: "q1" },
+        { label: "なにもしない を はじめる", call: "white.start" },
+        { label: "ほうこくする", call: "quest.report", arg: "q1", if: "reportable:q1" },
+        { label: "もどる", end: true }
+      ] }
+    ],
+    "d.q1.after": [
+      { who: "しろくまさん", text: "よく 来たね。空白の時間は、新しい挑戦の 準備と、1年の ふりかえりを 可能にする「心のスペース」。" },
+      { who: "しろくまさん", text: "キリがいい タイミングは、人が いちばん 変われる チャンス。ここまで 来られたなら、きっと わかる。" },
+      { choice: [{ label: "クエストを ひらく", call: "quest.open", arg: "q1" }, { label: "もどる", end: true }] }
     ],
     "d.boss": [
+      { if: "quest:q1:cleared", goto: "d.boss.after" },
+      { if: "quest:q1:offered", goto: "d.boss.hint" },
       { who: "？？？", text: "……………。" },
-      { who: NEKO, text: "なにも 言わないね。ここは、なにも しない場所 なんだ。" },
-      { text: "（最終の階は じゅんびちゅう）" }
+      { who: NEKO, text: "なにも 言わないね。ここは、なにも しない場所。さわらないことが、勝ち方なんだって。" },
+      { choice: [{ label: "なにもしない を はじめる（10分）", call: "white.start" }, { label: "もどる", end: true }] }
+    ],
+    "d.boss.hint": [
+      { who: "？？？", text: "……………。" },
+      { who: NEKO, text: "しろくまさんから 依頼を 受けてから、だね。" }
+    ],
+    "d.boss.after": [
+      { who: NEKO, text: "……しずかだ。ボスは もう いない。ここには、空白だけが 残った。" }
     ],
 
     /* 仕掛け */

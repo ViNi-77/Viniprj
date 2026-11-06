@@ -12,6 +12,7 @@ file:// で index.html を開いて次を通す（docs/04_受入試験.md と対
   7. メモリーカード：かきだし→よみこみ→改ざん→あいことば
   8. 時間：12/31→1/1 で けっか はっぴょう、時計の疑いで日次チェック停止
   9. reduced-motion で CRT の動きが止まる
+ 10. クエスト⑧〜①：複数リスト・日付入力・挑戦の記録・3段階の宣言・10分なにもしない（?white=3 で短縮）→ 長老からノーマルED
 スクリーンショットは scripts/out/ に残す。
 
 ブラウザは $PLAYWRIGHT_BROWSERS_PATH 配下の chromium を自分で探す。`playwright install` は実行しない（CLAUDE.md 5 節）。
@@ -443,6 +444,44 @@ def run_resume_and_card(ctx, name: str) -> None:  # type: ignore[no-untyped-def]
     check(wait_scene(page, "MENU"), "正しい あいことば で復号して保存先を聞く")
     press(page, "KeyX", wait=200)
     page.screenshot(path=str(OUT / f"{name}_10_card_done.png"))
+    # 戻れること：「もどる」でタイトルのメニューへ、X でも同じ
+    press(page, "ArrowDown", 2, wait=120)
+    press(page, "KeyZ", wait=300)
+    check(wait_scene(page, "MENU", 2) and not js(page, "window.__NEKOTA.scenes().includes('CARD')"), f"メモリーカードの「もどる」でタイトルに戻る {js(page, 'window.__NEKOTA.scenes()')}")
+    press(page, "KeyZ", wait=300)          # カーソルは メモリーカード に残っている
+    check(wait_scene(page, "CARDMENU", 2), "もう一度メモリーカードを開ける")
+    press(page, "KeyX", wait=300)
+    check(wait_scene(page, "MENU", 2) and not js(page, "window.__NEKOTA.scenes().includes('CARD')"), f"X でもタイトルに戻る {js(page, 'window.__NEKOTA.scenes()')}")
+    # ゲーム内メニュー経路：つづきから → C → メモリーカード → X → MAP
+    press(page, "ArrowUp", wait=120); press(page, "KeyZ", wait=300)
+    if wait_scene(page, "CONFIRM", 0.6):
+        press(page, "KeyZ", wait=300)       # ちゅうだんデータは いいえ
+    wait_scene(page, "SLOT"); press(page, "KeyZ", wait=600); dismiss(page); wait_scene(page, "MAP", 3)
+    press(page, "KeyC", wait=300); press(page, "ArrowDown", 2, wait=120); press(page, "KeyZ", wait=300)
+    check(wait_scene(page, "CARDMENU", 2), "ゲーム内メニューからメモリーカード")
+    press(page, "KeyX", wait=300)
+    check(wait_scene(page, "MAP", 2), f"ゲーム内のメモリーカードから X で塔に戻る {js(page, 'window.__NEKOTA.scenes()')}")
+    # 別のPCを想定：きろくが無い状態でカードを読み込むと「つづきから」が使える
+    page.evaluate("() => { ['slot:1','slot:2','slot:3','suspend'].forEach(k => localStorage.removeItem('nekota-tower:v1:' + k)); }")
+    page.goto(URL + "?fast=1")
+    wait_scene(page, "TITLE", 5)
+    press(page, "KeyZ", wait=250); wait_scene(page, "MENU")
+    items = js(page, "window.__NEKOTA.NT.Scenes.find('MENU').items.map(i => [i.label, !!i.disabled])")
+    check(items[1] == ["つづきから", True], f"きろくが無いと つづきから は選べない {items}")
+    press(page, "ArrowDown", wait=120); press(page, "KeyZ", wait=300)      # メモリーカード（つづきから は無効なので1回で届く）
+    check(wait_scene(page, "CARDMENU", 2), "きろく無しでメモリーカードを開く")
+    press(page, "ArrowDown", wait=120); press(page, "KeyZ", wait=300)       # よみこむ
+    page.set_input_files("#filepick", {"name": "good.csv", "mimeType": "text/csv", "buffer": data})
+    page.wait_for_timeout(800)
+    check(wait_scene(page, "MENU", 2), "別PCでカードを読み込んで保存先を聞く")
+    press(page, "KeyZ", wait=500)                                             # きろく1
+    press(page, "KeyX", wait=300)                                             # カード画面を閉じる
+    check(wait_scene(page, "MENU", 2), "カード画面からタイトルへ")
+    items = js(page, "window.__NEKOTA.NT.Scenes.find('MENU').items.map(i => [i.label, !!i.disabled])")
+    check(items[1] == ["つづきから", False], f"カードを読み込むと つづきから が使える {items}")
+    press(page, "ArrowUp", wait=120); press(page, "KeyZ", wait=300)        # メモリーカード → つづきから
+    wait_scene(page, "SLOT"); press(page, "KeyZ", wait=600); dismiss(page)
+    check(wait_scene(page, "MAP", 3) and js(page, "window.__NEKOTA.state().name") == "みき", "読み込んだ きろく で つづきから 遊べる")
     check(not errors, f"ページエラーなし（カード）{errors[:3]}")
 
 
@@ -487,6 +526,166 @@ def run_time(browser, name: str) -> None:  # type: ignore[no-untyped-def]
     ctx.close()
 
 
+# ---- ⑧〜① と ノーマルED ------------------------------------------------------
+
+def quest_rows(page):  # type: ignore[no-untyped-def]
+    return js(page, "(() => { const s = window.__NEKOTA.NT.Scenes.find('QUEST'); return s ? s.rows().map(r => r.label) : null; })()")
+
+
+def go_row(page, label: str, nth: int = 1) -> bool:  # type: ignore[no-untyped-def]
+    """クエスト画面で label を含む nth 番目の行にカーソルを置いて Z"""
+    ok = page.evaluate("([l, n]) => { const s = window.__NEKOTA.NT.Scenes.find('QUEST'); if (!s) return false; let k = 0; return s.cursorTo(r => { if (r.label.indexOf(l) >= 0) { k++; return k === n; } return false; }); }", [label, nth])
+    if ok:
+        press(page, "KeyZ", wait=260)
+    return bool(ok)
+
+
+def open_quest(page, qid: str, tab: str = "prep") -> None:  # type: ignore[no-untyped-def]
+    page.evaluate("([q, t]) => window.__NEKOTA.NT.Flow.openQuest(q, t)", [qid, tab])
+    page.wait_for_timeout(200)
+
+
+def set_tab(page, i: int) -> None:  # type: ignore[no-untyped-def]
+    page.evaluate("(i) => window.__NEKOTA.NT.Scenes.find('QUEST').setTab(i)", i)
+    page.wait_for_timeout(120)
+
+
+def report_quest(page, qid: str, lesson: str, text: str) -> None:  # type: ignore[no-untyped-def]
+    set_tab(page, 2)
+    if go_row(page, "教訓"):
+        type_box(page, lesson)
+    go_row(page, "長老に ほうこくする")
+    type_box(page, text)
+    if wait_scene(page, "CONFIRM", 2):
+        press(page, "KeyZ", wait=800)
+    dismiss(page)
+
+
+def run_quests_rest(browser, name: str) -> None:  # type: ignore[no-untyped-def]
+    ctx = browser.new_context(viewport={"width": 1280, "height": 720}, device_scale_factor=1, locale="ja-JP")
+    page = ctx.new_page()
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(URL + "?fast=1&white=3")
+    wait_scene(page, "TITLE", 5)
+    press(page, "KeyZ", wait=250); wait_scene(page, "MENU"); press(page, "KeyZ", wait=250)
+    wait_scene(page, "NAME"); type_box(page, "みき"); wait_scene(page, "CONFIRM"); press(page, "KeyZ", wait=250)
+    wait_scene(page, "SLOT"); press(page, "KeyZ", wait=500); wait_scene(page, "DIALOG")
+    js(page, "window.__NEKOTA.endDialog()"); page.wait_for_timeout(200)
+
+    # ⑧ 複数リスト＋追加欄＋整理
+    open_quest(page, "q8")
+    for t in ["惰性の飲み会", "気のりしない同窓会", "行かなくてよかった展示会"]:
+        go_row(page, "＋ ついかする", 1); type_box(page, t); type_box(page, "義理だけだった")
+    for t in ["定例の長い会議", "形だけの歓送迎会", "報告だけの出張"]:
+        go_row(page, "＋ ついかする", 2); type_box(page, t); type_box(page, "出なくても 困らなかった")
+    go_row(page, "この先 どんな関係を"); type_box(page, "会いたい人とだけ 会う")
+    q8 = js(page, "window.__NEKOTA.state().quests.q8")
+    check(len(q8["privateRank"]) == 3 and len(q8["workRank"]) == 3 and q8["extras"]["relation"] == "会いたい人とだけ 会う", "⑧ 2つのランキングと追加欄が保存")
+    set_tab(page, 1); go_row(page, "惰性の飲み会"); press(page, "KeyZ", wait=200)
+    check(wait_scene(page, "CONFIRM"), "⑧ 整理する の確認")
+    press(page, "KeyZ", wait=500)
+    check(bool(js(page, "window.__NEKOTA.state().quests.q8.privateRank[0].sortedKey")), "⑧ 整理した日付が付く")
+    page.screenshot(path=str(OUT / f"{name}_13_q8.png"))
+    report_quest(page, "q8", "断っても 関係は 壊れなかった", "同窓会を 断った")
+    check("q8" in js(page, "window.__NEKOTA.state().clears"), "⑧ クリア")
+
+    # ④ 日付入力
+    open_quest(page, "q4")
+    for t in ["高校の 友だち", "前の部署の 先輩", "弟"]:
+        go_row(page, "＋ ついかする"); type_box(page, t); type_box(page, "近況")
+    set_tab(page, 1)
+    for t in ["高校の 友だち", "前の部署の 先輩", "弟"]:
+        go_row(page, t); press(page, "KeyZ", wait=200); wait_scene(page, "CONFIRM"); press(page, "KeyZ", wait=400)
+    go_row(page, "高校の 友だち"); press(page, "KeyZ", wait=200)
+    type_box(page, "13/40")
+    check(wait_scene(page, "NOTICE", 2), "④ 読めない日付は通知")
+    dismiss(page)
+    go_row(page, "高校の 友だち"); press(page, "KeyZ", wait=200)
+    type_box(page, "1/20")
+    p0 = js(page, "window.__NEKOTA.state().quests.q4.people[0]")
+    check(bool(p0.get("scheduledKey")) and p0.get("date", "").endswith("-01-20") and p0["date"] >= js(page, "window.__NEKOTA.todayKey()"), f"④ 1/20 が来年以降の日付キーになる ({p0.get('date')})")
+    page.screenshot(path=str(OUT / f"{name}_14_q4.png"))
+    report_quest(page, "q4", "思ったより 喜ばれた", "3人に 連絡した")
+    check("q4" in js(page, "window.__NEKOTA.state().clears"), "④ クリア")
+
+    # ② 挑戦の記録と新記録
+    open_quest(page, "q2")
+    go_row(page, "今年 できたこと"); type_box(page, "腕立て")
+    go_row(page, "いまの記録"); type_box(page, "20")
+    go_row(page, "ちょい上の 目標"); type_box(page, "22")
+    set_tab(page, 1); go_row(page, "＋ 挑戦した"); type_box(page, "23")
+    check(wait_scene(page, "NOTICE", 2), "② 挑戦で通知")
+    dismiss(page)
+    check(js(page, "window.__NEKOTA.quests().bonuses('q2')[0].ok") is True, "② 23 > 20 で NEW RECORD")
+    report_quest(page, "q2", "締切が あると 出る", "23回")
+    check("q2" in js(page, "window.__NEKOTA.state().clears"), "② クリア")
+
+    # ⑤ 3段階 → いちばん下を宣言 → 日次
+    open_quest(page, "q5")
+    go_row(page, "変えたいこと"); type_box(page, "毎朝 走る")
+    for t in ["週3回 走る", "10分 歩く", "靴を はいて 外に出る"]:
+        go_row(page, "＋ ついかする"); type_box(page, t)
+    set_tab(page, 1); go_row(page, "10分 歩く"); 
+    items = js(page, "(() => { const m = window.__NEKOTA.NT.Scenes.top(); return m && m.items ? m.items.map(i => i.label) : null; })()")
+    check(bool(items) and not any("宣言" in i for i in items), "⑤ いちばん下以外は宣言できない")
+    press(page, "KeyX", wait=200)
+    go_row(page, "靴を はいて"); press(page, "KeyZ", wait=400)
+    q5 = js(page, "window.__NEKOTA.state().quests.q5")
+    check(bool(q5.get("declared")) and q5["declared"]["text"] == "靴を はいて 外に出る", "⑤ いちばん下の段階を宣言")
+    go_row(page, "きょうも やった"); dismiss(page)
+    check(len(js(page, "window.__NEKOTA.state().quests.q5.checks")) == 1, "⑤ きょうのチェック")
+    page.screenshot(path=str(OUT / f"{name}_15_q5.png"))
+    press(page, "KeyX", wait=200)
+
+    # ⑦ ⑥ ③：エンジン経由で最短クリア（UI は ⑧④②⑤① で網羅）
+    js(page, "(() => { const Q = window.__NEKOTA.quests(); Q.accept('q7'); const q = Q.state('q7'); ['ギター','英語','絵'].forEach(t => q.failed.push({id:t, text:t})); q.extras.support='先輩に 週1で 見てもらう'; q.extras.knowledge='コードの 押さえ方'; q.extras.pastLesson='最初から 難しい曲を 選ばない'; Q.markFlag('q7', q.failed[0], {flag:'resumed'}); q.lesson='x'; return 1; })()")
+    check(js(page, "window.__NEKOTA.quests().isReportable('q7')") is True, "⑦ 3要素と再開で報告できる")
+    js(page, "(() => { const Q = window.__NEKOTA.quests(); Q.accept('q6'); const q = Q.state('q6'); ['本を 書く','プール','陶芸'].forEach(t => q.wants.push({id:t, text:t})); Q.markFlag('q6', q.wants[1], {flag:'done'}); q.lesson='x'; return 1; })()")
+    check(js(page, "window.__NEKOTA.quests().isReportable('q6')") is True, "⑥ ひとつ手を付けて報告できる")
+    js(page, "(() => { const Q = window.__NEKOTA.quests(); Q.accept('q3'); const q = Q.state('q3'); q.places.push({id:'a', text:'屋久島'}); Q.markFlag('q3', q.places[0], {flag:'planned', input:{field:'date'}}, Q.parseDate('3/15')); q.lesson='x'; return 1; })()")
+    check(js(page, "window.__NEKOTA.quests().isReportable('q3')") is True, "③ 日付入りの予定で報告できる")
+    open_quest(page, "q3", "exec")
+    rows = quest_rows(page) or []
+    check(any("待つ時間：あと" in r for r in rows), "③ 待つ日数の表示")
+    press(page, "KeyX", wait=200)
+    for qid in ("q7", "q6", "q3"):
+        js(page, f"window.__NEKOTA.quests().clear('{qid}', 'テスト')")
+        dismiss(page)
+    check(len(js(page, "window.__NEKOTA.state().clears")) == 6, "⑧④②⑦⑥③ の 6 クリア")
+
+    # ① 予約3件 → なにもしない（3秒）→ さわると回復 → 完走 → ふりかえり → 報告
+    open_quest(page, "q1")
+    for t in ["12/29 午前 1時間", "12/30 夜 30分", "12/31 午後 1時間"]:
+        go_row(page, "＋ ついかする"); type_box(page, t)
+    set_tab(page, 1); go_row(page, "10分 なにもしない を はじめる")
+    check(wait_scene(page, "WHITE"), "① なにもしない 画面")
+    page.wait_for_timeout(1200)
+    press(page, "KeyZ", wait=200)
+    w = js(page, "window.__NEKOTA.NT.Scenes.find('WHITE').state()")
+    check(w["touches"] == 1 and w["remain"] >= 2, f"① さわると残り時間が戻る {w}")
+    page.screenshot(path=str(OUT / f"{name}_16_white.png"))
+    page.wait_for_timeout(5000)
+    check(wait_scene(page, "NOTICE", 3) and js(page, "window.__NEKOTA.state().quests.q1.timerDone") == 1, "① 完走で timerDone=1")
+    dismiss(page)
+    set_tab(page, 2); go_row(page, "ふりかえり"); type_box(page, "頭が すこし 軽くなった")
+    report_quest(page, "q1", "空白は つくるもの", "10分 なにもしなかった")
+    st = js(page, "window.__NEKOTA.state()")
+    check("q1" in st["clears"] and len(st["clears"]) == 7 and st["title"] == "ゆうしゃ", f"① クリア、7 クリアで 称号 ゆうしゃ ({st['title']}, {len(st['clears'])})")
+
+    # 長老 → ノーマルED
+    js(page, "window.__NEKOTA.teleport(22, 5)"); page.wait_for_timeout(80)
+    press(page, "ArrowRight", wait=250); press(page, "KeyZ", wait=300)
+    d = advance_dialog_to_choice(page)
+    check(bool(d and d.get("choice") and "エンディング" in d["choice"][0]), f"① クリア後の長老にエンディングの選択肢 {d and d.get('choice')}")
+    press(page, "KeyZ", wait=600)
+    check(wait_scene(page, "ENDING"), "ノーマルEDのスタッフロール")
+    page.wait_for_timeout(1500)
+    page.screenshot(path=str(OUT / f"{name}_17_ending.png"))
+    check(not errors, f"ページエラーなし（⑧〜①）{errors[:3]}")
+    ctx.close()
+
+
 def run_reduced_motion(browser, name: str) -> None:  # type: ignore[no-untyped-def]
     ctx = browser.new_context(viewport={"width": 1280, "height": 720}, device_scale_factor=1, locale="ja-JP", reduced_motion="reduce")
     page = ctx.new_page()
@@ -521,6 +720,8 @@ def main() -> int:
                 print("== resume / card")
                 run_resume_and_card(ctx, name)
             ctx.close()
+        print("== quests 8-1")
+        run_quests_rest(browser, "q")
         print("== time")
         run_time(browser, "time")
         print("== reduced-motion")
