@@ -444,6 +444,23 @@ def run_resume_and_card(ctx, name: str) -> None:  # type: ignore[no-untyped-def]
     check(wait_scene(page, "MENU"), "正しい あいことば で復号して保存先を聞く")
     press(page, "KeyX", wait=200)
     page.screenshot(path=str(OUT / f"{name}_10_card_done.png"))
+    # 戻れること：「もどる」でタイトルのメニューへ、X でも同じ
+    press(page, "ArrowDown", 2, wait=120)
+    press(page, "KeyZ", wait=300)
+    check(wait_scene(page, "MENU", 2) and not js(page, "window.__NEKOTA.scenes().includes('CARD')"), f"メモリーカードの「もどる」でタイトルに戻る {js(page, 'window.__NEKOTA.scenes()')}")
+    press(page, "KeyZ", wait=300)          # カーソルは メモリーカード に残っている
+    check(wait_scene(page, "CARDMENU", 2), "もう一度メモリーカードを開ける")
+    press(page, "KeyX", wait=300)
+    check(wait_scene(page, "MENU", 2) and not js(page, "window.__NEKOTA.scenes().includes('CARD')"), f"X でもタイトルに戻る {js(page, 'window.__NEKOTA.scenes()')}")
+    # ゲーム内メニュー経路：つづきから → C → メモリーカード → X → MAP
+    press(page, "ArrowUp", wait=120); press(page, "KeyZ", wait=300)
+    if wait_scene(page, "CONFIRM", 0.6):
+        press(page, "KeyZ", wait=300)       # ちゅうだんデータは いいえ
+    wait_scene(page, "SLOT"); press(page, "KeyZ", wait=600); dismiss(page); wait_scene(page, "MAP", 3)
+    press(page, "KeyC", wait=300); press(page, "ArrowDown", 2, wait=120); press(page, "KeyZ", wait=300)
+    check(wait_scene(page, "CARDMENU", 2), "ゲーム内メニューからメモリーカード")
+    press(page, "KeyX", wait=300)
+    check(wait_scene(page, "MAP", 2), f"ゲーム内のメモリーカードから X で塔に戻る {js(page, 'window.__NEKOTA.scenes()')}")
     check(not errors, f"ページエラーなし（カード）{errors[:3]}")
 
 
