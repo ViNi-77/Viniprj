@@ -17,11 +17,28 @@
     ],
     "d.elder": [
       { if: "flag:prologueDone", else: "d.prologue" },
+      { if: "clears>=10", goto: "d.elder.true" },
       { if: "quest:q1:cleared", goto: "d.elder.final" },
-      { if: "clears>=10", goto: "d.elder.all" },
       { if: "clears>=3", goto: "d.elder.pass" },
-      { who: ELDER, text: "しるしは まだ {marks}つ。三つで 合格じゃ。階は どこから 回ってもよい。" },
+      { if: "clears>=8", goto: "d.elder.8" },
+      { if: "clears>=5", goto: "d.elder.5" },
+      { who: ELDER, text: "しるしは {marks}つ。三つで 合格じゃ。階は どこから 回ってもよい。" },
       { who: ELDER, text: "入力したことは 静かに 記録される。ほんとうに 祝うのは、現実で やりとげて ここへ 報告したときだけ。" },
+      { choice: [
+        { label: "塔のことを きく", goto: "d.elder.help" },
+        { label: "しるしのことを きく", goto: "d.elder.marks" },
+        { label: "もどる", end: true }
+      ] }
+    ],
+    "d.elder.8": [
+      { who: ELDER, text: "しるし {marks}つ。けんじゃの 域じゃ。残りは 焦らず、ひとつずつ。" },
+      { goto: "d.elder.menu" }
+    ],
+    "d.elder.5": [
+      { who: ELDER, text: "しるし {marks}つ。ゆうしゃ じゃな。合格は もう 済んでおる。ここからは 遊びじゃ。" },
+      { goto: "d.elder.menu" }
+    ],
+    "d.elder.menu": [
       { choice: [
         { label: "塔のことを きく", goto: "d.elder.help" },
         { label: "しるしのことを きく", goto: "d.elder.marks" },
@@ -46,6 +63,21 @@
     "d.elder.all": [
       { who: ELDER, text: "十の しるし。おぬしの 年の瀬は、もう おぬしのものじゃ。" },
       { end: true }
+    ],
+    "d.elder.true": [
+      { who: ELDER, text: "十の しるし。{name}、おぬしは 年の瀬を 自分の手に 取りもどした。" },
+      { who: NEKO, text: "来年の 予定も、もう 手の中に あるね。" },
+      { choice: [
+        { label: "白い朝を 見る（トゥルーエンディング）", call: "ending.true" },
+        { label: "塔の 景色を 見る（エンディング）", call: "ending.normal" },
+        { label: "まだ 塔に のこる", end: true }
+      ] }
+    ],
+    "d.lap2": [
+      { who: ELDER, text: "……また 来たか、{name}。去年は しるし {lastMarks}つ、「{lastTitle}」で 終えた。" },
+      { who: ELDER, text: "去年の 教訓と、会う約束と、行く予定は 引き継いである。塔は 新しく 組み直した。" },
+      { who: NEKO, text: "去年の 自分からの 手紙、ぼくが 持ってるよ。最初の 教訓は──「{firstLesson}」。" },
+      { who: ELDER, text: "三つで 合格、十で 白い朝。いそがず、あなどらず。" }
     ],
     "d.elder.final": [
       { who: ELDER, text: "……なにもしない を やりとげたか。しるしは {marks}つ。塔は、おぬしに ひとつの 景色を 見せる用意が ある。" },
@@ -362,8 +394,14 @@
       { who: NEKO, text: "本棚だ。『WHITE SPACE』『より少ない家大全』『人に頼む技術』……。年末に 読み切ったら 人生 変わる、って 帯に ある。" }
     ],
     "d.window": [
-      { who: NEKO, text: "窓の外は もう 暗い。のこり {daysLeft}日。" }
+      { if: "phase:over", goto: "d.window.over" },
+      { if: "phase:final", goto: "d.window.final" },
+      { if: "phase:dec", goto: "d.window.dec" },
+      { who: NEKO, text: "窓の外は まだ 秋の色。のこり {daysLeft}日。じゅんびの あいだ。" }
     ],
+    "d.window.over": [{ who: NEKO, text: "年が あけた。窓の外は しずかだ。" }],
+    "d.window.final": [{ who: NEKO, text: "窓の外、町が そわそわしてる。のこり {daysLeft}日。きょうの ひと押しは 1か月ぶんだよ。" }],
+    "d.window.dec": [{ who: NEKO, text: "窓の外は もう 暗い。のこり {daysLeft}日。12月は 2か月ぶんの 重さが あるんだって。" }],
     "d.pot": [
       { who: NEKO, text: "空の 植木鉢。この階の 依頼を やりとげると、花が 咲くらしい。" }
     ],

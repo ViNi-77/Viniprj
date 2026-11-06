@@ -5,7 +5,7 @@
   NT.DATA.TEXT = {
     title: "ねこ太と十二月の塔",
     subtitle: "年末クエスト",
-    menu: { newGame: "はじめから", cont: "つづきから", card: "メモリーカード", settings: "せってい", back: "もどる", yes: "はい", no: "いいえ", ok: "けってい", cancel: "やめる", close: "とじる" },
+    menu: { newGame: "はじめから", cont: "つづきから", card: "メモリーカード", bar: "酒場", settings: "せってい", back: "もどる", yes: "はい", no: "いいえ", ok: "けってい", cancel: "やめる", close: "とじる" },
     name: { title: "なまえを いれてください", hint: "6もじまで。Enter できめる", confirm: "「{name}」で いいですか？", empty: "なまえが からっぽです" },
     slot: { title: "きろくを えらんでください", empty: "―― からっぽ ――", overwrite: "きろく {n} に うわがきしますか？", load: "きろく {n} を ひらきますか？", suspend: "ちゅうだんデータが あります。ひらきますか？", none: "きろくが ありません", marks: "しるし", days: "のこり", play: "プレイ" },
     hud: { daysLeft: "のこり{n}日", feel: "体感{n}日ぶん", marks: "しるし {n}/10", unsaved: "*", over: "年が あけました" },
@@ -30,7 +30,12 @@
     elevator: { title: "どの階へ？", locked: "1F は 3つの しるしが いる", floor: "{n}F" },
     power: { title: "でんげんを きる", confirm: "セーブしてないけど とじますか？", bye: "また あそんでね" },
     settings: { title: "せってい", msgSpeed: "もじの はやさ", sfx: "こうかおん", crt: "テレビふう", scale: "ひょうじ", scaleDevice: "ドットきじゅん", scaleCss: "ウィンドウきじゅん", motion: "うごき", on: "オン", off: "オフ", reduce: "ひかえめ" },
-    ending: { result: "けっか はっぴょう", staffroll: "スタッフロール", thanks: "ここまで きてくれて ありがとう", next: "NEXT QUEST", again: "つよくて 2しゅうめ へ", title: "称号", marks: "しるし" },
+    ending: { result: "けっか はっぴょう", staffroll: "スタッフロール", thanks: "ここまで きてくれて ありがとう", next: "NEXT QUEST", again: "つよくて 2しゅうめ へ", title: "称号", marks: "しるし",
+      bad: "「来年も 変わらない人」に なるところだった", badSub: "でも、ここまで 来た。CONTINUE？", cont: "CONTINUE", stay: "このまま 塔に のこる", trueEnd: "人生最高の余暇", trueSub: "十の しるし。来年の 予定は もう ここに ある" },
+    tags: { title: "価値タグの 儀式", lead: "今年 やったことに、来年も 大事にしたい 価値を ひとつ 付ける。付かないものは 手放す", scroll: "来年の 方針", done: "巻物が できた", letgo: "手放す" },
+    excuse: { appear: "いいわけ が あらわれた！", ask: "いま 頭に うかんだ いいわけ を 1行", fight: "たちむかう（最小の 行動を 宣言する）", run: "にげる（きょうは やらない）", fightAsk: "きょう できる いちばん 小さい 行動", fightDone: "いいわけ は きえた。ゆうき +1", ranAway: "いいわけ は また 来る。教訓の書に 残した", days: "{n}日 さわっていない" },
+    bar: { title: "酒場", lead: "メモリーカードを 持ちよると、みんなの 達成が ならぶ。順位は つけない", load: "カードを よみこむ", empty: "まだ だれも いない。カードを 落とすか、よみこむ", cols: "しるし", nobody: "―" },
+    library: { title: "図書室", lead: "この階の 本棚", kindBook: "本", kindVideo: "動画" },
     sys: { storageFail: "本体メモリが つかえません。きろくは メモリーカードに かきだしてください", fontFail: "フォントが よみこめませんでした。べつの もじで ひょうじします", loading: "よみこみちゅう" },
     titles: { 0: "たびびと", 1: "みならい", 3: "ぼうけんしゃ", 5: "ゆうしゃ", 8: "けんじゃ", 10: "人生最高の余暇" }
   };

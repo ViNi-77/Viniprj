@@ -38,9 +38,13 @@
     var st = NT.State.cur;
     if (NT.State.phase() === "over" && !st.flags.resultShown) { NT.Scenes.push(NT.SceneEnding("result")); return; }
     if (fresh || !st.flags.prologueDone) NT.Dialog.open("d.prologue");
+    else if (st.lap > 1 && !st.flags.lapIntro) { st.flags.lapIntro = true; NT.Dialog.open("d.lap2"); }
     else if (st.flags.clockSuspect) NT.Scenes.push(NT.Notice(NT.DATA.TEXT.quest.frozen));
   };
-  F.openQuest = function (id, tab) { NT.Scenes.push(NT.SceneQuest(id, tab)); };
+  F.openQuest = function (id, tab) {
+    var open = function () { NT.Scenes.push(NT.SceneQuest(id, tab)); };
+    if (NT.Excuse && NT.Excuse.shouldAppear(id)) NT.Scenes.push(NT.SceneExcuse(id, open)); else open();
+  };
   F.openQuestList = function () {
     var items = NT.DATA.QUEST_ORDER.map(function (id) {
       var def = NT.DATA.QUESTS[id], st = NT.Quests.state(id);
@@ -59,7 +63,7 @@
     }
     items.push({ label: NT.DATA.TEXT.menu.back, value: 0 });
     NT.Audio.play("open");
-    NT.Scenes.push(NT.Menu({ x: 200, y: 24, w: 112, title: NT.DATA.TEXT.elevator.title, items: items, index: Math.max(0, 10 - cur + (cur === 10 ? 1 : -1)),
+    NT.Scenes.push(NT.Menu({ x: 148, y: 24, w: 164, title: NT.DATA.TEXT.elevator.title, items: items, index: Math.max(0, 10 - cur + (cur === 10 ? 1 : -1)),
       onSelect: function (it) {
         NT.Scenes.pop();
         if (!it.value) { NT.Player.tryMove(1, 0); return; }
@@ -167,7 +171,11 @@
     sprites: function () { return { ready: NT.Sprites.ready, failed: NT.Sprites.failed }; },
     screen: function () { return { scale: NT.Screen.scale, cssScale: NT.Screen.cssScale, mode: NT.Screen.mode }; },
     quests: function () { return NT.Quests; },
-    goto: function (id) { if (id === "ending") NT.Scenes.push(NT.SceneEnding("normal")); if (id === "result") NT.Scenes.push(NT.SceneEnding("result")); },
+    goto: function (id) { if (id === "ending") NT.Scenes.push(NT.SceneEnding("normal")); if (id === "true") NT.Scenes.push(NT.SceneEnding("true")); if (id === "result") NT.Scenes.push(NT.SceneEnding("result")); if (id === "bar") NT.Flow.openBar(); if (id === "tags") NT.Scenes.push(NT.SceneTags(function () {})); },
+    newLap: function () { NT.State.newLap(); },
+    excuse: function (id) { NT.Scenes.push(NT.SceneExcuse(id || "q10", function () {})); },
+    top: function () { var s = NT.Scenes.top(); return s && s.state ? s.state() : null; },
+    skipRoll: function () { var s = NT.Scenes.find("ENDING"); if (s && s.skipRoll) s.skipRoll(); },
     NT: NT
   };
 

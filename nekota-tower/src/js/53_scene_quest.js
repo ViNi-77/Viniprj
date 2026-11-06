@@ -262,7 +262,8 @@
 
     var scene = {
       id: "QUEST", opaque: true,
-      enter: function () { if (q().status === "offered") Q.accept(id); clampCursor(rows()); },
+      enter: function () { if (q().status === "offered") Q.accept(id); if (NT.Excuse) NT.Excuse.touch(id); clampCursor(rows()); },
+      exit: function () { if (NT.Excuse) NT.Excuse.touch(id); },
       resume: function () { clampCursor(rows()); },
       update: function (dt) {
         NT.State.tick(dt);

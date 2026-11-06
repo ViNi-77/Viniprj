@@ -13,6 +13,7 @@ file:// で index.html を開いて次を通す（docs/04_受入試験.md と対
   8. 時間：12/31→1/1 で けっか はっぴょう、時計の疑いで日次チェック停止
   9. reduced-motion で CRT の動きが止まる
  10. クエスト⑧〜①：複数リスト・日付入力・挑戦の記録・3段階の宣言・10分なにもしない（?white=3 で短縮）→ 長老からノーマルED
+ 11. PR 3：図書室、言い訳モンスター（?excuse=1 で強制）、価値タグ→トゥルーED→NEXT QUEST、酒場、バッドED→CONTINUE→2周目
 スクリーンショットは scripts/out/ に残す。
 
 ブラウザは $PLAYWRIGHT_BROWSERS_PATH 配下の chromium を自分で探す。`playwright install` は実行しない（CLAUDE.md 5 節）。
@@ -679,11 +680,149 @@ def run_quests_rest(browser, name: str) -> None:  # type: ignore[no-untyped-def]
     d = advance_dialog_to_choice(page)
     check(bool(d and d.get("choice") and "エンディング" in d["choice"][0]), f"① クリア後の長老にエンディングの選択肢 {d and d.get('choice')}")
     press(page, "KeyZ", wait=600)
-    check(wait_scene(page, "ENDING"), "ノーマルEDのスタッフロール")
+    check(wait_scene(page, "TAGS", 2), "ノーマルEDの前に 価値タグの儀式")
+    press(page, "KeyZ", wait=300)
+    for _ in range(30):
+        if scene(page) != "MENU":
+            break
+        press(page, "KeyZ", wait=150)
+    page.wait_for_timeout(700); press(page, "KeyZ", wait=500)
+    check(wait_scene(page, "ENDING", 2), "ノーマルEDのスタッフロール")
     page.wait_for_timeout(1500)
     page.screenshot(path=str(OUT / f"{name}_17_ending.png"))
     check(not errors, f"ページエラーなし（⑧〜①）{errors[:3]}")
     ctx.close()
+
+
+# ---- PR 3: 価値タグ・トゥルー/バッドED・2周目・言い訳モンスター・酒場・図書室 ----------
+
+def run_pr3(browser, name: str) -> None:  # type: ignore[no-untyped-def]
+    ctx = browser.new_context(viewport={"width": 1280, "height": 720}, device_scale_factor=1, locale="ja-JP")
+    page = ctx.new_page()
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    start_new_game(page)
+
+    # 図書室：10F の本棚 (14,1) の下 (14,2) から上を向く
+    js(page, "window.__NEKOTA.teleport(14, 2)"); page.wait_for_timeout(80)
+    press(page, "ArrowUp", wait=250); press(page, "KeyZ", wait=300)
+    items = js(page, "(() => { const m = window.__NEKOTA.NT.Scenes.top(); return m && m.items ? m.items.map(i => i.label) : null; })()")
+    check(bool(items) and items[0].startswith("『") and len(items) == 3, f"本棚で図書室（10F の 2 冊）{items}")
+    press(page, "KeyZ", wait=300)
+    check(wait_scene(page, "NOTICE", 2), "本を選ぶと要点")
+    dismiss(page); press(page, "KeyX", wait=200)
+    page.screenshot(path=str(OUT / f"{name}_18_library.png"))
+
+    # 言い訳モンスター：?excuse=1 で強制。受けたクエストを開くと現れる
+    js(page, "window.__NEKOTA.quests().accept('q10')")
+    js(page, "window.__NEKOTA.teleport(9, 4)"); page.wait_for_timeout(80)
+    press(page, "ArrowLeft", wait=250); press(page, "KeyZ", wait=300); wait_scene(page, "SLOT"); press(page, "KeyZ", wait=300)
+    if wait_scene(page, "CONFIRM", 1):
+        press(page, "ArrowDown", wait=120); press(page, "KeyZ", wait=400)
+    dismiss(page)
+    page.goto(URL + "?fast=1&excuse=1")
+    load_slot1_from_title(page)
+    open_quest(page, "q10")
+    check(wait_scene(page, "EXCUSE", 2), "さわっていないクエストを開くと いいわけ が現れる")
+    page.wait_for_timeout(600); press(page, "KeyZ", wait=300)
+    type_box(page, "時間が ない")
+    check(wait_scene(page, "MENU", 2), "たちむかう／にげる の選択")
+    page.screenshot(path=str(OUT / f"{name}_19_excuse.png"))
+    press(page, "KeyZ", wait=300)
+    type_box(page, "袋を ひとつ 出す")
+    ex = js(page, "({ top: window.__NEKOTA.top(), courage: window.__NEKOTA.state().courage, n: window.__NEKOTA.state().excuses.length })")
+    check(ex["top"]["phase"] == "won" and ex["courage"] == 1 and ex["n"] == 1, f"たちむかうと ゆうき +1 ({ex})")
+    page.wait_for_timeout(700); press(page, "KeyZ", wait=400)
+    check(wait_scene(page, "QUEST", 2), "いいわけ のあと クエスト画面に進む")
+    press(page, "KeyX", wait=200)
+    open_quest(page, "q10")
+    check(wait_scene(page, "QUEST", 2), "同じ日に 2 回は現れない")
+    press(page, "KeyX", wait=200)
+
+    # トゥルーED：10/10 → 長老 → 価値タグ → スタッフロール → NEXT QUEST
+    js(page, "(() => { const Q = window.__NEKOTA.quests(); window.__NEKOTA.setClears(10); Q.state('q4').people = [{ id: 'a', text: '高校の 友だち', scheduledKey: '2026-11-06', date: '2027-01-20' }]; Q.state('q3').places = [{ id: 'b', text: '屋久島', plannedKey: '2026-11-06', date: '2027-03-15' }]; Q.state('q10').lesson = '大きい物は 置き場所が 理由'; return 1; })()")
+    js(page, "window.__NEKOTA.teleport(22, 5)"); page.wait_for_timeout(80)
+    press(page, "ArrowRight", wait=250); press(page, "KeyZ", wait=300)
+    d = advance_dialog_to_choice(page)
+    check(bool(d and d.get("choice") and "トゥルー" in d["choice"][0]), f"10 しるし で長老にトゥルーEDの選択肢 {d and d.get('choice')}")
+    press(page, "KeyZ", wait=400)
+    check(wait_scene(page, "TAGS", 2), "ED の前に 価値タグの儀式")
+    press(page, "KeyZ", wait=300)
+    for _ in range(8):
+        if scene(page) != "MENU":
+            break
+        press(page, "KeyZ", wait=200)        # ぜんぶ「成長」
+    tg = js(page, "({ top: window.__NEKOTA.top(), policy: window.__NEKOTA.state().policy })")
+    check(tg["top"]["phase"] == "scroll" and "成長" in (tg["policy"] or ""), f"巻物に来年の方針 ({tg['policy']})")
+    page.screenshot(path=str(OUT / f"{name}_20_tags.png"))
+    page.wait_for_timeout(700); press(page, "KeyZ", wait=500)
+    check(wait_scene(page, "ENDING", 2) and js(page, "window.__NEKOTA.top().mode") == "true", "トゥルーEDのスタッフロール")
+    js(page, "window.__NEKOTA.skipRoll()"); page.wait_for_timeout(400)
+    check(js(page, "window.__NEKOTA.top().finished") is True, "スタッフロールが終わる")
+    press(page, "KeyZ", wait=400)
+    st_ = js(page, "window.__NEKOTA.top()")
+    check(st_["page"] == 1 and st_["nexts"] == 2, f"NEXT QUEST に来年の予定 2 件 ({st_})")
+    page.screenshot(path=str(OUT / f"{name}_21_next_quest.png"))
+    press(page, "KeyZ", wait=400)
+    check(wait_scene(page, "MAP", 2), "トゥルーEDのあと塔に戻る")
+
+    # 酒場：本体メモリの きろく と、読み込んだカードが並ぶ
+    page.goto(URL + "?fast=1"); wait_scene(page, "TITLE", 5)
+    press(page, "KeyZ", wait=250); wait_scene(page, "MENU")
+    press(page, "ArrowDown", 2, wait=120); press(page, "KeyZ", wait=400)
+    check(wait_scene(page, "BAR", 2), "タイトルから 酒場")
+    rows = js(page, "window.__NEKOTA.NT.Scenes.top().rows()")
+    check(len(rows) >= 1 and rows[0]["source"].startswith("きろく"), f"本体メモリの きろく が並ぶ {rows}")
+    csv = page.evaluate("async () => { const r = window.__NEKOTA.NT.Storage.readSlot(1).rec; const rec2 = JSON.parse(JSON.stringify(r)); rec2.state.name = 'たろう'; rec2.state.clears = ['q10', 'q9']; rec2.state.marks = 2; return await window.__NEKOTA.NT.Codec.encodeCard([{ slot: 2, record: rec2 }]); }")
+    page.set_input_files("#filepick", {"name": "taro.csv", "mimeType": "text/csv", "buffer": csv.encode("utf-8")})
+    page.wait_for_timeout(800)
+    rows = js(page, "window.__NEKOTA.NT.Scenes.top().rows()")
+    check(any(r["name"] == "たろう" and r["marks"] == 2 for r in rows), f"カードを読み込むと並ぶ（順位なし、なまえ順）{rows}")
+    page.screenshot(path=str(OUT / f"{name}_22_bar.png"))
+    press(page, "KeyX", wait=300)
+    check(wait_scene(page, "MENU", 2), "酒場から タイトルに戻る")
+    check(not errors, f"ページエラーなし（PR 3）{errors[:3]}")
+    ctx.close()
+
+    # バッドED → CONTINUE → 2周目（時計を 12/31 23:59:50 JST に）
+    ctx = browser.new_context(viewport={"width": 1280, "height": 720}, device_scale_factor=1, locale="ja-JP", timezone_id="Asia/Tokyo")
+    page = ctx.new_page()
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.clock.install(time=dt.datetime(2026, 12, 31, 14, 59, 50, tzinfo=dt.timezone.utc))
+    start_new_game(page)
+    js(page, "(() => { const Q = window.__NEKOTA.quests(); Q.accept('q10'); window.__NEKOTA.NT.State.addLesson('q10', '去年の 教訓'); Q.state('q4').people = [{ id: 'a', text: '高校の 友だち', scheduledKey: '2026-12-31', date: '2027-01-20' }]; return 1; })()")
+    js(page, "window.__NEKOTA.teleport(9, 4)"); page.wait_for_timeout(80)
+    press(page, "ArrowLeft", wait=250); press(page, "KeyZ", wait=300); wait_scene(page, "SLOT"); press(page, "KeyZ", wait=300)
+    wait_scene(page, "CONFIRM"); press(page, "ArrowDown", wait=120); press(page, "KeyZ", wait=400); dismiss(page)
+    page.clock.run_for(20_000)
+    load_slot1(page)
+    check(wait_scene(page, "ENDING", 3) and js(page, "window.__NEKOTA.top().isBad") is True, "3 未満で年が明けると バッドED")
+    press(page, "KeyZ", 3, wait=300)
+    check(wait_scene(page, "CONFIRM", 2), "CONTINUE？ の確認")
+    page.screenshot(path=str(OUT / f"{name}_23_bad.png"))
+    press(page, "KeyZ", wait=700)
+    st2 = js(page, "({ lap: window.__NEKOTA.state().lap, year: window.__NEKOTA.state().year, lessons: window.__NEKOTA.state().carry.lessons.length, friends: window.__NEKOTA.state().carry.friends.length, clears: window.__NEKOTA.state().clears.length, dlg: window.__NEKOTA.dialog() })")
+    check(st2["lap"] == 2 and st2["year"] == 2027 and st2["lessons"] == 1 and st2["friends"] == 1 and st2["clears"] == 0, f"2周目：年+1、教訓と仲間を引き継ぎ、しるしは 0 から ({st2})")
+    check(bool(st2["dlg"]) and "また 来たか" in (st2["dlg"].get("page") or ""), "2周目の導入の会話")
+    js(page, "window.__NEKOTA.endDialog()"); page.wait_for_timeout(200)
+    saved = js(page, "JSON.parse(localStorage.getItem('nekota-tower:v1:slot:1')).state.lap")
+    check(saved == 2, "2周目の状態が きろく1 に保存される")
+    page.screenshot(path=str(OUT / f"{name}_24_lap2.png"))
+    check(not errors, f"ページエラーなし（2周目）{errors[:3]}")
+    ctx.close()
+
+
+def load_slot1_from_title(page) -> None:  # type: ignore[no-untyped-def]
+    """すでに ?fast=1 で開いた直後から つづきから → きろく1"""
+    wait_scene(page, "TITLE", 5)
+    press(page, "KeyZ", wait=250); wait_scene(page, "MENU"); press(page, "KeyZ", wait=300)
+    if wait_scene(page, "CONFIRM", 0.6):
+        press(page, "KeyZ", wait=300)
+    wait_scene(page, "SLOT"); press(page, "KeyZ", wait=600)
+    if wait_scene(page, "DIALOG", 0.6):
+        js(page, "window.__NEKOTA.endDialog()")
+    dismiss(page)
+    wait_scene(page, "MAP", 3)
 
 
 def run_reduced_motion(browser, name: str) -> None:  # type: ignore[no-untyped-def]
@@ -709,8 +848,20 @@ def main() -> int:
     html = (ROOT / "index.html").read_text(encoding="utf-8")
     check(not any(s in html for s in ('src="http', "href=\"http", "fetch(", "import(")), "外部参照を含まない")
 
+    only = sys.argv[1][7:] if len(sys.argv) > 1 and sys.argv[1].startswith("--only=") else ""
     with sync_playwright() as p:
         browser = launch(p)
+        if only:
+            print("== " + only)
+            {"pr3": lambda: run_pr3(browser, "p3"), "quests": lambda: run_quests_rest(browser, "q"), "time": lambda: run_time(browser, "time")}[only]()
+            browser.close()
+            if FAILS:
+                print(f"=== 不合格: {len(FAILS)} 件 ===")
+                for f in FAILS:
+                    print("  - " + f)
+                return 1
+            print("=== 合格（" + only + " のみ） ===")
+            return 0
         for name, (w, h, dpr) in VIEWPORTS.items():
             print(f"== {name} {w}x{h} @{dpr}")
             ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=dpr, locale="ja-JP", accept_downloads=True)
@@ -722,6 +873,8 @@ def main() -> int:
             ctx.close()
         print("== quests 8-1")
         run_quests_rest(browser, "q")
+        print("== pr3")
+        run_pr3(browser, "p3")
         print("== time")
         run_time(browser, "time")
         print("== reduced-motion")

@@ -84,7 +84,7 @@
       var ch = NT.Tilemap.at(f.x, f.y);
       if (ch === "M") { NT.Flow.openSave(); return; }
       if (ch === "D" && !(NT.State.cur.flags.doorOpen)) { NT.Dialog.open("d.door"); return; }
-      if (ch === "B") { NT.Dialog.open("d.shelf"); return; }
+      if (ch === "B") { NT.Flow.openLibrary(NT.Tilemap.floorAt(f.y)); return; }
       if (ch === "W") { NT.Dialog.open("d.window"); return; }
       if (ch === "F") { NT.Dialog.open(NT.Tilemap.isFlower(f.x, f.y) && isBloomed(f.x, f.y) ? "d.flower" : "d.pot"); return; }
     }

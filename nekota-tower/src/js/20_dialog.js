@@ -26,7 +26,9 @@
 
   D.vars = function () {
     var st = NT.State.cur || {};
-    return { name: st.name || "", daysLeft: NT.State.daysLeft(), feel: NT.State.feelDays(), marks: st.marks || 0, title: st.title || "" };
+    var c = st.carry || {};
+    var firstLesson = (c.lessons && c.lessons[0] && c.lessons[0].text) || "（まだ ない）";
+    return { name: st.name || "", daysLeft: NT.State.daysLeft(), feel: NT.State.feelDays(), marks: st.marks || 0, title: st.title || "", lastMarks: c.lastMarks || 0, lastTitle: c.lastTitle || "たびびと", firstLesson: firstLesson, lap: st.lap || 1 };
   };
 
   /* 会話シーンを開く。id はスクリプト名、または直接ステップ配列。opts.onEnd(result) */
