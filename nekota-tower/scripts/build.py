@@ -44,7 +44,7 @@ SOURCES: list[str] = (
             "00_ns 01_util 02_time 03_storage 04_codec 05_input 06_audio 07_screen 08_fonts 09_text "
             "10_gfx 11_sprites 12_scenes 13_loop 14_state 15_settings 20_dialog 21_menu 22_inputbox "
             "30_scene_boot 31_scene_title 32_scene_name 33_scene_slot 40_tilemap 41_camera 42_player "
-            "43_entities 44_scene_map 50_quests 51_quest_q10 52_quest_q9 53_scene_quest 60_scene_save "
+            "43_entities 44_scene_map 50_quests 51_quest_q10 52_quest_q9 53_scene_quest 54_quest_impls 55_scene_white 60_scene_save "
             "61_scene_card 70_scene_ending 80_interlock 99_main"
         ).split()
     ]
